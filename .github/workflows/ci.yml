@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      # Core + dev only. AnyJev's core needs just numpy, so the LLM layer is tested on its fake
+      # backend; tests that need torch or sentence-transformers skip themselves.
+      - run: pip install -e ".[dev]" "anyjev @ git+https://github.com/nokia-applied-research/AnyJev.git@a59a69eaa91e62dc9b42924f8491f76d1b1972ea"
+      - run: ruff check .
+      - run: pytest

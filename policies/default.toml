@@ -1,0 +1,38 @@
+# Base policy. A tenant file (policies/<tenant>.toml) overrides only the keys it sets;
+# lists replace, they don't append.
+
+version = "2026-09-24.1"
+mode = "enforce"         # enforce | monitor (log what would happen, always allow)
+max_check_chars = 8000
+log_excerpt = false      # put the first 200 masked characters into SIEM events
+log_allowed = false      # also send allowed messages to the SIEM (SIEMs bill by event volume)
+disabled_rules = []      # rule IDs from rules.py, e.g. "url_check.ip_address_host"
+
+[masking]                # layer name = true | false
+secret_masking = true
+email_masking = true
+iban_masking = true
+card_masking = true
+phone_masking = true
+tc_masking = true
+vkn_masking = true
+random_token_masking = true
+
+[layers]                 # enforce | shadow (log only) | off
+tampering = "enforce"
+prompt_injection_rules = "enforce"
+code_payloads = "enforce"
+url_check = "enforce"
+prompt_injection_ml = "shadow"
+session = "enforce"      # the [session] limits below
+
+[session]                # per user (or session when there's no user ID); needs session_id / user_id in check()
+max_requests_per_minute = 30
+max_chars_per_window = 50000
+max_flagged = 3          # this many flagged messages in the window pause the user ...
+cooldown_seconds = 900   # ... for this long
+window_seconds = 600
+context_messages = 4     # split-attack check over the last N messages of a session; 0 = off
+
+[url_check]
+allowed_hosts = []

@@ -1,0 +1,25 @@
+# Environments and caches
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+
+# iCloud / Finder conflict copies ("file 2.py")
+* 2.*
+* 2
+
+# Real traffic and anything derived from it: never commit
+logs/
+labeling/
+data/real_labeled.csv
+data/real_holdout.csv
+
+# Downloaded source datasets; scripts/import_hf.py recreates them at the pinned revisions
+data/raw/*
+!data/raw/revisions.txt
+
+# Personal notes
+upstream/anyjev-transformers5/NASIL.md

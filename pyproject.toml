@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sieve-tr"
+version = "0.1.0"
+description = "Layered guardrail for Turkish LLM applications: PII masking, prompt-injection rules, ML and LLM checks"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = [
+    "numpy>=1.24",
+    "scikit-learn==1.9.1",  # the saved model is tied to this version
+    "joblib",
+]
+
+[project.optional-dependencies]
+# Second stage of the ML cascade (BERTurk); without it TF-IDF runs alone.
+ml = ["torch>=2.3", "sentence-transformers>=5", "sentencepiece"]
+# LLM layer (AnyJev) on a local model. Pinned to the commit after the transformers 5 fix (our issue #4).
+llm = [
+    "anyjev @ git+https://github.com/nokia-applied-research/AnyJev.git@149e7f7",
+    "torch>=2.3",
+    "transformers>=5,<6",
+    "accelerate",
+]
+# Dataset import scripts.
+data = ["openpyxl", "pyarrow"]
+dev = ["pytest>=8", "ruff"]
+
+[tool.setuptools.packages.find]
+include = ["sieve*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-m 'not slow'"   # pytest -m slow for the ones that download a model
+markers = [
+    "slow: loads a real transformer model (downloads it on first run)",
+]
+
+[tool.ruff]
+line-length = 150
+target-version = "py311"
+extend-exclude = ["upstream"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E731"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["sieve"]

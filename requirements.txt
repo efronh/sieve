@@ -1,0 +1,3 @@
+# Everything, as used for development: pip install -r requirements.txt
+# Pick less with extras instead: pip install -e ".[ml]", ".[llm]", ".[data]", ".[dev]"
+-e .[ml,llm,data,dev]

@@ -1,0 +1,64 @@
+# Kural tabanlı katmanlar
+
+Bunların hepsi yerelde çalışıyor, model gerektirmiyor. Çalışma sırası `sieve/pipeline.py` içinde.
+
+| Katman | Modül | Ne yapıyor |
+|---|---|---|
+| Normalize | `pipeline.clean` | NFKC, görünmez karakterler, Unicode tag karakterleri, ANSI kodları, birleşik işaretler |
+| Maskeleme | `masking/` | Aşağıda |
+| Manipülasyon | `checks/tampering.py` | Ham metinde tag karakteri, yön değiştirme, ANSI, çok sayıda görünmez karakter, kelime içinde karışık alfabe. Emojileri birleştiren U+200D ve ❤️'deki U+FE0F sayılmıyor. |
+| Injection kuralları | `checks/prompt_injection.py` | Önce metni düzeltiyor (leetspeak, Kiril harf, boşluklu ya da uzatılmış harf), sonra gizli parçaları çözüyor (iç içe base64, base32, hex, URL, HTML, Mors, ROT13; ters metni sadece bir ipucu kelimesi varsa), en son kalıplara bakıyor |
+| Kod | `checks/code_payloads.py` | SQL (tautoloji, UNION, stacked, time-delay, satır sonu yorumu), shell, path traversal, XSS, template/JNDI. Çözülmüş metne de bakıyor. |
+| URL | `checks/urls.py` | `javascript:`/`data:`, IP host, punycode, URL'de kullanıcı bilgisi, marka taklidi (`com.tr` gibi iki parçalı uzantılar ve tek harf farkları dahil) |
+
+Sonuç `allow` < `review` < `block` sırasında en kötüsü. Kontroller ilk 8000 karakteri (`MAX_CHECK_CHARS`) okuyor; daha uzun bir mesaj `input_length` bulgusuyla en az review alıyor. Maskeleme ise metnin tamamına uygulanıyor.
+
+## Maskeleme
+
+| Etiket | Modül | Nasıl |
+|---|---|---|
+| `[GIZLI_ANAHTAR]`, `[SIFRE]` | `masking/credentials.py` | Bilinen anahtar önekleri (OpenAI, Anthropic, AWS, GitHub, Slack, Google, Stripe, JWT, özel anahtar), "şifre" kelimesinden sonra gelen değer, bağlantı dizesindeki parola. En son, başka bir şeye benzemeyen yüksek entropili diziler. |
+| `[EPOSTA]` | `masking/email.py` | `(at)` / `[nokta]` gibi yazımlar dahil |
+| `[IBAN]` | `masking/iban.py` | mod 97; boşluklu, tireli, araya harf karışmış ya da yazıyla yazılmış; yabancı IBAN'lar da |
+| `[KART]` | `masking/card.py` | Luhn ve kart öneki (Visa, MC, Amex, Troy) |
+| `[TELEFON]` | `masking/phone.py` | 5xx mobil her zaman; 2xx-4xx sabit hat sadece başında `0` / `+90` varsa; numara ayrı bir rakam grubu olmalı |
+| `[TC_KIMLIK]` | `masking/tc.py` | TC checksum; rakama benzeyen harfler (`O`→0, `l`→1), yazıyla rakamlar |
+| `[VKN]` | `masking/vkn.py` | Sadece "vergi"/"VKN" kelimesinden sonra, çünkü checksum tek başına rastgele 10 haneli sayıların ~%10'unu tutuyor |
+
+Sıra önemli: gizli anahtarlar, e-posta, IBAN, kart, telefon, TC, VKN, en son rastgele diziler. Uzun numaralar önce maskeleniyor ki TC checksum'ı bir kart ya da telefon numarasının parçasını yakalamasın.
+
+İsim ve adresleri yakalamıyor, bunun için NER lazım.
+
+## Ölçüm
+
+```bash
+python -m scripts.evaluate_checks   # her katmanın tüm veride yakalama ve yanlış alarm oranı
+```
+
+Kurallar yapısı belli olan saldırıları yakalıyor: SQL injection'ın %73'ü, doğrudan injection ve prompt sızdırma kalıplarının %24-40'ı. Otorite taklidi, onay tuzağı, kibarca tırmandırma gibi sosyal mühendislik saldırılarında %0-5. Bunlar için regex zorlamak yanlış alarm üretiyor, o yüzden ML ve LLM katmanlarına bıraktım.
+
+## Çıkış: `output.py`
+
+`Guardrail` kullanıcının mesajına, `OutputGuard` modelin cevabına bakıyor.
+
+```python
+from sieve import Guardrail, OutputGuard
+
+guard = Guardrail()
+out = OutputGuard(SYSTEM_PROMPT, allowed_hosts=["ornekbank.com.tr"])
+
+r = guard.check(user_message)
+if r.action != "block":
+    answer = llm(system=out.system_prompt, user=r.text)   # prompt + canary
+    o = out.check(answer)
+    show(o.text)                                          # o.action: allow / review / block
+```
+
+| Kontrol | Ne yapıyor | Karar |
+|---|---|---|
+| Canary | Sistem promptuna gizlenen rastgele kod cevapta geçiyorsa (büyük harf, boşluklu, ters, base64/hex dahil) | block, cevap `SAFE_REPLY` ile değişiyor |
+| Prompt kopyası | Cevap sistem promptundan 5 kelimelik parçaları aynen tekrarlıyorsa: 1 parça review, 3 ve üstü block | review / block |
+| Markdown sızdırma | İzinli olmayan hostlardaki resimler kaldırılıyor; veri taşıyan (uzun query, `[IBAN]` gibi yer tutucu) resim/link/referanslar ve `javascript:` linkleri temizleniyor | review |
+| Cevap maskeleme | Girişteki bütün maskeleme cevaba da uygulanıyor | allow (metin maskeli) |
+
+Canary çeviride de işe yarıyor: model sistem promptunu başka dile çevirse bile rastgele kod aynı kalıyor.

@@ -1,0 +1,130 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 3a03c5b..1ab27a6 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -33,6 +33,7 @@ carries only the shipped code and the result JSON a doc cites (`docs/migration_v
+ - Bench: seven small open models (1.7B to 8B, six architectures) on all tasks. Results in `bench/results_small*/`, write-up in `docs/results_small_models.md`, README section added.
+ - Packaging and CI: version 0.1.0; the `hf` extra requires `transformers>=4.53` (the L2 block loop uses `transformers.masking_utils`); CI lints `demo/` and `scripts/` as well (`ruff check anyjev bench tests demo scripts`).
+ - Docs: `docs/method_v3.md` (the method end to end, three flow diagrams), the two diagrams in both READMEs (the fit-then-adapt loop, the deployment lifecycle), `ROADMAP.md` as a checkbox list with a definition of done per item, `docs/migration_v3.md`.
++- transformers 5: the L2 block loop (`HFBackend._prepare` / `_run_layers`) passes `inputs_embeds` / `past_key_values` and `cache_position` only where the installed transformers takes them, read from the function signature instead of the version. On 5.x `create_causal_mask(input_embeds=...)` raised `TypeError`, which `Decider._features` does not catch, so every L2 decision failed. `tests/test_hf_block_loop.py` (tiny random Llama, `@pytest.mark.engine`, skipped without torch) checks the loop against the plain forward; `scripts/exit_parity.py` passes bit-exact on the same model under 4.57.6 and 5.17.0 (fp32, CPU).
+ 
+ ## 0.0.2
+ 
+diff --git a/anyjev/backends/hf.py b/anyjev/backends/hf.py
+index 7e83a55..494b17b 100644
+--- a/anyjev/backends/hf.py
++++ b/anyjev/backends/hf.py
+@@ -204,8 +204,21 @@ class HFBackend:
+         return feats, lps, pos_feats
+ 
+     # ---- depth: a block loop that can stop early, capture every block, and resume ----------
++    @staticmethod
++    def _accepts(fn, name: str) -> bool:
++        """Whether `fn` takes a keyword `name`. transformers renamed the block-loop arguments
++        between 4.5x and 5 (`input_embeds` -> `inputs_embeds`, `past_key_value` ->
++        `past_key_values`, `cache_position` dropped); the loop asks the function instead of
++        the version, so both keep working."""
++        import inspect
++
++        try:
++            return name in inspect.signature(fn).parameters
++        except (TypeError, ValueError):
++            return False
++
+     def _prepare(self, enc, pos):
+-        """Everything a transformers 4.5x decoder block needs besides the residual stream: the
++        """Everything a transformers decoder block (4.53+ and 5) needs besides the residual stream: the
+         embeddings, the causal mask(s), cache positions and rotary embeddings. Mirrors
+         `XModel.forward` so blocks can be run one at a time. Raises NotImplementedError for
+         architectures whose forward differs (the caller falls back to output_hidden_states)."""
+@@ -223,8 +236,10 @@ class HFBackend:
+         embeds = inner.embed_tokens(ids)
+         cache = DynamicCache()
+         cache_position = torch.arange(0, embeds.shape[1], device=embeds.device)
+-        kw = dict(config=self.model.config, input_embeds=embeds, attention_mask=mask,
+-                  cache_position=cache_position, past_key_values=cache, position_ids=pos)
++        kw = dict(config=self.model.config, attention_mask=mask, past_key_values=cache, position_ids=pos)
++        kw["inputs_embeds" if self._accepts(create_causal_mask, "inputs_embeds") else "input_embeds"] = embeds
++        if self._accepts(create_causal_mask, "cache_position"):
++            kw["cache_position"] = cache_position
+         masks = {"full_attention": create_causal_mask(**kw)}
+         types = {getattr(layer, "attention_type", "full_attention") for layer in inner.layers}
+         if "sliding_attention" in types:
+@@ -246,9 +261,13 @@ class HFBackend:
+         h = ctx["hidden"]
+         for i in range(start, stop):
+             layer = inner.layers[i]
+-            out = layer(h, attention_mask=ctx["masks"][getattr(layer, "attention_type", "full_attention")],
+-                        position_ids=ctx["position_ids"], past_key_value=ctx["cache"],
+-                        cache_position=ctx["cache_position"], position_embeddings=ctx["rope"])
++            kw = dict(attention_mask=ctx["masks"][getattr(layer, "attention_type", "full_attention")],
++                      position_ids=ctx["position_ids"], position_embeddings=ctx["rope"])
++            cache_arg = "past_key_values" if self._accepts(layer.forward, "past_key_values") else "past_key_value"
++            kw[cache_arg] = ctx["cache"]
++            if self._accepts(layer.forward, "cache_position"):
++                kw["cache_position"] = ctx["cache_position"]
++            out = layer(h, **kw)
+             h = out[0] if isinstance(out, tuple) else out
+             if capture is not None:
+                 capture(i + 1, h)
+diff --git a/pyproject.toml b/pyproject.toml
+index 4b0a3d4..9303aeb 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -51,4 +51,5 @@ select = ["E", "F", "I"]
+ ignore = ["E731"]
+ 
+ [tool.pytest.ini_options]
+-testpaths = ["tests"]
+\ No newline at end of file
++testpaths = ["tests"]
++markers = ["engine: needs a real inference engine (torch, transformers); skipped without it"]
+\ No newline at end of file
+diff --git a/tests/test_hf_block_loop.py b/tests/test_hf_block_loop.py
+new file mode 100644
+index 0000000..e40a0f9
+--- /dev/null
++++ b/tests/test_hf_block_loop.py
+@@ -0,0 +1,42 @@
++"""The early-exit block loop (`HFBackend.hidden_states_to`) against the plain forward, on a tiny
++random Llama, under whichever transformers is installed (4.53+ or 5). Skipped without torch."""
++import numpy as np
++import pytest
++
++pytest.importorskip("torch")
++pytest.importorskip("transformers")
++
++from anyjev import Decider, Question  # noqa: E402
++
++MODEL = "hf-internal-testing/tiny-random-LlamaForCausalLM"
++PROMPTS = ["card declined at checkout", "the app crashes when I open settings", "hi"]
++
++
++@pytest.fixture(scope="module")
++def backend():
++    from anyjev.backends.hf import HFBackend
++
++    try:
++        return HFBackend(MODEL, device="cpu", dtype="float32")
++    except OSError as e:   # offline and not cached
++        pytest.skip(f"{MODEL} not available: {e}")
++
++
++@pytest.mark.engine
++def test_block_loop_matches_the_plain_forward(backend):
++    # prompts of different lengths, so the left-padded batch path is exercised too
++    for layer in (1, backend.n_layers):
++        loop = backend.hidden_states_to(PROMPTS, [layer], max_layer=layer)[0]
++        plain = backend.hidden_states(PROMPTS, [layer])[0]
++        np.testing.assert_allclose(loop, plain, atol=1e-5)
++
++
++@pytest.mark.engine
++def test_l2_decisions_stop_early(backend):
++    q = Question.choice("Which handler?", ["billing", "technical"], name="route")
++    states = [f"{p} {i}" for i in range(8) for p in PROMPTS]
++    dec = Decider(backend, level="L2")
++    dec.fit_head(q, states, [i % 2 for i in range(len(states))], layers=[1])
++    d = dec.decide(states[0], [q])[0]
++    assert d.level == "L2"
++    assert dec.early_stop_error is None and d.diagnostics["early_stop"] is True

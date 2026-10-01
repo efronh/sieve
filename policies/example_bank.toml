@@ -1,0 +1,12 @@
+# Example tenant: first weeks in monitor mode, a modem-support desk, its own site trusted.
+
+version = "2026-09-24.1"
+mode = "monitor"
+log_excerpt = true
+disabled_rules = ["url_check.ip_address_host"]   # customers paste 192.168.1.1 when asking about modems
+
+[layers]
+code_payloads = "shadow"
+
+[url_check]
+allowed_hosts = ["www.examplebank.com.tr"]
