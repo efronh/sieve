@@ -132,10 +132,6 @@ Run scripts from the repo root. Don't keep the repo in an iCloud-synced folder o
 
 Hand-written Turkish examples plus three CC-BY-4.0 datasets: [TCPI](https://huggingface.co/datasets/3nesdeniz/turkish-conversation-prompt-injection), [AltaySec Turkish LLM injection](https://huggingface.co/datasets/AltaySec/turkish-llm-injection) and [Turkish customer-service conversations](https://huggingface.co/datasets/emreseyhan/Turkish-customer-service-conversations), and a set of attacks collected from public security sources. Sources, pinned versions and licences are in [docs/ml.md](docs/ml.md#veri-kaynakları-ve-atıf).
 
-## Contributions
-
-While building the LLM layer I found that [AnyJev](https://github.com/nokia-applied-research/AnyJev)'s L2 path crashed on transformers 5. I reported it in [nokia-applied-research/AnyJev#4](https://github.com/nokia-applied-research/AnyJev/issues/4) and it was fixed upstream the same day. Notes and my patch are in [upstream/](upstream/anyjev-transformers5/).
-
 ## License
 
 MIT, see [LICENSE](LICENSE). The datasets keep their own licences (see above).
