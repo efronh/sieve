@@ -24,6 +24,15 @@ Bulabildiğim prompt injection dedektörleri İngilizce veriyle eğitilmişti. T
 
 Çok dilli e5 ve MiniLM dahil tüm modeller: [docs/ml.md](docs/ml.md). Ham sonuçlar: [results/compare_models.json](results/compare_models.json).
 
+Tablo dedektörleri tek başına ölçüyor. `Guardrail()`'in varsayılan ayarlarla aynı test setinde yaptığı (`python -m scripts.evaluate_pipeline`):
+
+| Varsayılan ayar | İşaretlenen saldırı | Engellenen saldırı | Yanlış alarm |
+|---|---|---|---|
+| Sadece kurallar (ML gölge modda, şimdiye kadarki varsayılan) | 30'da 0 | 30'da 0 | 90'da 0 |
+| Kurallar + ML (şu anki varsayılan) | 30'da 22 | 30'da 0 | 90'da 3 |
+
+ML katmanı mesajı sadece review'a gönderiyor, tek başına engellemiyor. Yani pratikte `review` sonucuna birinin (ya da sizin politikanızın) karar vermesi gerekiyor. Kurallar tek başına sadece açık, kelimesi kelimesine saldırıları engelliyor.
+
 LLM katmanı prompt injection için değmedi. Etiket olmadan 1.7B'lik model İngilizce dedektörden çok az iyi. Eğitilmiş başlıkla %80'e çıkıyor ama fine-tuned BERTurk onu on kat daha hızlı geçiyor. AnyJev'in varsayılanı Qwen3-8B'yi deneyemedim, 16 GB belleğe sığmıyor.
 
 Diğer sonuçlar:
@@ -50,10 +59,10 @@ flowchart LR
 | Katman | Ne yapıyor |
 |---|---|
 | Maskeleme | TC kimlik (checksum), IBAN (mod 97), kart (Luhn), telefon, e-posta, VKN, API anahtarı ve şifre. `1OOO…`, `bir sıfır…`, boşluklu ve tireli yazımları da yakalıyor. İsim ve adres maskelemiyor. |
-| Injection kuralları | Leetspeak, Kiril harfler ve boşluklu harfleri düzeltiyor; base64, hex, Mors, ROT13 gibi kodlamaları çözüyor. *talimatlarını unut* saldırı; *talimatımı* (ödeme talimatı) ve *unut demiştin* (aktarılan söz) değil. |
+| Injection kuralları | Leetspeak, Kiril harfler ve boşluklu harfleri düzeltiyor; base64, hex, Mors, ROT13 gibi kodlamaları çözüyor. *talimatlarını unut* saldırı; *talimatımı* (ödeme talimatı) ve *unut demiştin* (aktarılan söz) değil, ama *unut diye* yine saldırı. |
 | Manipülasyon | Unicode tag karakterleri, yön değiştirme, sıfır genişlikli karakterler, tek kelimede karışık alfabe. Normalize etmek bunları sildiği için ham metinde çalışıyor. |
 | Kod, URL | SQL, shell, path traversal, XSS, template injection. `javascript:` linkleri, IP adresli host, punycode, marka taklidi. |
-| ML | TF-IDF her mesajda, BERTurk sadece gri bölgede. Varsayılan olarak gölge modda, tek başına engellemiyor. |
+| ML | TF-IDF her mesajda, BERTurk sadece gri bölgede. Mesajı review'a gönderebiliyor, tek başına engellemiyor. |
 | LLM (opsiyonel) | [AnyJev](https://github.com/nokia-applied-research/AnyJev), yerel bir modelin logit'lerinden metin üretmeden olasılık okuyor. Sadece maskelenmiş metni görüyor; reviewer etiketleriyle kalibre edilene kadar engelleyemiyor. |
 | Çıkış kontrolü | Canary, sistem promptunun kopyalanması, markdown resim/link ile veri sızdırma, cevabın maskelenmesi. |
 
@@ -97,6 +106,7 @@ out.check(answer).text         # maskelenmiş, sızdırma linkleri temizlenmiş
 - Test setinde 30 saldırı var, yani bir saldırı yaklaşık 3 puan. Her şey tek seed ile.
 - Çapraz doğrulamadaki %1 eşik test setinde %3-8 yanlış alarm verdi. Gerçek trafikte yeniden ayarlanması gerekir.
 - İsim ve adres maskelenmiyor (NER gerekir).
+- `models/` içindeki model dosyası bir joblib pickle'ı ve import sırasında yükleniyor. Sadece kendi eğittiğiniz ya da güvendiğiniz bir kaynaktan aldığınız modelleri yükleyin.
 - Oturum limitleri bellekte tutuluyor, birden fazla süreç varsa her biri ayrı sayıyor.
 
 ## Dizin yapısı
@@ -124,6 +134,7 @@ pytest -m slow          # küçük bir transformers modeli indirir
 ruff check .
 python -m scripts.train_injection    # yeniden eğitir, CV ve test seti sonuçlarını basar
 python -m scripts.compare_models     # results/compare_models.json'u yeniden üretir
+python -m scripts.evaluate_pipeline  # varsayılan Guardrail() test setinde
 ```
 
 Scriptleri repo kökünden çalıştırın. macOS'ta repoyu iCloud'a senkronize bir klasörde tutmayın: iCloud `.venv/*.pth` dosyalarını gizli yapabiliyor, Python 3.13 gizli `.pth` dosyalarını atlıyor ve editable kurulum sessizce bozuluyor.

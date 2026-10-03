@@ -16,8 +16,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      # Core + dev only. AnyJev's core needs just numpy, so the LLM layer is tested on its fake
-      # backend; tests that need torch or sentence-transformers skip themselves.
-      - run: pip install -e ".[dev]" "anyjev @ git+https://github.com/nokia-applied-research/AnyJev.git@a59a69eaa91e62dc9b42924f8491f76d1b1972ea"
+      # Core + dev only, plus AnyJev at the same commit as the [llm] extra. AnyJev's core needs just numpy,
+      # so the LLM layer is tested on its fake backend; tests that need torch or sentence-transformers skip themselves.
+      - run: pip install -e ".[dev]" "anyjev @ git+https://github.com/nokia-applied-research/AnyJev.git@149e7f71949c08b57492ef7025b67a763c600a0f"
       - run: ruff check .
       - run: pytest

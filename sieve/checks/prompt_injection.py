@@ -70,7 +70,9 @@ RULE_OBJECTS = re.compile(
 IGNORE_VERBS_TR = re.compile(
     r"\b(?:unut(?:un|up|arak)?|yoksay(?:in|arak)?|gormezden gel(?:in|erek)?|gecersiz say\w*"
     r"|devre disi birak\w*)\b"
-    r"(?!\s+d[ei](?:m|d|y|r|s)\w*)"  # reported speech: "unut demiştin", "unut diyor"
+    # Reported speech ("unut demiştin", "unut dedi", "unut diyorlar") is a quote, not an order.
+    # Only second/third-person past or reported forms: "unut diye", "unut diyorum", "unut dedim" are still orders.
+    r"(?!\s+(?:dedi(?:n|niz|ler)?|demis(?:ti(?:n|niz)?|ler)?|diyor(?:du|dun|lar|sun|sunuz)?)\b)"
 )
 # English puts the verb first ("ignore the rules"); "a rule to ignore node_modules" is the other way round.
 # Either order still counts for a Turkish light verb ("rule'ları bypass et") or a pronoun ("ignore them").

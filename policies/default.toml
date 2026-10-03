@@ -23,7 +23,7 @@ tampering = "enforce"
 prompt_injection_rules = "enforce"
 code_payloads = "enforce"
 url_check = "enforce"
-prompt_injection_ml = "shadow"
+prompt_injection_ml = "enforce"  # review only; ML never blocks on its own
 session = "enforce"      # the [session] limits below
 
 [session]                # per user (or session when there's no user ID); needs session_id / user_id in check()

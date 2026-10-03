@@ -134,3 +134,9 @@ def test_flags_spread_beyond_the_window_dont_add_up(limiter):
         clock.now = 1000 + t
         limiter.record("s3", "block")
     assert not limiter.is_limited("s3")
+
+
+def test_editing_a_cached_result_doesnt_change_the_cache():
+    guard, _ = build()
+    guard.check("belki saldırı").findings.clear()
+    assert guard.check("belki saldırı").findings

@@ -24,6 +24,15 @@ Prompt-injection detection on 3,249 labelled messages (763 attacks). 5-fold cros
 
 All models, including multilingual e5 and MiniLM: [docs/ml.md](docs/ml.md). Raw numbers: [results/compare_models.json](results/compare_models.json).
 
+The table measures the detectors on their own. What `Guardrail()` does with its default settings, on the same held-out set (`python -m scripts.evaluate_pipeline`):
+
+| Default setup | Attacks flagged | Attacks blocked | False alarms |
+|---|---|---|---|
+| Rules only (ML in shadow mode, the default until now) | 0 of 30 | 0 of 30 | 0 of 90 |
+| Rules + ML (current default) | 22 of 30 | 0 of 30 | 3 of 90 |
+
+The ML layer only sends messages to review and never blocks on its own, so in practice someone (or your own policy) has to act on `review`. The rules alone block only the obvious, literal attacks.
+
 The LLM layer wasn't worth it for prompt injection. Without labels a 1.7B model does barely better than the English detector. With a trained head it gets to 80%, but fine-tuned BERTurk beats it at a tenth of the latency. I couldn't test Qwen3-8B (AnyJev's default) because it doesn't fit in 16 GB.
 
 Some other numbers:
@@ -50,10 +59,10 @@ flowchart LR
 | Layer | What it does |
 |---|---|
 | Masking | TC kimlik (checksum), IBAN (mod 97), card (Luhn), phone, e-mail, VKN, API keys and passwords. Also handles `1OOO…`, `bir sıfır…` and spaced or dashed numbers. Doesn't mask names or addresses. |
-| Injection rules | Undoes leetspeak, Cyrillic look-alikes and spaced letters, decodes base64, hex, Morse, ROT13 etc. *talimatlarını unut* is an attack; *talimatımı* (a payment order) and *unut demiştin* (reported speech) aren't. |
+| Injection rules | Undoes leetspeak, Cyrillic look-alikes and spaced letters, decodes base64, hex, Morse, ROT13 etc. *talimatlarını unut* is an attack; *talimatımı* (a payment order) and *unut demiştin* (reported speech) aren't, but *unut diye* still is. |
 | Tampering | Unicode tag characters, bidi overrides, zero-width runs, mixed alphabets in one word. Runs on the raw text, since normalizing removes these. |
 | Code payloads, URLs | SQL, shell, path traversal, XSS, template injection. `javascript:` links, IP hosts, punycode, brand look-alikes. |
-| ML | TF-IDF on every message, BERTurk only in the grey zone. Runs in shadow mode by default and never blocks on its own. |
+| ML | TF-IDF on every message, BERTurk only in the grey zone. Can send a message to review, but never blocks on its own. |
 | LLM (optional) | [AnyJev](https://github.com/nokia-applied-research/AnyJev) reads probabilities from a local model's logits without generating text. Only sees masked text, and can't block until it's calibrated on reviewer labels. |
 | Output guard | Canary token, copied system prompt, markdown image/link exfiltration, masking the answer. |
 
@@ -97,6 +106,7 @@ out.check(answer).text         # masked, exfiltration links removed
 - The held-out set has 30 attacks, so one attack is about 3 points. Everything is from a single seed.
 - The 1% threshold from cross-validation gave 3–8% false alarms on the held-out set. It needs recalibrating on real traffic.
 - Names and addresses aren't masked (that needs NER).
+- The model file in `models/` is a joblib pickle and is loaded on import. Only load models you trained yourself or got from a source you trust.
 - Session limits are kept in memory, so each process counts separately.
 
 ## Layout
@@ -124,6 +134,7 @@ pytest -m slow          # downloads a tiny transformers model
 ruff check .
 python -m scripts.train_injection    # retrain, prints CV and held-out results
 python -m scripts.compare_models     # regenerates results/compare_models.json
+python -m scripts.evaluate_pipeline  # the default Guardrail() on the held-out set
 ```
 
 Run scripts from the repo root. Don't keep the repo in an iCloud-synced folder on macOS: iCloud can mark `.venv/*.pth` files hidden, Python 3.13 skips hidden `.pth` files, and the editable install silently stops working.

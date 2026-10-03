@@ -1,3 +1,4 @@
+import copy
 import hashlib
 import re
 import unicodedata
@@ -48,7 +49,7 @@ LAYERS = [
 def default_check_layers():
     layers = [TamperingLayer(), PromptInjectionLayer(), CodePayloadLayer(), URLCheckLayer()]
     if MLInjectionLayer.is_available():
-        layers.append(MLInjectionLayer(shadow=True))
+        layers.append(MLInjectionLayer())  # can review, never blocks on its own (BLOCK_AT)
     return layers
 
 
@@ -124,11 +125,11 @@ class Guardrail:
         key = hashlib.sha256(text.encode("utf-8")).hexdigest()
         if key in self.cache:
             self.cache.move_to_end(key)
-            return self.cache[key]
+            return copy.deepcopy(self.cache[key])  # a copy, so a caller editing findings can't change the cache
 
         result = self.run(text)
         if self.cache_size:
-            self.cache[key] = result
+            self.cache[key] = copy.deepcopy(result)
             if len(self.cache) > self.cache_size:
                 self.cache.popitem(last=False)
         return result

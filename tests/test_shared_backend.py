@@ -1,4 +1,8 @@
 import numpy as np
+import pytest
+
+pytest.importorskip("anyjev")
+
 from anyjev import Decider
 from anyjev.backends.fake import FakeBackend
 

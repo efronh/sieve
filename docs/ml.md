@@ -18,7 +18,7 @@ TCPI test setinde ikisi de 30 saldırının %73'ünü %3 yanlış alarmla yakala
 Diğer notlar:
 
 - `sentence-transformers` kurulu değilse ya da `SIEVE_CASCADE=0` ise sadece TF-IDF kendi eşiğiyle çalışıyor. `python -m scripts.train_injection --no-cascade` sadece TF-IDF eğitiyor.
-- `Guardrail()` ML katmanını gölge modda (`shadow=True`) ekliyor. Olasılığı hesaplıyor ve ne yapacağını `matches` içine yazıyor (ör. `would_review`), ama sonucu değiştirmiyor. Gerçek trafikte yanlış alarm oranı ölçülene kadar böyle kalmalı. Açmak için: `Guardrail(check_layers=[PromptInjectionLayer(), MLInjectionLayer()])`.
+- `Guardrail()` ML katmanını açık ekliyor: eşiği geçen mesaj `review` oluyor. Gölge modda kural katmanı test setindeki 30 saldırının hiçbirini yakalamıyordu (`python -m scripts.evaluate_pipeline`). Önce sadece kayıt almak isterseniz `MLInjectionLayer(shadow=True)` ya da politikada `prompt_injection_ml = "shadow"` kullanın. Bu durumda olasılık hesaplanıyor ve ne yapılacağı `matches` içine yazılıyor (ör. `would_review`), ama sonuç değişmiyor.
 - Eşik, çapraz doğrulamada normal mesajların en fazla %1'ini (`TARGET_FALSE_ALARM`) işaretleyecek şekilde seçiliyor ve modelle birlikte kaydediliyor (`review_at`, `sklearn_version`).
 - `BLOCK_AT = 1.01`, yani ML tek başına hiçbir zaman engellemiyor, en fazla review'a atıyor.
 - Model dosyası sklearn sürümüne bağlı (`pyproject.toml`'da sabit). Başka bir sürümle yüklenirse uyarı veriyor.

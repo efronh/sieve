@@ -21,7 +21,7 @@ dependencies = [
 ml = ["torch>=2.3", "sentence-transformers>=5", "sentencepiece"]
 # LLM layer (AnyJev) on a local model. Pinned to the commit after the transformers 5 fix (our issue #4).
 llm = [
-    "anyjev @ git+https://github.com/nokia-applied-research/AnyJev.git@149e7f7",
+    "anyjev @ git+https://github.com/nokia-applied-research/AnyJev.git@149e7f71949c08b57492ef7025b67a763c600a0f",
     "torch>=2.3",
     "transformers>=5,<6",
     "accelerate",
