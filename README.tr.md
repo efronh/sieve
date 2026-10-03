@@ -141,7 +141,7 @@ Scriptleri repo kökünden çalıştırın. macOS'ta repoyu iCloud'a senkronize 
 
 ## Veri
 
-Elle yazdığım Türkçe örnekler ve üç CC-BY-4.0 veri seti: [TCPI](https://huggingface.co/datasets/3nesdeniz/turkish-conversation-prompt-injection), [AltaySec Turkish LLM injection](https://huggingface.co/datasets/AltaySec/turkish-llm-injection) ve [Türkçe müşteri hizmetleri konuşmaları](https://huggingface.co/datasets/emreseyhan/Turkish-customer-service-conversations). Bunlara açık güvenlik kaynaklarından toplanmış bir saldırı listesi ekledim. Kaynaklar, sabit sürümler ve lisanslar: [docs/ml.md](docs/ml.md#veri-kaynakları-ve-atıf).
+Elle yazdığım Türkçe örnekler ve üç CC-BY-4.0 veri seti: [TCPI](https://huggingface.co/datasets/3nesdeniz/turkish-conversation-prompt-injection), [AltaySec Turkish LLM injection](https://huggingface.co/datasets/AltaySec/turkish-llm-injection) ve [Türkçe müşteri hizmetleri konuşmaları](https://huggingface.co/datasets/emreseyhan/Turkish-customer-service-conversations). Bunlara OWASP, garak, HackAPrompt gibi kaynaklardaki saldırı tiplerine bakarak bir LLM'in yardımıyla yazdığım kısa bir saldırı listesi ekledim. Kaynaklar, sabit sürümler ve lisanslar: [docs/ml.md](docs/ml.md#veri-kaynakları-ve-atıf).
 
 ## Lisans
 

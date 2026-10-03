@@ -141,7 +141,7 @@ Run scripts from the repo root. Don't keep the repo in an iCloud-synced folder o
 
 ## Data
 
-Hand-written Turkish examples plus three CC-BY-4.0 datasets: [TCPI](https://huggingface.co/datasets/3nesdeniz/turkish-conversation-prompt-injection), [AltaySec Turkish LLM injection](https://huggingface.co/datasets/AltaySec/turkish-llm-injection) and [Turkish customer-service conversations](https://huggingface.co/datasets/emreseyhan/Turkish-customer-service-conversations), and a set of attacks collected from public security sources. Sources, pinned versions and licences are in [docs/ml.md](docs/ml.md#veri-kaynakları-ve-atıf).
+Hand-written Turkish examples plus three CC-BY-4.0 datasets: [TCPI](https://huggingface.co/datasets/3nesdeniz/turkish-conversation-prompt-injection), [AltaySec Turkish LLM injection](https://huggingface.co/datasets/AltaySec/turkish-llm-injection) and [Turkish customer-service conversations](https://huggingface.co/datasets/emreseyhan/Turkish-customer-service-conversations), and a set of short attacks I wrote with an LLM's help, modelled on the attack types in OWASP, garak, HackAPrompt and similar sources. Sources, pinned versions and licences are in [docs/ml.md](docs/ml.md#veri-kaynakları-ve-atıf).
 
 ## License
 
