@@ -64,7 +64,7 @@ flowchart LR
 | Kod, URL | SQL, shell, path traversal, XSS, template injection. `javascript:` linkleri, IP adresli host, punycode, marka taklidi. |
 | ML | TF-IDF her mesajda, BERTurk sadece gri bölgede. Mesajı review'a gönderebiliyor, tek başına engellemiyor. |
 | LLM (opsiyonel) | [AnyJev](https://github.com/nokia-applied-research/AnyJev), yerel bir modelin logit'lerinden metin üretmeden olasılık okuyor. Sadece maskelenmiş metni görüyor; reviewer etiketleriyle kalibre edilene kadar engelleyemiyor. |
-| Çıkış kontrolü | Canary, sistem promptunun kopyalanması, markdown resim/link ile veri sızdırma, cevabın maskelenmesi. |
+| Çıkış kontrolü | Canary, sistem promptunun kopyalanması, cevabın maskelenmesi. İzinli hostlarınız dışına giden resim, iframe ve kendiliğinden yüklenen diğer HTML'i, veri taşıyan linkleri (query, path ya da fragment), `javascript:` linklerini, `<script>` ve `on…` handler'larını kaldırıyor. Bir HTML sanitizer değil: Cevabı HTML olarak gösteriyorsanız yine bir sanitizer'dan geçirin. |
 
 Ayrıntılar: [katmanlar](docs/layers.md), [ML](docs/ml.md), [LLM](docs/llm.md), [entegrasyon](docs/operations.md).
 

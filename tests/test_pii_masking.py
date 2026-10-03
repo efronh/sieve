@@ -1,6 +1,6 @@
 import pytest
 
-from sieve.pipeline import mask
+from sieve.pipeline import clean, mask
 
 SHOULD_MASK = [
     ("[EPOSTA]", "Mailim ali.veli+test@gmail.com, oradan yaz"),
@@ -20,6 +20,7 @@ SHOULD_MASK = [
     ("[TELEFON]", "sıfır beş üç iki bir bir bir iki iki üç üç"),
     ("[VKN]", "Vergi numaram 1234567890"),
     ("[VKN]", "VKN: 123 456 78 90"),
+    ("[KART]", "Kart: 4\u03321\u03321\u03321\u0332 1111 1111 1111"),
 ]
 
 SHOULD_NOT_MASK = [
@@ -46,3 +47,12 @@ def test_masks(label, text):
 def test_leaves_alone(text):
     result = mask(text)
     assert not any(label in result for label in LABELS), result
+
+
+def test_marks_on_latin_letters_are_removed():
+    assert clean("t\u0337a\u0337l\u0337i\u0337m\u0337a\u0337t") == "talimat"
+
+
+def test_marks_that_belong_to_the_script_are_kept():
+    for text in ["مَرْحَبًا", "שָׁלוֹם", "Şöyle güzel bir gün"]:
+        assert clean(text) == text

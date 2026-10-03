@@ -64,7 +64,7 @@ flowchart LR
 | Code payloads, URLs | SQL, shell, path traversal, XSS, template injection. `javascript:` links, IP hosts, punycode, brand look-alikes. |
 | ML | TF-IDF on every message, BERTurk only in the grey zone. Can send a message to review, but never blocks on its own. |
 | LLM (optional) | [AnyJev](https://github.com/nokia-applied-research/AnyJev) reads probabilities from a local model's logits without generating text. Only sees masked text, and can't block until it's calibrated on reviewer labels. |
-| Output guard | Canary token, copied system prompt, markdown image/link exfiltration, masking the answer. |
+| Output guard | Canary token, copied system prompt, masking the answer. Removes images, iframes and other auto-loading HTML pointing outside your hosts, links that carry data (query, path or fragment), `javascript:` links, `<script>` and `on…` handlers. It isn't an HTML sanitizer: if you render the answer as HTML, still pass it through one. |
 
 More detail (in Turkish): [layers](docs/layers.md), [ML](docs/ml.md), [LLM](docs/llm.md), [operations](docs/operations.md).
 

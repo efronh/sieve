@@ -1,6 +1,7 @@
 import re
 import secrets
 from dataclasses import dataclass, field
+from html.parser import HTMLParser
 from urllib.parse import parse_qsl, urlsplit
 
 from sieve.actions import ALLOW, BLOCK, REVIEW, Finding, worst_action
@@ -8,6 +9,7 @@ from sieve.checks.prompt_injection import decode_hidden_parts
 
 SAFE_REPLY = "Bu yanıt güvenlik nedeniyle gösterilemiyor."
 IMAGE_REMOVED = "[resim kaldırıldı]"
+EMBED_REMOVED = "[gömülü içerik kaldırıldı]"
 
 SHINGLE_WORDS = 5
 LEAK_REVIEW_SHINGLES = 1
@@ -18,10 +20,15 @@ LINK_TARGET = r"\(\s*<?((?:[^()\s>]|\([^()\s]*\))+)>?[^)]*\)"
 MD_IMAGE = re.compile(r"!\[([^\]]*)\]" + LINK_TARGET)
 MD_LINK = re.compile(r"(?<!!)\[([^\]]*)\]" + LINK_TARGET)
 MD_REFERENCE = re.compile(r"^\s*\[[^\]]+\]:\s*(\S+).*$", re.MULTILINE)
-HTML_IMG = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
-HTML_SRC = re.compile(r"\bsrc\s*=\s*['\"]?([^'\"\s>]+)", re.IGNORECASE)
+HTML_TAG = re.compile(r"<[a-zA-Z][^>]*>")
+HTML_SCRIPT = re.compile(r"<script\b.*?(?:</script\s*>|$)", re.IGNORECASE | re.DOTALL)
+# Attributes the browser fetches on its own, without a click (<link href> too, see loaded_urls).
+LOADING_ATTRS = {"src", "srcset", "data", "poster", "background"}
+CLICK_ATTRS = {"href", "action", "formaction", "xlink:href"}
 PLAIN_URL = re.compile(r"\bhttps?://[^\s<>\"')\]]+", re.IGNORECASE)
-DANGEROUS_SCHEME = re.compile(r"^\s*(?:javascript|vbscript|data):", re.IGNORECASE)
+DANGEROUS_SCHEME = re.compile(r"^(?:javascript|vbscript|data):", re.IGNORECASE)
+# Browsers drop tabs, newlines and leading control characters in URLs: "java\tscript:" still runs.
+URL_IGNORED_CHARS = re.compile(r"[\x00-\x20]")
 PLACEHOLDER = re.compile(r"\[(?:IBAN|TC_KIMLIK|KART|TELEFON|EPOSTA|VKN|SIFRE|GIZLI_ANAHTAR)\]|%5B[A-Z_]+%5D")
 WORDS = re.compile(r"\w+")
 
@@ -42,10 +49,46 @@ def host_of(url):
         return ""
 
 
+def is_dangerous(url):
+    return bool(DANGEROUS_SCHEME.search(URL_IGNORED_CHARS.sub("", url)))
+
+
+# The fragment never reaches the server, but the page it opens can read it and send it on.
 def carries_data(url):
-    parts = urlsplit(url)
-    values = [v for _, v in parse_qsl(parts.query, keep_blank_values=True)] + parts.path.split("/")
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return True
+    values = parts.path.split("/")
+    for part in (parts.query, parts.fragment):
+        values += [s for kv in parse_qsl(part, keep_blank_values=True) for s in kv] + [part]
     return bool(PLACEHOLDER.search(url)) or any(len(v) >= MIN_DATA_LENGTH for v in values)
+
+
+class TagReader(HTMLParser):
+    def handle_starttag(self, tag, attrs):
+        self.tag, self.attrs = tag, attrs
+
+    handle_startendtag = handle_starttag
+
+
+# (tag name, [(attribute, value)]) with entities decoded, so "jav&#97;script:" reads as "javascript:".
+def read_tag(text):
+    reader = TagReader()
+    reader.tag, reader.attrs = None, []
+    reader.feed(text)
+    reader.close()
+    return reader.tag, [(name, value or "") for name, value in reader.attrs]
+
+
+def loaded_urls(tag, attrs):
+    urls = []
+    for name, value in attrs:
+        if name == "srcset":
+            urls += [candidate.split()[0] for candidate in value.split(",") if candidate.split()]
+        elif name in LOADING_ATTRS or (tag == "link" and name == "href"):
+            urls.append(value)
+    return urls
 
 
 @dataclass
@@ -100,14 +143,34 @@ class OutputGuard:
             replacement = replace_image(m.group(2))
             return m.group(0) if replacement is None else replacement
 
-        def html_image(m):
-            src = HTML_SRC.search(m.group(0))
-            replacement = replace_image(src.group(1)) if src else IMAGE_REMOVED
-            return m.group(0) if replacement is None else replacement
+        def script(m):
+            findings.append(("dangerous_html", REVIEW))
+            return ""
+
+        # Only what can run code or send data is touched; rendering HTML safely is still the app's sanitizer's job.
+        def html_tag(m):
+            tag, attrs = read_tag(m.group(0))
+            if tag is None:
+                return m.group(0)
+            urls = [value for name, value in attrs if name in CLICK_ATTRS or name in LOADING_ATTRS]
+            if any(name.startswith("on") for name, _ in attrs) or any(is_dangerous(u) for u in loaded_urls(tag, attrs) + urls):
+                findings.append(("dangerous_html", REVIEW))
+                return ""
+            blocked = [u for u in loaded_urls(tag, attrs) if not self.is_allowed(u)]
+            if blocked:
+                if tag == "img":
+                    return replace_image(blocked[0])
+                with_data = any(carries_data(u) for u in blocked)
+                findings.append(("embed_with_data", REVIEW) if with_data else ("external_embed", ALLOW))
+                return EMBED_REMOVED
+            if any(not self.is_allowed(u) and carries_data(u) for u in urls):
+                findings.append(("link_with_data", REVIEW))
+                return ""
+            return m.group(0)
 
         def md_link(m):
             label, url = m.group(1), m.group(2)
-            if DANGEROUS_SCHEME.search(url):
+            if is_dangerous(url):
                 findings.append(("dangerous_link", REVIEW))
                 return label
             if not self.is_allowed(url) and carries_data(url):
@@ -117,13 +180,14 @@ class OutputGuard:
 
         def reference(m):
             url = m.group(1)
-            if DANGEROUS_SCHEME.search(url) or (not self.is_allowed(url) and carries_data(url)):
+            if is_dangerous(url) or (not self.is_allowed(url) and carries_data(url)):
                 findings.append(("reference_with_data", REVIEW))
                 return ""
             return m.group(0)
 
         answer = MD_IMAGE.sub(md_image, answer)
-        answer = HTML_IMG.sub(html_image, answer)
+        answer = HTML_SCRIPT.sub(script, answer)
+        answer = HTML_TAG.sub(html_tag, answer)
         answer = MD_LINK.sub(md_link, answer)
         answer = MD_REFERENCE.sub(reference, answer)
 

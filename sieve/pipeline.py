@@ -64,8 +64,22 @@ def reveal_tag_chars(text):
     return "".join(result)
 
 
+# Marks stacked on Latin, Greek or Cyrillic letters and on digits are obfuscation ("t̷a̷l̷i̷m̷a̷t", "1̲0̲0̲…");
+# after NFKC, Turkish letters are single characters anyway. On Arabic or Hebrew letters the marks
+# are part of the text (harakat, niqqud), so they stay in what the model gets.
+FOLDED_SCRIPTS = ("LATIN", "GREEK", "CYRILLIC")
+
+
 def strip_combining_marks(text):
-    return "".join(c for c in text if not unicodedata.combining(c))
+    result = []
+    keep_marks = False
+    for c in text:
+        if not unicodedata.combining(c):
+            keep_marks = c.isalpha() and not unicodedata.name(c, "").startswith(FOLDED_SCRIPTS)
+            result.append(c)
+        elif keep_marks:
+            result.append(c)
+    return "".join(result)
 
 
 def clean(text):
