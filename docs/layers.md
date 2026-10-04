@@ -21,11 +21,12 @@ Sonuç `allow` < `review` < `block` sırasında en kötüsü. Kontroller ilk 800
 | `[EPOSTA]` | `masking/email.py` | `(at)` / `[nokta]` gibi yazımlar dahil |
 | `[IBAN]` | `masking/iban.py` | mod 97; boşluklu, tireli, araya harf karışmış ya da yazıyla yazılmış; yabancı IBAN'lar da |
 | `[KART]` | `masking/card.py` | Luhn ve kart öneki (Visa, MC, Amex, Troy) |
+| `[SKT]`, `[CVV]` | `masking/card_security.py` | Son kullanma tarihi (`AA/YY`, `AA/YYYY`) ve 3-4 haneli CVV. Sadece "skt"/"son kullanma"/"cvv"/"güvenlik kodu" gibi bir kelimeden sonra ya da `[KART]`'ın hemen yanında (`[KART] 12/27 123`), çünkü `12/27` ve `123` tek başına sıradan sayılar. `24.09.2026` gibi tam tarihlere dokunmuyor. |
 | `[TELEFON]` | `masking/phone.py` | 5xx mobil her zaman; 2xx-4xx sabit hat sadece başında `0` / `+90` varsa; numara ayrı bir rakam grubu olmalı |
 | `[TC_KIMLIK]` | `masking/tc.py` | TC checksum; rakama benzeyen harfler (`O`→0, `l`→1), yazıyla rakamlar |
 | `[VKN]` | `masking/vkn.py` | Sadece "vergi"/"VKN" kelimesinden sonra, çünkü checksum tek başına rastgele 10 haneli sayıların ~%10'unu tutuyor |
 
-Sıra önemli: gizli anahtarlar, e-posta, IBAN, kart, telefon, TC, VKN, en son rastgele diziler. Uzun numaralar önce maskeleniyor ki TC checksum'ı bir kart ya da telefon numarasının parçasını yakalamasın.
+Sıra önemli: gizli anahtarlar, e-posta, IBAN, kart, son kullanma tarihi ve CVV, telefon, TC, VKN, en son rastgele diziler. Uzun numaralar önce maskeleniyor ki TC checksum'ı bir kart ya da telefon numarasının parçasını yakalamasın.
 
 İsim ve adresleri yakalamıyor, bunun için NER lazım.
 
@@ -50,7 +51,7 @@ out = OutputGuard(SYSTEM_PROMPT, allowed_hosts=["ornekbank.com.tr"])
 r = guard.check(user_message)
 if r.action != "block":
     answer = llm(system=out.system_prompt, user=r.text)   # prompt + canary
-    o = out.check(answer)
+    o = out.check(answer, user_data=[user_message])       # opsiyonel, aşağıya bakın
     show(o.text)                                          # o.action: allow / review / block
 ```
 
@@ -60,5 +61,8 @@ if r.action != "block":
 | Prompt kopyası | Cevap sistem promptundan 5 kelimelik parçaları aynen tekrarlıyorsa: 1 parça review, 3 ve üstü block | review / block |
 | Markdown sızdırma | İzinli olmayan hostlardaki resimler kaldırılıyor; veri taşıyan (uzun query, `[IBAN]` gibi yer tutucu) resim/link/referanslar ve `javascript:` linkleri temizleniyor | review |
 | Cevap maskeleme | Girişteki bütün maskeleme cevaba da uygulanıyor | allow (metin maskeli) |
+| Yeni kişisel veri | `user_data` verildiyse: cevaptaki TC, IBAN, telefon, kart vb. bu metinlerde yoksa başka bir müşterinin verisi olabilir. Numaralar rakamlarıyla karşılaştırılıyor (`0532…`, `+90 532…` ve `sıfır beş üç…` aynı numara). | review |
+
+`user_data`'ya kullanıcının görmesine izin verilen her şeyi maskelenmemiş haliyle verin: kendi mesajı ve tool'ların döndürdüğü kendi hesap kaydı. Verilmezse bu kontrol çalışmıyor; RAG ya da tool cevabında başka bir müşterinin kaydı gelirse cevap yine maskeleniyor ama review'a düşmüyor.
 
 Canary çeviride de işe yarıyor: model sistem promptunu başka dile çevirse bile rastgele kod aynı kalıyor.

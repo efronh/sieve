@@ -70,3 +70,25 @@ def test_answer(guard, name):
         assert result.text == SAFE_REPLY
     if expected == "allow" and must_disappear is None:
         assert result.text == answer
+
+
+USER = "Benim TC'm 10000000146, telefonum +90 532 111 22 33"
+
+
+@pytest.mark.parametrize("answer, new_data", [
+    ("TC'niz 10000000146 ve telefonunuz 05321112233 olarak kayıtlı.", False),
+    ("Telefonunuz sıfır beş üç iki bir bir bir iki iki üç üç.", False),
+    ("Kayıtlı TC: 12345678950.", True),
+    ("Ayşe Hanım'ın IBAN'ı TR33 0006 1005 1978 6457 8413 26.", True),
+    ("Başvurunuz alındı.", False),
+])
+def test_personal_data_the_user_did_not_give(guard, answer, new_data):
+    result = guard.check(answer, user_data=[USER])
+    matches = [m for f in result.findings for m in f.matches]
+    assert ("new_personal_data" in matches) == new_data, matches
+    assert result.action == ("review" if new_data else "allow")
+
+
+def test_new_personal_data_needs_user_data(guard):
+    result = guard.check("Kayıtlı TC: 12345678950.")
+    assert result.action == "allow" and "12345678950" not in result.text

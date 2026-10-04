@@ -11,6 +11,7 @@ from sieve.checks.prompt_injection import PromptInjectionLayer
 from sieve.checks.tampering import TamperingLayer
 from sieve.checks.urls import URLCheckLayer
 from sieve.masking.card import CardMaskingLayer
+from sieve.masking.card_security import CardSecurityMaskingLayer
 from sieve.masking.credentials import RandomTokenMaskingLayer, SecretMaskingLayer
 from sieve.masking.email import EmailMaskingLayer
 from sieve.masking.iban import IBANMaskingLayer
@@ -33,12 +34,14 @@ CACHE_SIZE = 2048
 
 # Order matters: secrets first (a connection string looks like an e-mail),
 # then longer, more specific numbers, so a card or phone number isn't
-# partly eaten by the TC checksum; random-looking tokens last.
+# partly eaten by the TC checksum; expiry date and CVV right after the card,
+# since they need [KART] as context; random-looking tokens last.
 LAYERS = [
     SecretMaskingLayer(),
     EmailMaskingLayer(),
     IBANMaskingLayer(),
     CardMaskingLayer(),
+    CardSecurityMaskingLayer(),
     PhoneMaskingLayer(),
     TCMaskingLayer(),
     VKNMaskingLayer(),

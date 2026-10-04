@@ -13,6 +13,7 @@ secret_masking = true
 email_masking = true
 iban_masking = true
 card_masking = true
+card_security_masking = true  # expiry date and CVV, next to a card or after a keyword
 phone_masking = true
 tc_masking = true
 vkn_masking = true

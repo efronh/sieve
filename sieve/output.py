@@ -6,6 +6,7 @@ from urllib.parse import parse_qsl, urlsplit
 
 from sieve.actions import ALLOW, BLOCK, REVIEW, Finding, worst_action
 from sieve.checks.prompt_injection import decode_hidden_parts
+from sieve.masking.number_units import REPLACED, find_units, to_lower
 
 SAFE_REPLY = "Bu yanıt güvenlik nedeniyle gösterilemiyor."
 IMAGE_REMOVED = "[resim kaldırıldı]"
@@ -29,7 +30,11 @@ PLAIN_URL = re.compile(r"\bhttps?://[^\s<>\"')\]]+", re.IGNORECASE)
 DANGEROUS_SCHEME = re.compile(r"^(?:javascript|vbscript|data):", re.IGNORECASE)
 # Browsers drop tabs, newlines and leading control characters in URLs: "java\tscript:" still runs.
 URL_IGNORED_CHARS = re.compile(r"[\x00-\x20]")
-PLACEHOLDER = re.compile(r"\[(?:IBAN|TC_KIMLIK|KART|TELEFON|EPOSTA|VKN|SIFRE|GIZLI_ANAHTAR)\]|%5B[A-Z_]+%5D")
+MASK_LABEL = re.compile(r"\[(?:IBAN|TC_KIMLIK|KART|SKT|CVV|TELEFON|EPOSTA|VKN|SIFRE|GIZLI_ANAHTAR)\]")
+PLACEHOLDER = re.compile(MASK_LABEL.pattern + r"|%5B[A-Z_]+%5D")
+# Phone numbers come as 0532..., +90 532... or 532...: long numbers match on their last digits.
+MIN_NUMBER_KEY = 7
+SAME_NUMBER_DIGITS = 10
 WORDS = re.compile(r"\w+")
 
 
@@ -63,6 +68,32 @@ def carries_data(url):
     for part in (parts.query, parts.fragment):
         values += [s for kv in parse_qsl(part, keep_blank_values=True) for s in kv] + [part]
     return bool(PLACEHOLDER.search(url)) or any(len(v) >= MIN_DATA_LENGTH for v in values)
+
+
+# Masks the text and returns it with the values masking replaced.
+def mask_and_collect(text, layers):
+    from sieve.pipeline import mask
+
+    replaced = []
+    token = REPLACED.set(replaced)
+    try:
+        masked = mask(text, layers)
+    finally:
+        REPLACED.reset(token)
+    return masked, [v for v in replaced if not MASK_LABEL.fullmatch(v.strip())]
+
+
+def data_key(value):
+    digits = "".join(u.digit for u in find_units(to_lower(value)) if u.real)
+    return digits if len(digits) >= MIN_NUMBER_KEY else only_letters_and_digits(value)
+
+
+def same_data(a, b):
+    if a == b:
+        return True
+    if a.isdigit() and b.isdigit() and min(len(a), len(b)) >= SAME_NUMBER_DIGITS:
+        return a.endswith(b) or b.endswith(a)
+    return False
 
 
 class TagReader(HTMLParser):
@@ -197,8 +228,10 @@ class OutputGuard:
 
         return answer, findings
 
-    def check(self, answer):
-        from sieve.pipeline import LAYERS, mask
+    # user_data: texts whose personal data this user may see (their own message, their account record),
+    # unmasked. Personal data in the answer that isn't in them may belong to someone else.
+    def check(self, answer, user_data=None):
+        from sieve.pipeline import LAYERS
 
         if self.canary_leaked(answer):
             return OutputResult(SAFE_REPLY, BLOCK, [Finding("canary", 1.0, BLOCK, ["system_prompt_leak"])])
@@ -214,8 +247,15 @@ class OutputGuard:
         for name, action in link_findings:
             findings.append(Finding("output_links", 1.0 if action == REVIEW else 0.0, action, [name]))
 
-        masked = mask(answer, self.masking_layers or LAYERS)
+        layers = self.masking_layers or LAYERS
+        masked, values = mask_and_collect(answer, layers)
         if masked != answer:
             findings.append(Finding("output_masking", 0.0, ALLOW, ["personal_data_masked"]))
+        if values and user_data is not None:
+            if isinstance(user_data, str):
+                user_data = [user_data]
+            known = [data_key(v) for text in user_data for v in mask_and_collect(text, layers)[1]]
+            if any(not any(same_data(data_key(v), k) for k in known) for v in values):
+                findings.append(Finding("output_masking", 1.0, REVIEW, ["new_personal_data"]))
 
         return OutputResult(masked, worst_action(findings), findings)

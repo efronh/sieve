@@ -86,6 +86,7 @@ RULES = {
     "output_links.image_with_data": Rule(SID, 8, "Image URL carrying data"),
     "output_links.external_image": Rule(None, 2, "External image removed"),
     "output_masking.personal_data_masked": Rule(SID, 3, "Personal data masked in the answer"),
+    "output_masking.new_personal_data": Rule(SID, 7, "Answer has personal data the user didn't give"),
 }
 
 # Layers whose match text is a detail ("12000 chars"), not a rule name.

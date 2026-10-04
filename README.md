@@ -58,13 +58,13 @@ flowchart LR
 
 | Layer | What it does |
 |---|---|
-| Masking | TC kimlik (checksum), IBAN (mod 97), card (Luhn), phone, e-mail, VKN, API keys and passwords. Also handles `1OOO…`, `bir sıfır…` and spaced or dashed numbers. Doesn't mask names or addresses. |
+| Masking | TC kimlik (checksum), IBAN (mod 97), card (Luhn) with its expiry date and CVV, phone, e-mail, VKN, API keys and passwords. Also handles `1OOO…`, `bir sıfır…` and spaced or dashed numbers. Doesn't mask names or addresses. |
 | Injection rules | Undoes leetspeak, Cyrillic look-alikes and spaced letters, decodes base64, hex, Morse, ROT13 etc. *talimatlarını unut* is an attack; *talimatımı* (a payment order) and *unut demiştin* (reported speech) aren't, but *unut diye* still is. |
 | Tampering | Unicode tag characters, bidi overrides, zero-width runs, mixed alphabets in one word. Runs on the raw text, since normalizing removes these. |
 | Code payloads, URLs | SQL, shell, path traversal, XSS, template injection. `javascript:` links, IP hosts, punycode, brand look-alikes. |
 | ML | TF-IDF on every message, BERTurk only in the grey zone. Can send a message to review, but never blocks on its own. |
 | LLM (optional) | [AnyJev](https://github.com/nokia-applied-research/AnyJev) reads probabilities from a local model's logits without generating text. Only sees masked text, and can't block until it's calibrated on reviewer labels. |
-| Output guard | Canary token, copied system prompt, masking the answer. Removes images, iframes and other auto-loading HTML pointing outside your hosts, links that carry data (query, path or fragment), `javascript:` links, `<script>` and `on…` handlers. It isn't an HTML sanitizer: if you render the answer as HTML, still pass it through one. |
+| Output guard | Canary token, copied system prompt, masking the answer, personal data in the answer that the user never gave. Removes images, iframes and other auto-loading HTML pointing outside your hosts, links that carry data (query, path or fragment), `javascript:` links, `<script>` and `on…` handlers. It isn't an HTML sanitizer: if you render the answer as HTML, still pass it through one. |
 
 More detail (in Turkish): [layers](docs/layers.md), [ML](docs/ml.md), [LLM](docs/llm.md), [operations](docs/operations.md).
 
@@ -90,6 +90,7 @@ r.action                       # 'block'
 out = OutputGuard(SYSTEM_PROMPT, allowed_hosts=["example.com.tr"])
 answer = my_llm(system=out.system_prompt, user=r.text)   # system prompt + canary
 out.check(answer).text         # masked, exfiltration links removed
+out.check(answer, user_data=[user_message, account_record]).action  # 'review' if the answer has someone else's TC, IBAN, ...
 ```
 
 ## How I evaluated
@@ -115,7 +116,7 @@ out.check(answer).text         # masked, exfiltration links removed
 sieve/
   pipeline.py        Guardrail, mask, clean
   output.py          OutputGuard
-  masking/           tc, iban, card, phone, email, vkn, credentials
+  masking/           tc, iban, card, card_security, phone, email, vkn, credentials
   checks/            prompt_injection, tampering, code_payloads, urls
   ml/                TF-IDF → BERTurk cascade, augmentation
   llm/               AnyJev layer, KV-cache sharing backends

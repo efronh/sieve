@@ -1,7 +1,11 @@
 import re
+from contextvars import ContextVar
 from dataclasses import dataclass
 
 MAX_GAP = 3
+
+# OutputGuard sets a list here to collect the values masking replaces; None otherwise.
+REPLACED = ContextVar("replaced", default=None)
 
 NUMBER_WORDS = {
     "sıfır": "0", "bir": "1", "iki": "2", "üç": "3", "dört": "4",
@@ -98,14 +102,21 @@ def find_windows(group, length, min_real, is_valid):
 
 
 def apply_masks(text, spans, label):
+    return apply_labeled_masks(text, [(start, end, label) for start, end in spans])
+
+
+def apply_labeled_masks(text, spans):
+    replaced = REPLACED.get()
     result = []
     last_end = 0
 
-    for start, end in sorted(spans, key=lambda span: (span[0], -span[1])):
+    for start, end, label in sorted(spans, key=lambda s: (s[0], -s[1])):
         if start < last_end:
             continue
         result.append(text[last_end:start])
         result.append(label)
+        if replaced is not None:
+            replaced.append(text[start:end])
         last_end = end
 
     result.append(text[last_end:])

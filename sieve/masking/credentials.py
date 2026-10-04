@@ -2,6 +2,8 @@ import math
 import re
 from collections import Counter
 
+from sieve.masking.number_units import apply_labeled_masks
+
 KEY_LABEL = "[GIZLI_ANAHTAR]"
 PASSWORD_LABEL = "[SIFRE]"
 
@@ -43,21 +45,6 @@ def entropy(text):
 def looks_random(token):
     has_mix = any(c.isdigit() for c in token) and any(c.isupper() for c in token) and any(c.islower() for c in token)
     return has_mix and entropy(token) >= MIN_RANDOM_ENTROPY
-
-
-def apply_labeled_masks(text, spans):
-    result = []
-    last_end = 0
-
-    for start, end, label in sorted(spans, key=lambda s: (s[0], -s[1])):
-        if start < last_end:
-            continue
-        result.append(text[last_end:start])
-        result.append(label)
-        last_end = end
-
-    result.append(text[last_end:])
-    return "".join(result)
 
 
 class SecretMaskingLayer:

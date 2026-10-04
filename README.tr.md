@@ -58,13 +58,13 @@ flowchart LR
 
 | Katman | Ne yapıyor |
 |---|---|
-| Maskeleme | TC kimlik (checksum), IBAN (mod 97), kart (Luhn), telefon, e-posta, VKN, API anahtarı ve şifre. `1OOO…`, `bir sıfır…`, boşluklu ve tireli yazımları da yakalıyor. İsim ve adres maskelemiyor. |
+| Maskeleme | TC kimlik (checksum), IBAN (mod 97), kart (Luhn) ve son kullanma tarihiyle CVV'si, telefon, e-posta, VKN, API anahtarı ve şifre. `1OOO…`, `bir sıfır…`, boşluklu ve tireli yazımları da yakalıyor. İsim ve adres maskelemiyor. |
 | Injection kuralları | Leetspeak, Kiril harfler ve boşluklu harfleri düzeltiyor; base64, hex, Mors, ROT13 gibi kodlamaları çözüyor. *talimatlarını unut* saldırı; *talimatımı* (ödeme talimatı) ve *unut demiştin* (aktarılan söz) değil, ama *unut diye* yine saldırı. |
 | Manipülasyon | Unicode tag karakterleri, yön değiştirme, sıfır genişlikli karakterler, tek kelimede karışık alfabe. Normalize etmek bunları sildiği için ham metinde çalışıyor. |
 | Kod, URL | SQL, shell, path traversal, XSS, template injection. `javascript:` linkleri, IP adresli host, punycode, marka taklidi. |
 | ML | TF-IDF her mesajda, BERTurk sadece gri bölgede. Mesajı review'a gönderebiliyor, tek başına engellemiyor. |
 | LLM (opsiyonel) | [AnyJev](https://github.com/nokia-applied-research/AnyJev), yerel bir modelin logit'lerinden metin üretmeden olasılık okuyor. Sadece maskelenmiş metni görüyor; reviewer etiketleriyle kalibre edilene kadar engelleyemiyor. |
-| Çıkış kontrolü | Canary, sistem promptunun kopyalanması, cevabın maskelenmesi. İzinli hostlarınız dışına giden resim, iframe ve kendiliğinden yüklenen diğer HTML'i, veri taşıyan linkleri (query, path ya da fragment), `javascript:` linklerini, `<script>` ve `on…` handler'larını kaldırıyor. Bir HTML sanitizer değil: Cevabı HTML olarak gösteriyorsanız yine bir sanitizer'dan geçirin. |
+| Çıkış kontrolü | Canary, sistem promptunun kopyalanması, cevabın maskelenmesi, cevapta kullanıcının vermediği kişisel veri. İzinli hostlarınız dışına giden resim, iframe ve kendiliğinden yüklenen diğer HTML'i, veri taşıyan linkleri (query, path ya da fragment), `javascript:` linklerini, `<script>` ve `on…` handler'larını kaldırıyor. Bir HTML sanitizer değil: Cevabı HTML olarak gösteriyorsanız yine bir sanitizer'dan geçirin. |
 
 Ayrıntılar: [katmanlar](docs/layers.md), [ML](docs/ml.md), [LLM](docs/llm.md), [entegrasyon](docs/operations.md).
 
@@ -90,6 +90,7 @@ r.action                       # 'block'
 out = OutputGuard(SYSTEM_PROMPT, allowed_hosts=["ornek.com.tr"])
 answer = my_llm(system=out.system_prompt, user=r.text)   # sistem promptu + canary
 out.check(answer).text         # maskelenmiş, sızdırma linkleri temizlenmiş
+out.check(answer, user_data=[user_message, account_record]).action  # cevapta başkasının TC'si, IBAN'ı vb. varsa 'review'
 ```
 
 ## Nasıl ölçtüm
@@ -115,7 +116,7 @@ out.check(answer).text         # maskelenmiş, sızdırma linkleri temizlenmiş
 sieve/
   pipeline.py        Guardrail, mask, clean
   output.py          OutputGuard
-  masking/           tc, iban, card, phone, email, vkn, credentials
+  masking/           tc, iban, card, card_security, phone, email, vkn, credentials
   checks/            prompt_injection, tampering, code_payloads, urls
   ml/                TF-IDF → BERTurk kademesi, augmentation
   llm/               AnyJev katmanı, KV cache paylaşan backend'ler

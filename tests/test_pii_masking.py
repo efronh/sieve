@@ -21,6 +21,12 @@ SHOULD_MASK = [
     ("[VKN]", "Vergi numaram 1234567890"),
     ("[VKN]", "VKN: 123 456 78 90"),
     ("[KART]", "Kart: 4\u03321\u03321\u03321\u0332 1111 1111 1111"),
+    ("[CVV]", "Kart 4111 1111 1111 1111 12/27 123"),
+    ("[CVV]", "kart: 4111111111111111, 08/2029, 1234"),
+    ("[CVV]", "Son kullanma tarihi 12/27, CVV'si 456"),
+    ("[CVV]", "cvv: bir iki üç"),
+    ("[SKT]", "SKT: 08/29 güvenlik kodu 789"),
+    ("[SKT]", "exp 1/30"),
 ]
 
 SHOULD_NOT_MASK = [
@@ -34,7 +40,15 @@ SHOULD_NOT_MASK = [
     "Tarih 24.09.2026 saat 14:30",
 ]
 
-LABELS = ["[EPOSTA]", "[KART]", "[TELEFON]", "[VKN]"]
+# The card is masked; the date and amount next to it aren't an expiry date or CVV.
+SHOULD_NOT_MASK_AS_CARD_DETAILS = [
+    "4111 1111 1111 1111 numaralı kartımdan 12/10 tarihinde 250 TL çekildi",
+    "Kart 4111 1111 1111 1111 12/10/2026 tarihinde",
+    "CVV kodumu 3 kere yanlış girdim",
+    "Faturam 12/27 TL",
+]
+
+LABELS = ["[EPOSTA]", "[KART]", "[TELEFON]", "[VKN]", "[SKT]", "[CVV]"]
 
 
 @pytest.mark.parametrize("label, text", SHOULD_MASK)
@@ -47,6 +61,12 @@ def test_masks(label, text):
 def test_leaves_alone(text):
     result = mask(text)
     assert not any(label in result for label in LABELS), result
+
+
+@pytest.mark.parametrize("text", SHOULD_NOT_MASK_AS_CARD_DETAILS)
+def test_leaves_card_details_alone(text):
+    result = mask(text)
+    assert "[SKT]" not in result and "[CVV]" not in result, result
 
 
 def test_marks_on_latin_letters_are_removed():
