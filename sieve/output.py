@@ -6,6 +6,7 @@ from urllib.parse import parse_qsl, urlsplit
 
 from sieve.actions import ALLOW, BLOCK, REVIEW, Finding, worst_action
 from sieve.checks.prompt_injection import decode_hidden_parts
+from sieve.masking import LABEL_NAMES
 from sieve.masking.number_units import REPLACED, find_units, to_lower
 
 SAFE_REPLY = "Bu yanıt güvenlik nedeniyle gösterilemiyor."
@@ -30,7 +31,7 @@ PLAIN_URL = re.compile(r"\bhttps?://[^\s<>\"')\]]+", re.IGNORECASE)
 DANGEROUS_SCHEME = re.compile(r"^(?:javascript|vbscript|data):", re.IGNORECASE)
 # Browsers drop tabs, newlines and leading control characters in URLs: "java\tscript:" still runs.
 URL_IGNORED_CHARS = re.compile(r"[\x00-\x20]")
-MASK_LABEL = re.compile(r"\[(?:IBAN|TC_KIMLIK|KART|SKT|CVV|TELEFON|EPOSTA|VKN|SIFRE|GIZLI_ANAHTAR)\]")
+MASK_LABEL = re.compile(r"\[(?:" + "|".join(LABEL_NAMES) + r")\]")
 PLACEHOLDER = re.compile(MASK_LABEL.pattern + r"|%5B[A-Z_]+%5D")
 # Phone numbers come as 0532..., +90 532... or 532...: long numbers match on their last digits.
 MIN_NUMBER_KEY = 7

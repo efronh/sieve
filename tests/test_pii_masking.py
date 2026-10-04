@@ -1,5 +1,8 @@
+import re
+
 import pytest
 
+from sieve.masking import LABEL_NAMES
 from sieve.pipeline import clean, mask
 
 SHOULD_MASK = [
@@ -76,3 +79,12 @@ def test_marks_on_latin_letters_are_removed():
 def test_marks_that_belong_to_the_script_are_kept():
     for text in ["مَرْحَبًا", "שָׁלוֹם", "Şöyle güzel bir gün"]:
         assert clean(text) == text
+
+
+# output.py and siem.py read labels back from masked text; a label missing from LABEL_NAMES goes uncounted.
+def test_every_label_is_listed():
+    written = {label.strip("[]") for _, text in SHOULD_MASK for label in re.findall(r"\[[A-Z_]+\]", mask(text))}
+    written |= {label.strip("[]") for label in re.findall(r"\[[A-Z_]+\]", mask(
+        "IBAN TR33 0006 1005 1978 6457 8413 26, TC 10000000146, şifre: abc123!x, sk-ant-abcdefghijklmnopqrstuvwx"))}
+    assert written <= set(LABEL_NAMES), written - set(LABEL_NAMES)
+    assert {"IBAN", "TC_KIMLIK", "SIFRE", "GIZLI_ANAHTAR", "SKT", "CVV"} <= written

@@ -13,13 +13,14 @@ from collections import Counter
 from datetime import datetime, timezone
 
 from sieve.actions import ACTION_ORDER, ALLOW
+from sieve.masking import LABEL_NAMES
 from sieve.rules import rule_ids, rule_info
 
 SCHEMA_VERSION = 1
 PRODUCT = "sieve"
 EXCERPT_CHARS = 200
 PSEUDONYM_KEY_ENV = "SIEVE_PSEUDONYM_KEY"
-MASK_LABEL = re.compile(r"\[(IBAN|TC_KIMLIK|KART|TELEFON|EPOSTA|VKN|SIFRE|GIZLI_ANAHTAR)\]")
+MASK_LABEL = re.compile(r"\[(" + "|".join(LABEL_NAMES) + r")\]")
 CEF_SEVERITY = {ALLOW: 1, "review": 5, "block": 8}
 
 logger = logging.getLogger("sieve.siem")
