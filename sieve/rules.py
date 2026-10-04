@@ -85,6 +85,9 @@ RULES = {
     "output_links.url_with_data": Rule(SID, 7, "URL carrying data in the answer"),
     "output_links.image_with_data": Rule(SID, 8, "Image URL carrying data"),
     "output_links.external_image": Rule(None, 2, "External image removed"),
+    "output_links.dangerous_html": Rule(OUT, 7, "Script, event handler or dangerous link in answer HTML"),
+    "output_links.embed_with_data": Rule(SID, 8, "Embedded content URL carrying data"),
+    "output_links.external_embed": Rule(None, 2, "External embedded content removed"),
     "output_masking.personal_data_masked": Rule(SID, 3, "Personal data masked in the answer"),
     "output_masking.new_personal_data": Rule(SID, 7, "Answer has personal data the user didn't give"),
 

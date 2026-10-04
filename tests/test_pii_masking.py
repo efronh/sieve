@@ -49,6 +49,7 @@ SHOULD_NOT_MASK_AS_CARD_DETAILS = [
     "Kart 4111 1111 1111 1111 12/10/2026 tarihinde",
     "CVV kodumu 3 kere yanlış girdim",
     "Faturam 12/27 TL",
+    "Expected delivery 12/10, export 3/25",
 ]
 
 LABELS = ["[EPOSTA]", "[KART]", "[TELEFON]", "[VKN]", "[SKT]", "[CVV]"]

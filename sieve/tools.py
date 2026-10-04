@@ -2,14 +2,16 @@
 #   tools = ToolGuard({"para_transferi": {"params": {"iban": "str", "tutar": "number"}, "max": {"tutar": 50000},
 #                                         "from_user": ["iban"], "confirm": True}})
 #   r = tools.check("para_transferi", {"iban": iban, "tutar": 100}, user_data=[user_message])
+import math
 from dataclasses import dataclass, field
 
 from sieve.actions import ALLOW, BLOCK, REVIEW, Finding, worst_action
 from sieve.checks.code_payloads import CodePayloadLayer
 from sieve.checks.prompt_injection import PromptInjectionLayer
+from sieve.checks.tampering import TamperingLayer
 from sieve.checks.urls import URLCheckLayer
 from sieve.output import PLAIN_URL, carries_data, data_key, host_of, mask_and_collect, only_letters_and_digits, same_data
-from sieve.pipeline import LAYERS
+from sieve.pipeline import LAYERS, clean
 
 TYPES = {"str": (str,), "number": (int, float), "integer": (int,), "bool": (bool,)}
 SPEC_KEYS = {"params", "optional", "min", "max", "from_user", "confirm"}
@@ -23,9 +25,20 @@ class ToolResult:
     reasons: list = field(default_factory=list)  # one line per problem, e.g. to tell the model why a call was refused
 
 
+def is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 # Typos in a spec must fail loudly: a misspelled limit would silently allow any amount.
 def spec_problems(name, spec):
+    if not isinstance(spec, dict):
+        return [f"tool {name!r}: spec must be a table"]
     problems = [f"tool {name!r}: unknown key {k!r}" for k in spec if k not in SPEC_KEYS]
+    shapes = {"params": dict, "optional": (list, tuple), "from_user": (list, tuple), "min": dict, "max": dict,
+              "confirm": bool}
+    wrong = [k for k, shape in shapes.items() if k in spec and not isinstance(spec[k], shape)]
+    if wrong:
+        return problems + [f"tool {name!r}: {k} has the wrong type" for k in wrong]
     params = spec.get("params", {})
     problems += [f"tool {name!r}: {p!r} has unknown type {t!r}" for p, t in params.items() if t not in TYPES]
     for key in ("optional", "from_user", "min", "max"):
@@ -33,12 +46,16 @@ def spec_problems(name, spec):
     for key in ("min", "max"):
         problems += [f"tool {name!r}: {key} of {p!r} needs a number parameter" for p in spec.get(key, {})
                      if params.get(p) not in ("number", "integer")]
+        problems += [f"tool {name!r}: {key} of {p!r} must be a number" for p, v in spec.get(key, {}).items()
+                     if not is_number(v)]
     return problems
 
 
 def has_type(value, name):
-    # bool is an int in Python, but True isn't an amount.
-    return isinstance(value, TYPES[name]) and (name == "bool" or not isinstance(value, bool))
+    if name == "bool":
+        return isinstance(value, bool)
+    # bool is an int in Python, but True isn't an amount; json.loads accepts NaN, which no limit catches.
+    return isinstance(value, TYPES[name]) and not isinstance(value, bool) and (name == "str" or math.isfinite(value))
 
 
 def strings_in(value):
@@ -70,7 +87,7 @@ class ToolGuard:
         self.tools = tools
         self.allowed_hosts = {h.lower() for h in allowed_hosts}
         # Arguments reach another system (a database, a mail, another agent), so the input rules apply to them too.
-        self.content_layers = [PromptInjectionLayer(), CodePayloadLayer(), URLCheckLayer(allowed_hosts)]
+        self.content_layers = [TamperingLayer(), PromptInjectionLayer(), CodePayloadLayer(), URLCheckLayer(allowed_hosts)]
 
     def is_allowed(self, url):
         host = host_of(url)
@@ -111,15 +128,20 @@ class ToolGuard:
         if spec is None:
             return ToolResult(BLOCK, [Finding(CHECK, 1.0, BLOCK, ["unknown_tool"])], [f"unknown tool {name!r}"])
 
+        if not isinstance(args, dict):
+            return ToolResult(BLOCK, [Finding(CHECK, 1.0, BLOCK, ["bad_arguments"])], ["arguments must be an object"])
+
         problems = self.policy_problems(spec, args, user_data)
         findings = []
         if problems:
             action = worst_action([Finding(CHECK, 1.0, a) for _, a, _ in problems])
             findings.append(Finding(CHECK, 1.0, action, sorted({m for m, _, _ in problems})))
 
+        # Same order as the pipeline: tampering on the raw text, everything else after clean().
         for text in strings_in(args):
             for layer in self.content_layers:
-                findings += [f for f in layer.check(text) if f.matches]
+                source = text if getattr(layer, "needs_raw_text", False) else clean(text)
+                findings += [f for f in layer.check(source) if f.matches]
 
         reasons = [reason for _, _, reason in problems]
         reasons += [f"{f.check}: {', '.join(f.matches)}" for f in findings if f.check != CHECK and f.action != ALLOW]

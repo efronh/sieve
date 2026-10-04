@@ -66,7 +66,7 @@ flowchart LR
 | ML | TF-IDF on every message, BERTurk only in the grey zone. Can send a message to review, but never blocks on its own. |
 | LLM (optional) | [AnyJev](https://github.com/nokia-applied-research/AnyJev) reads probabilities from a local model's logits without generating text. Only sees masked text, and can't block until it's calibrated on reviewer labels. |
 | Output guard | Canary token, copied system prompt, masking the answer, personal data in the answer that the user never gave. Removes images, iframes and other auto-loading HTML pointing outside your hosts, links that carry data (query, path or fragment), `javascript:` links, `<script>` and `on…` handlers. It isn't an HTML sanitizer: if you render the answer as HTML, still pass it through one. |
-| Tool guard | Checks a tool call before your app runs it. Tools not on the list, unknown or wrongly typed arguments and amounts outside their limits are blocked. An argument that must come from the user (an IBAN, a phone number) but isn't in their messages, and tools marked `confirm`, go to review. String arguments go through the injection, code and URL rules. |
+| Tool guard | Checks a tool call before your app runs it. Tools not on the list, unknown or wrongly typed arguments and amounts outside their limits are blocked. An argument that must come from the user (an IBAN, a phone number) but isn't in their messages, and tools marked `confirm`, go to review. String arguments go through the tampering, injection, code and URL rules. |
 
 More detail (in Turkish): [layers](docs/layers.md), [ML](docs/ml.md), [LLM](docs/llm.md), [operations](docs/operations.md).
 

@@ -66,7 +66,7 @@ flowchart LR
 | ML | TF-IDF her mesajda, BERTurk sadece gri bölgede. Mesajı review'a gönderebiliyor, tek başına engellemiyor. |
 | LLM (opsiyonel) | [AnyJev](https://github.com/nokia-applied-research/AnyJev), yerel bir modelin logit'lerinden metin üretmeden olasılık okuyor. Sadece maskelenmiş metni görüyor; reviewer etiketleriyle kalibre edilene kadar engelleyemiyor. |
 | Çıkış kontrolü | Canary, sistem promptunun kopyalanması, cevabın maskelenmesi, cevapta kullanıcının vermediği kişisel veri. İzinli hostlarınız dışına giden resim, iframe ve kendiliğinden yüklenen diğer HTML'i, veri taşıyan linkleri (query, path ya da fragment), `javascript:` linklerini, `<script>` ve `on…` handler'larını kaldırıyor. Bir HTML sanitizer değil: Cevabı HTML olarak gösteriyorsanız yine bir sanitizer'dan geçirin. |
-| Tool kontrolü | Uygulamanız bir tool çağrısını çalıştırmadan önce bakıyor. Listede olmayan tool, bilinmeyen ya da yanlış tipte argüman ve limit dışı tutar engelleniyor. Kullanıcıdan gelmesi gereken (IBAN, telefon) ama mesajlarında olmayan bir argüman ve `confirm` işaretli tool'lar review'a gidiyor. String argümanlar injection, kod ve URL kurallarından geçiyor. |
+| Tool kontrolü | Uygulamanız bir tool çağrısını çalıştırmadan önce bakıyor. Listede olmayan tool, bilinmeyen ya da yanlış tipte argüman ve limit dışı tutar engelleniyor. Kullanıcıdan gelmesi gereken (IBAN, telefon) ama mesajlarında olmayan bir argüman ve `confirm` işaretli tool'lar review'a gidiyor. String argümanlar manipülasyon, injection, kod ve URL kurallarından geçiyor. |
 
 Ayrıntılar: [katmanlar](docs/layers.md), [ML](docs/ml.md), [LLM](docs/llm.md), [entegrasyon](docs/operations.md).
 

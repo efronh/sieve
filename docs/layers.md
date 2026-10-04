@@ -93,12 +93,12 @@ r.reasons    # ['tutar: 75000 > 50000'], modele ya da kullanıcıya neden redded
 | Kontrol | Ne yapıyor | Karar |
 |---|---|---|
 | İzin listesi | Spec'i olmayan tool | block |
-| Argümanlar | Bilinmeyen parametre, eksik zorunlu parametre, yanlış tip (`True` sayı sayılmıyor) | block |
+| Argümanlar | Bilinmeyen parametre, eksik zorunlu parametre, yanlış tip (`True`, `NaN` ve sonsuz sayı sayılmıyor), sözlük olmayan argümanlar | block |
 | Limitler | `min`/`max` dışındaki sayı | block |
 | Kullanıcıdan mı | `from_user` argümanı `user_data`'da yoksa. Boşluk ve büyük/küçük harf farkı, `+90 532…`/`0532…`/`sıfır beş üç…` gibi aynı numaranın farklı yazımları sayılmıyor. `user_data` verilmezse doğrulanamadığı için review | review |
 | Onay | `confirm = true` olan tool | review |
-| Argüman içeriği | String argümanlar (iç içe olanlar dahil) injection, kod ve URL kurallarından geçiyor; izinli olmayan bir hosta veri taşıyan link review | kuralın kararı |
+| Argüman içeriği | String argümanlar (iç içe olanlar dahil) girişteki gibi önce ham halde manipülasyon kontrolünden, sonra normalize edilip injection, kod ve URL kurallarından geçiyor; izinli olmayan bir hosta veri taşıyan link review | kuralın kararı |
 
-Spec'teki bir yazım hatası (bilinmeyen tip, olmayan parametreye limit, `confrim`) `ValueError` veriyor; yanlış yazılmış bir limit sessizce her tutara izin vermesin diye.
+Spec'teki bir yazım hatası (bilinmeyen tip, olmayan parametreye limit, sayı yerine yazı olan limit, `confrim`) `ValueError` veriyor; yanlış yazılmış bir limit sessizce her tutara izin vermesin diye.
 
 Kiracı politikasında spec'ler `[tools.<ad>]` tablolarında, `TenantGuardrail.check_tool(name, args, user_data=...)` aynı shadow/monitor/`disabled_rules` kurallarıyla çalışıyor ve SIEM'e `direction = "tool"` olayı gönderiyor (argümanlar maskeli). Örnek: `policies/example_bank.toml`.

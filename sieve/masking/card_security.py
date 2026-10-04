@@ -9,7 +9,7 @@ KEYWORD_DISTANCE = 25
 # MM/YY or MM/YYYY, not part of a full date like 24.09.2026 or 12/10/2026.
 EXPIRY = r"(?<![\d./-])(?:0?[1-9]|1[0-2])\s?[/.-]\s?(?:20)?\d{2}(?!\d|\s?[/.-]\s?\d)"
 EXPIRY_AFTER_KEYWORD = re.compile(
-    rf"\b(?:skt|son kullanma|son kul\.|exp(?:iry|iration)?|valid thru|ge[çc]erlilik)[^\d\n]{{0,{KEYWORD_DISTANCE}}}?({EXPIRY})"
+    rf"\b(?:skt|son kullanma|son kul\.|exp(?:iry|iration)?\b|valid thru|ge[çc]erlilik)[^\d\n]{{0,{KEYWORD_DISTANCE}}}?({EXPIRY})"
 )
 CVV_KEYWORDS = re.compile(r"\b(?:cvv|cvc|cvn)2?|\bg[üu]venlik (?:kodu|numaras)|\bsecurity code")
 # Pasted card details: "[KART] 12/27 123". Only separators in between, no words.

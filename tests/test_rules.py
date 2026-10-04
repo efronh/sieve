@@ -1,12 +1,16 @@
 import csv
 
 import test_deterministic_checks
+import test_output_guard
 import test_prompt_injection
+import test_tools
 
 from sieve.integrations.siem import fired
+from sieve.output import OutputGuard
 from sieve.paths import DATA
 from sieve.pipeline import Guardrail
 from sieve.rules import RULES, rule_ids
+from sieve.tools import ToolGuard
 
 
 def all_texts():
@@ -31,3 +35,17 @@ def test_every_fired_rule_is_catalogued():
 
     missing = {rule_id: text[:60] for rule_id, text in seen.items() if rule_id not in RULES}
     assert not missing, f"rule IDs not in rules.py (with an example text): {missing}"
+
+
+def test_every_output_and_tool_rule_is_catalogued():
+    out = OutputGuard(test_output_guard.SYSTEM, allowed_hosts=["ornekbank.com.tr"])
+    findings = []
+    for answer, *_ in test_output_guard.cases(out.canary).values():
+        findings += out.check(answer, user_data=[test_output_guard.USER]).findings
+    tools = ToolGuard(test_tools.TOOLS, allowed_hosts=["ornekbank.com.tr"])
+    for name, args, *_ in test_tools.CALLS:
+        findings += tools.check(name, args, user_data=[test_tools.USER]).findings
+
+    seen = {rule_id for f in filter(fired, findings) for rule_id, _ in rule_ids(f)}
+    assert seen - set(RULES) == set(), "rule IDs not in rules.py"
+    assert {"output_links.dangerous_html", "tool_call.unknown_tool"} <= seen
