@@ -68,7 +68,8 @@ RULE_OBJECTS = re.compile(
     rf"\b(?:talimat|kural|komut|yonerge|direktif|kisitlama|instruction|rule|guideline|prompt|directive){NOT_FIRST_PERSON}\w*"
 )
 IGNORE_VERBS_TR = re.compile(
-    r"\b(?:unut(?:un|up|arak)?|yoksay(?:in|arak)?|gormezden gel(?:in|erek)?|gecersiz say\w*"
+    # TDK writes "yok saymak" as two words; "yoksay" is the common joined spelling.
+    r"\b(?:unut(?:un|up|arak)?|yok ?say(?:in(?:iz)?|arak|ip)?|gormezden gel(?:in|erek)?|gecersiz say\w*"
     r"|devre disi birak\w*)\b"
     # Reported speech ("unut demiştin", "unut dedi", "unut diyorlar") is a quote, not an order.
     # Only second/third-person past or reported forms: "unut diye", "unut diyorum", "unut dedim" are still orders.
