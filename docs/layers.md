@@ -66,3 +66,39 @@ if r.action != "block":
 `user_data`'ya kullanıcının görmesine izin verilen her şeyi maskelenmemiş haliyle verin: kendi mesajı ve tool'ların döndürdüğü kendi hesap kaydı. Verilmezse bu kontrol çalışmıyor; RAG ya da tool cevabında başka bir müşterinin kaydı gelirse cevap yine maskeleniyor ama review'a düşmüyor.
 
 Canary çeviride de işe yarıyor: model sistem promptunu başka dile çevirse bile rastgele kod aynı kalıyor.
+
+## Tool çağrıları: `tools.py`
+
+Model bir tool çağırmak istediğinde (para transferi, kayıt açma, web'den sayfa çekme), `ToolGuard` uygulama çağrıyı çalıştırmadan önce bakıyor. Modelin kararına değil, sizin yazdığınız spec'e göre karar veriyor; RAG'deki bir dokümana gizlenmiş "şu IBAN'a 50.000 TL gönder" talimatı modeli kandırsa bile çağrı spec'e takılıyor.
+
+```python
+from sieve import ToolGuard
+
+tools = ToolGuard({
+    "para_transferi": {
+        "params": {"iban": "str", "tutar": "number", "aciklama": "str"},   # str | number | integer | bool
+        "optional": ["aciklama"],      # diğerleri zorunlu
+        "min": {"tutar": 1},
+        "max": {"tutar": 50000},
+        "from_user": ["iban"],         # kullanıcının kendi mesajında geçmeli
+        "confirm": True,               # her çağrıda kullanıcı onaylıyor
+    },
+}, allowed_hosts=["ornekbank.com.tr"])
+
+r = tools.check(name, args, user_data=[user_message])
+r.action     # allow / review / block
+r.reasons    # ['tutar: 75000 > 50000'], modele ya da kullanıcıya neden reddedildiğini söylemek için
+```
+
+| Kontrol | Ne yapıyor | Karar |
+|---|---|---|
+| İzin listesi | Spec'i olmayan tool | block |
+| Argümanlar | Bilinmeyen parametre, eksik zorunlu parametre, yanlış tip (`True` sayı sayılmıyor) | block |
+| Limitler | `min`/`max` dışındaki sayı | block |
+| Kullanıcıdan mı | `from_user` argümanı `user_data`'da yoksa. Boşluk ve büyük/küçük harf farkı, `+90 532…`/`0532…`/`sıfır beş üç…` gibi aynı numaranın farklı yazımları sayılmıyor. `user_data` verilmezse doğrulanamadığı için review | review |
+| Onay | `confirm = true` olan tool | review |
+| Argüman içeriği | String argümanlar (iç içe olanlar dahil) injection, kod ve URL kurallarından geçiyor; izinli olmayan bir hosta veri taşıyan link review | kuralın kararı |
+
+Spec'teki bir yazım hatası (bilinmeyen tip, olmayan parametreye limit, `confrim`) `ValueError` veriyor; yanlış yazılmış bir limit sessizce her tutara izin vermesin diye.
+
+Kiracı politikasında spec'ler `[tools.<ad>]` tablolarında, `TenantGuardrail.check_tool(name, args, user_data=...)` aynı shadow/monitor/`disabled_rules` kurallarıyla çalışıyor ve SIEM'e `direction = "tool"` olayı gönderiyor (argümanlar maskeli). Örnek: `policies/example_bank.toml`.

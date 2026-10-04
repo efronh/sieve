@@ -26,6 +26,7 @@ code_payloads = "enforce"
 url_check = "enforce"
 prompt_injection_ml = "enforce"  # review only; ML never blocks on its own
 session = "enforce"      # the [session] limits below
+tool_call = "enforce"    # the [tools.*] specs below, via TenantGuardrail.check_tool
 
 [session]                # per user (or session when there's no user ID); needs session_id / user_id in check()
 max_requests_per_minute = 30
@@ -37,3 +38,13 @@ context_messages = 4     # split-attack check over the last N messages of a sess
 
 [url_check]
 allowed_hosts = []
+
+# Tools the model may call; any other tool is blocked. One table per tool:
+#   [tools.para_transferi]
+#   params = { iban = "str", tutar = "number", aciklama = "str" }   # str | number | integer | bool
+#   optional = ["aciklama"]  # every other parameter is required; unknown ones block
+#   min = { tutar = 1 }      # outside min/max blocks
+#   max = { tutar = 50000 }
+#   from_user = ["iban"]     # must appear in the user's own messages, else review
+#   confirm = true           # every call goes to review (the user confirms)
+[tools]

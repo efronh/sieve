@@ -20,6 +20,7 @@ Politika TOML dosyalarında. `policies/default.toml` temel ayarlar, `policies/<k
 
 - `mode = "monitor"` her şeye izin veriyor ama olaya ne olacağını (`would_action`) yazıyor.
 - `[layers]` altında her katman `enforce`, `shadow` (sadece kayıt) ya da `off`.
+- `[tools.<ad>]` modelin çağırabileceği tool'lar, `guard.check_tool(...)` ile ([katmanlar](layers.md#tool-çağrıları-toolspy)). `[layers] tool_call` bunları açıp kapatıyor.
 - `disabled_rules` kapatılacak kural ID'leri. Bir bulgudaki kuralların hepsi kapalıysa bulgu bastırılıyor (`suppressed`); bir kısmı kapalıysa bulgu olduğu gibi kalıyor.
 
 Kural ID'leri `rules.py`'de, `<katman>.<eşleşme>` biçiminde (ör. `prompt_injection_rules.ignore_instructions`). Her birinin bir OWASP LLM Top 10 (2025) kodu ve 1-10 arası bir önem derecesi var. SIEM kuralları bunlara bağlı olacağı için ID'ler değiştirilmiyor. Katalogda olmayan bir ID üretilirse `tests/test_rules.py` hata veriyor.

@@ -54,6 +54,7 @@ flowchart LR
     M --> L
     L --> R{allow / review / block}
     R --> LLM[sizin modeliniz] --> O[çıkış kontrolü<br/>canary, prompt sızıntısı,<br/>veri taşıyan link, maskeleme]
+    LLM --> T[tool kontrolü<br/>izin listesi, argüman tipi ve limitleri,<br/>kullanıcının verdiği değerler]
 ```
 
 | Katman | Ne yapıyor |
@@ -65,6 +66,7 @@ flowchart LR
 | ML | TF-IDF her mesajda, BERTurk sadece gri bölgede. Mesajı review'a gönderebiliyor, tek başına engellemiyor. |
 | LLM (opsiyonel) | [AnyJev](https://github.com/nokia-applied-research/AnyJev), yerel bir modelin logit'lerinden metin üretmeden olasılık okuyor. Sadece maskelenmiş metni görüyor; reviewer etiketleriyle kalibre edilene kadar engelleyemiyor. |
 | Çıkış kontrolü | Canary, sistem promptunun kopyalanması, cevabın maskelenmesi, cevapta kullanıcının vermediği kişisel veri. İzinli hostlarınız dışına giden resim, iframe ve kendiliğinden yüklenen diğer HTML'i, veri taşıyan linkleri (query, path ya da fragment), `javascript:` linklerini, `<script>` ve `on…` handler'larını kaldırıyor. Bir HTML sanitizer değil: Cevabı HTML olarak gösteriyorsanız yine bir sanitizer'dan geçirin. |
+| Tool kontrolü | Uygulamanız bir tool çağrısını çalıştırmadan önce bakıyor. Listede olmayan tool, bilinmeyen ya da yanlış tipte argüman ve limit dışı tutar engelleniyor. Kullanıcıdan gelmesi gereken (IBAN, telefon) ama mesajlarında olmayan bir argüman ve `confirm` işaretli tool'lar review'a gidiyor. String argümanlar injection, kod ve URL kurallarından geçiyor. |
 
 Ayrıntılar: [katmanlar](docs/layers.md), [ML](docs/ml.md), [LLM](docs/llm.md), [entegrasyon](docs/operations.md).
 
@@ -77,7 +79,7 @@ pip install -e ".[ml]"      # BERTurk aşaması
 ```
 
 ```python
-from sieve import Guardrail, OutputGuard, mask
+from sieve import Guardrail, OutputGuard, ToolGuard, mask
 
 mask("Kartım 4111 1111 1111 1111, telefonum 0532 111 22 33")
 # 'Kartım [KART], telefonum [TELEFON]'
@@ -91,6 +93,11 @@ out = OutputGuard(SYSTEM_PROMPT, allowed_hosts=["ornek.com.tr"])
 answer = my_llm(system=out.system_prompt, user=r.text)   # sistem promptu + canary
 out.check(answer).text         # maskelenmiş, sızdırma linkleri temizlenmiş
 out.check(answer, user_data=[user_message, account_record]).action  # cevapta başkasının TC'si, IBAN'ı vb. varsa 'review'
+
+tools = ToolGuard({"para_transferi": {"params": {"iban": "str", "tutar": "number"},
+                                      "max": {"tutar": 50000}, "from_user": ["iban"]}})
+tools.check("para_transferi", {"iban": iban, "tutar": 75000}, user_data=[user_message]).reasons
+# ['tutar: 75000 > 50000']
 ```
 
 ## Nasıl ölçtüm
@@ -116,6 +123,7 @@ out.check(answer, user_data=[user_message, account_record]).action  # cevapta ba
 sieve/
   pipeline.py        Guardrail, mask, clean
   output.py          OutputGuard
+  tools.py           ToolGuard
   masking/           tc, iban, card, card_security, phone, email, vkn, credentials
   checks/            prompt_injection, tampering, code_payloads, urls
   ml/                TF-IDF → BERTurk kademesi, augmentation

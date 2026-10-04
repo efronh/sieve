@@ -87,6 +87,14 @@ RULES = {
     "output_links.external_image": Rule(None, 2, "External image removed"),
     "output_masking.personal_data_masked": Rule(SID, 3, "Personal data masked in the answer"),
     "output_masking.new_personal_data": Rule(SID, 7, "Answer has personal data the user didn't give"),
+
+    # tools.py (plus the input rules above, run on string arguments)
+    "tool_call.unknown_tool": Rule(AGENCY, 8, "Tool not in the allowlist"),
+    "tool_call.bad_arguments": Rule(AGENCY, 6, "Tool arguments don't match the spec"),
+    "tool_call.out_of_range": Rule(AGENCY, 8, "Tool argument outside its limits"),
+    "tool_call.not_from_user": Rule(AGENCY, 7, "Tool argument the user didn't give"),
+    "tool_call.url_with_data": Rule(SID, 7, "URL carrying data in a tool argument"),
+    "tool_call.needs_confirmation": Rule(AGENCY, 2, "Tool call needs the user's confirmation"),
 }
 
 # Layers whose match text is a detail ("12000 chars"), not a rule name.

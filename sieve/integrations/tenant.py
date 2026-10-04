@@ -1,5 +1,6 @@
 # Per-tenant TOML policy (layers, modes, rule exceptions); decisions go to siem.py.
 #   guard = TenantGuardrail(load_policy("example_bank"))
+import json
 import time
 import tomllib
 from dataclasses import dataclass
@@ -9,14 +10,16 @@ from sieve.actions import ACTION_ORDER, ALLOW, BLOCK, REVIEW, Finding, worst_act
 from sieve.integrations.siem import emit, fired, to_event
 from sieve.integrations.throttle import ConversationWindow, RateLimiter, SessionLimiter
 from sieve.paths import POLICIES
-from sieve.pipeline import LAYERS, Guardrail, GuardrailResult, default_check_layers
+from sieve.pipeline import LAYERS, Guardrail, GuardrailResult, default_check_layers, mask
 from sieve.rules import RULES, rule_ids
+from sieve.tools import CHECK as TOOL_CHECK
+from sieve.tools import ToolGuard, ToolResult, spec_problems
 
 POLICY_DIR = POLICIES
 MODES = ("enforce", "monitor")
 LAYER_MODES = ("enforce", "shadow", "off")
 KEYS = {"version", "mode", "max_check_chars", "log_excerpt", "log_allowed", "disabled_rules", "masking", "layers",
-        "session", "url_check"}
+        "session", "url_check", "tools"}
 SESSION_KEYS = {"max_requests_per_minute", "max_chars_per_window", "max_flagged", "cooldown_seconds",
                 "window_seconds", "context_messages"}
 SESSION_CHECKS = {"session", "session_split"}  # both follow the "session" layer mode
@@ -35,6 +38,7 @@ class Policy:
     layers: dict
     session: dict
     allowed_hosts: tuple
+    tools: dict
 
 
 def merge(base, override):
@@ -58,12 +62,13 @@ def validate(data, source):
     masking_names = {layer.name for layer in LAYERS}
     problems += [f"unknown masking layer {k!r}" for k in data["masking"] if k not in masking_names]
 
-    check_names = {layer.name for layer in default_check_layers()} | {"prompt_injection_ml", "session"}
+    check_names = {layer.name for layer in default_check_layers()} | {"prompt_injection_ml", "session", TOOL_CHECK}
     problems += [f"unknown layer {k!r}" for k in data["layers"] if k not in check_names]
     problems += [f"layer {k!r}: mode must be one of {LAYER_MODES}" for k, v in data["layers"].items() if v not in LAYER_MODES]
 
     problems += [f"unknown rule {r!r}" for r in data["disabled_rules"] if r not in RULES]
     problems += [f"unknown session key {k!r}" for k in data.get("session", {}) if k not in SESSION_KEYS]
+    problems += [p for name, spec in data.get("tools", {}).items() for p in spec_problems(name, spec)]
     if problems:
         raise ValueError(f"{source}: " + "; ".join(problems))
 
@@ -89,6 +94,7 @@ def load_policy(tenant="default", directory=POLICY_DIR, overrides=None):
         layers=data["layers"],
         session=data.get("session", {}),
         allowed_hosts=tuple(data.get("url_check", {}).get("allowed_hosts", [])),
+        tools=data.get("tools", {}),
     )
 
 
@@ -140,6 +146,7 @@ class TenantGuardrail:
         self.limiter = SessionLimiter(limits.get("max_flagged", 3), window, limits.get("cooldown_seconds", 900), clock)
         self.context_messages = limits.get("context_messages", 4)
         self.conversation = ConversationWindow(self.context_messages, window, clock)
+        self.tools = ToolGuard(policy.tools, policy.allowed_hosts)
 
     def apply_policy(self, finding):
         if finding.action == ALLOW:
@@ -178,6 +185,27 @@ class TenantGuardrail:
         # Joining messages can pair words that were never meant together, so review, never block.
         return [Finding("session_split", 1.0, REVIEW, new)]
 
+    # Findings after shadow modes and exceptions, the action, and the action ignoring shadow/exceptions/monitor mode.
+    def decide(self, findings):
+        findings = [self.apply_policy(f) for f in findings]
+        would_action = max((intended_action(f) for f in findings), key=ACTION_ORDER.get, default=ALLOW)
+        action = ALLOW if self.policy.mode == "monitor" else worst_action(findings)
+        return findings, action, would_action
+
+    # A tool call the model wants to make; see tools.py. Logged with direction "tool", arguments masked.
+    def check_tool(self, name, args, user_data=None, session_id=None, user_id=None):
+        start = time.perf_counter()
+        result = self.tools.check(name, args, user_data)
+        found = [f for f in result.findings if self.policy.layers.get(f.check) != "off"]
+        findings, action, would_action = self.decide(found)
+
+        if would_action != ALLOW or self.policy.log_allowed:
+            call = f"{name} {json.dumps(args, ensure_ascii=False, sort_keys=True, default=str)}"
+            logged = GuardrailResult(mask(call, self.guard.masking_layers), action, findings)
+            emit(to_event(logged, would_action, self.policy, original=call, session_id=session_id, user_id=user_id,
+                          direction="tool", latency_ms=(time.perf_counter() - start) * 1000))
+        return ToolResult(action, findings, result.reasons)
+
     def check(self, text, session_id=None, user_id=None, direction="input"):
         start = time.perf_counter()
         who = user_id if user_id is not None else session_id
@@ -195,10 +223,7 @@ class TenantGuardrail:
         if track and session_id is not None:
             session_findings += self.split_attack(session_id, result)
 
-        findings = [self.apply_policy(f) for f in list(result.findings) + session_findings]
-        # ignoring shadow/exceptions/monitor mode
-        would_action = max((intended_action(f) for f in findings), key=ACTION_ORDER.get, default=ALLOW)
-        action = ALLOW if self.policy.mode == "monitor" else worst_action(findings)
+        findings, action, would_action = self.decide(list(result.findings) + session_findings)
 
         if track:
             # Monitor mode still counts what would have been flagged; session findings themselves don't.

@@ -54,6 +54,7 @@ flowchart LR
     M --> L
     L --> R{allow / review / block}
     R --> LLM[your model] --> O[output guard<br/>canary, prompt leak,<br/>exfiltration links, masking]
+    LLM --> T[tool guard<br/>allowlist, argument types and limits,<br/>values the user gave]
 ```
 
 | Layer | What it does |
@@ -65,6 +66,7 @@ flowchart LR
 | ML | TF-IDF on every message, BERTurk only in the grey zone. Can send a message to review, but never blocks on its own. |
 | LLM (optional) | [AnyJev](https://github.com/nokia-applied-research/AnyJev) reads probabilities from a local model's logits without generating text. Only sees masked text, and can't block until it's calibrated on reviewer labels. |
 | Output guard | Canary token, copied system prompt, masking the answer, personal data in the answer that the user never gave. Removes images, iframes and other auto-loading HTML pointing outside your hosts, links that carry data (query, path or fragment), `javascript:` links, `<script>` and `on…` handlers. It isn't an HTML sanitizer: if you render the answer as HTML, still pass it through one. |
+| Tool guard | Checks a tool call before your app runs it. Tools not on the list, unknown or wrongly typed arguments and amounts outside their limits are blocked. An argument that must come from the user (an IBAN, a phone number) but isn't in their messages, and tools marked `confirm`, go to review. String arguments go through the injection, code and URL rules. |
 
 More detail (in Turkish): [layers](docs/layers.md), [ML](docs/ml.md), [LLM](docs/llm.md), [operations](docs/operations.md).
 
@@ -77,7 +79,7 @@ pip install -e ".[ml]"      # adds the BERTurk stage
 ```
 
 ```python
-from sieve import Guardrail, OutputGuard, mask
+from sieve import Guardrail, OutputGuard, ToolGuard, mask
 
 mask("Kartım 4111 1111 1111 1111, telefonum 0532 111 22 33")
 # 'Kartım [KART], telefonum [TELEFON]'
@@ -91,6 +93,11 @@ out = OutputGuard(SYSTEM_PROMPT, allowed_hosts=["example.com.tr"])
 answer = my_llm(system=out.system_prompt, user=r.text)   # system prompt + canary
 out.check(answer).text         # masked, exfiltration links removed
 out.check(answer, user_data=[user_message, account_record]).action  # 'review' if the answer has someone else's TC, IBAN, ...
+
+tools = ToolGuard({"para_transferi": {"params": {"iban": "str", "tutar": "number"},
+                                      "max": {"tutar": 50000}, "from_user": ["iban"]}})
+tools.check("para_transferi", {"iban": iban, "tutar": 75000}, user_data=[user_message]).reasons
+# ['tutar: 75000 > 50000']
 ```
 
 ## How I evaluated
@@ -116,6 +123,7 @@ out.check(answer, user_data=[user_message, account_record]).action  # 'review' i
 sieve/
   pipeline.py        Guardrail, mask, clean
   output.py          OutputGuard
+  tools.py           ToolGuard
   masking/           tc, iban, card, card_security, phone, email, vkn, credentials
   checks/            prompt_injection, tampering, code_payloads, urls
   ml/                TF-IDF → BERTurk cascade, augmentation

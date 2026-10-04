@@ -10,3 +10,15 @@ code_payloads = "shadow"
 
 [url_check]
 allowed_hosts = ["www.examplebank.com.tr"]
+
+[tools.hat_durumu]       # read-only: runs as soon as the arguments check out
+params = { telefon = "str" }
+from_user = ["telefon"]  # only the line the customer gave, not one the model found elsewhere
+
+[tools.ariza_kaydi_ac]
+params = { telefon = "str", aciklama = "str", oncelik = "integer" }
+optional = ["oncelik"]
+min = { oncelik = 1 }
+max = { oncelik = 3 }
+from_user = ["telefon"]
+confirm = true           # opens a ticket: the customer confirms first
