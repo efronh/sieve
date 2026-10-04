@@ -7,8 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from sieve.actions import ACTION_ORDER, ALLOW, BLOCK, REVIEW, Finding, worst_action
+from sieve.checks.indirect import IndirectInjectionLayer
+from sieve.documents import DocumentGuard, DocumentResult
 from sieve.integrations.siem import emit, fired, to_event
 from sieve.integrations.throttle import ConversationWindow, RateLimiter, SessionLimiter
+from sieve.ml.injection import MLInjectionLayer
 from sieve.paths import POLICIES
 from sieve.pipeline import LAYERS, Guardrail, GuardrailResult, default_check_layers, mask
 from sieve.rules import RULES, rule_ids
@@ -62,7 +65,8 @@ def validate(data, source):
     masking_names = {layer.name for layer in LAYERS}
     problems += [f"unknown masking layer {k!r}" for k in data["masking"] if k not in masking_names]
 
-    check_names = {layer.name for layer in default_check_layers()} | {"prompt_injection_ml", "session", TOOL_CHECK}
+    check_names = {layer.name for layer in default_check_layers()} | {"prompt_injection_ml", "session", TOOL_CHECK,
+                                                                      IndirectInjectionLayer.name}
     problems += [f"unknown layer {k!r}" for k in data["layers"] if k not in check_names]
     problems += [f"layer {k!r}: mode must be one of {LAYER_MODES}" for k, v in data["layers"].items() if v not in LAYER_MODES]
 
@@ -147,6 +151,9 @@ class TenantGuardrail:
         self.context_messages = limits.get("context_messages", 4)
         self.conversation = ConversationWindow(self.context_messages, window, clock)
         self.tools = ToolGuard(policy.tools, policy.allowed_hosts)
+        # The same ML layer as for messages, so its shadow mode and "off" apply to documents too.
+        ml = next((layer for layer in self.guard.check_layers if layer.name == MLInjectionLayer.name), None)
+        self.documents = DocumentGuard(policy.allowed_hosts, ml_layer=ml, use_ml=ml is not None)
 
     def apply_policy(self, finding):
         if finding.action == ALLOW:
@@ -205,6 +212,19 @@ class TenantGuardrail:
             emit(to_event(logged, would_action, self.policy, original=call, session_id=session_id, user_id=user_id,
                           direction="tool", latency_ms=(time.perf_counter() - start) * 1000))
         return ToolResult(action, findings, result.reasons)
+
+    # A document the model will read (retrieved page, e-mail, tool result); see documents.py.
+    def check_document(self, text, session_id=None, user_id=None):
+        start = time.perf_counter()
+        result = self.documents.check(text)
+        found = [f for f in result.findings if self.policy.layers.get(f.check) != "off"]
+        findings, action, would_action = self.decide(found)
+
+        if would_action != ALLOW or self.policy.log_allowed:
+            logged = GuardrailResult(mask(text, self.guard.masking_layers), action, findings)
+            emit(to_event(logged, would_action, self.policy, original=text, session_id=session_id, user_id=user_id,
+                          direction="document", latency_ms=(time.perf_counter() - start) * 1000))
+        return DocumentResult(action, findings, result.flagged_parts)
 
     def check(self, text, session_id=None, user_id=None, direction="input"):
         start = time.perf_counter()

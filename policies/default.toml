@@ -27,6 +27,7 @@ url_check = "enforce"
 prompt_injection_ml = "enforce"  # review only; ML never blocks on its own
 session = "enforce"      # the [session] limits below
 tool_call = "enforce"    # the [tools.*] specs below, via TenantGuardrail.check_tool
+indirect_injection = "enforce"  # document rules, via TenantGuardrail.check_document
 
 [session]                # per user (or session when there's no user ID); needs session_id / user_id in check()
 max_requests_per_minute = 30

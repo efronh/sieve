@@ -91,6 +91,11 @@ RULES = {
     "output_masking.personal_data_masked": Rule(SID, 3, "Personal data masked in the answer"),
     "output_masking.new_personal_data": Rule(SID, 7, "Answer has personal data the user didn't give"),
 
+    # checks/indirect.py, documents.py (plus the input rules above, run on each part of the document)
+    "indirect_injection.addresses_the_model": Rule(PI, 6, "Document talks to the model reading it"),
+    "indirect_injection.instruction_marker": Rule(PI, 3, "Fake system or hidden instruction marker in a document"),
+    "indirect_injection.hidden_instruction": Rule(PI, 9, "Instruction in text the reader can't see"),
+
     # tools.py (plus the input rules above, run on string arguments)
     "tool_call.unknown_tool": Rule(AGENCY, 8, "Tool not in the allowlist"),
     "tool_call.bad_arguments": Rule(AGENCY, 6, "Tool arguments don't match the spec"),

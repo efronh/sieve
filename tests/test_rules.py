@@ -1,10 +1,12 @@
 import csv
 
 import test_deterministic_checks
+import test_documents
 import test_output_guard
 import test_prompt_injection
 import test_tools
 
+from sieve.documents import DocumentGuard
 from sieve.integrations.siem import fired
 from sieve.output import OutputGuard
 from sieve.paths import DATA
@@ -37,7 +39,7 @@ def test_every_fired_rule_is_catalogued():
     assert not missing, f"rule IDs not in rules.py (with an example text): {missing}"
 
 
-def test_every_output_and_tool_rule_is_catalogued():
+def test_every_output_tool_and_document_rule_is_catalogued():
     out = OutputGuard(test_output_guard.SYSTEM, allowed_hosts=["ornekbank.com.tr"])
     findings = []
     for answer, *_ in test_output_guard.cases(out.canary).values():
@@ -45,7 +47,10 @@ def test_every_output_and_tool_rule_is_catalogued():
     tools = ToolGuard(test_tools.TOOLS, allowed_hosts=["ornekbank.com.tr"])
     for name, args, *_ in test_tools.CALLS:
         findings += tools.check(name, args, user_data=[test_tools.USER]).findings
+    docs = DocumentGuard()
+    for document, *_ in test_documents.DOCUMENTS:
+        findings += docs.check(document).findings
 
     seen = {rule_id for f in filter(fired, findings) for rule_id, _ in rule_ids(f)}
     assert seen - set(RULES) == set(), "rule IDs not in rules.py"
-    assert {"output_links.dangerous_html", "tool_call.unknown_tool"} <= seen
+    assert {"output_links.dangerous_html", "tool_call.unknown_tool", "indirect_injection.hidden_instruction"} <= seen

@@ -102,3 +102,46 @@ r.reasons    # ['tutar: 75000 > 50000'], modele ya da kullanıcıya neden redded
 Spec'teki bir yazım hatası (bilinmeyen tip, olmayan parametreye limit, sayı yerine yazı olan limit, `confrim`) `ValueError` veriyor; yanlış yazılmış bir limit sessizce her tutara izin vermesin diye.
 
 Kiracı politikasında spec'ler `[tools.<ad>]` tablolarında, `TenantGuardrail.check_tool(name, args, user_data=...)` aynı shadow/monitor/`disabled_rules` kurallarıyla çalışıyor ve SIEM'e `direction = "tool"` olayı gönderiyor (argümanlar maskeli). Örnek: `policies/example_bank.toml`.
+
+## Dokümanlar: `documents.py`
+
+`Guardrail` kullanıcının mesajına bakıyor; ama saldırı modelin okuduğu bir dokümanda da gelebilir (RAG'den gelen sayfa, e-posta, tool sonucu). `DocumentGuard` bu metinler için.
+
+```python
+from sieve import DocumentGuard
+
+docs = DocumentGuard(allowed_hosts=["ornekbank.com.tr"])
+r = docs.check(page)
+r.action          # allow / review / block; block ise dokümanı prompta koymayın
+r.flagged_parts   # işaretlenen parçalar, maskeli ve ilk 200 karakter, reviewer için
+
+system = SYSTEM_PROMPT + "\n" + docs.instructions
+user = user_message + "\n" + docs.wrap(page, source="web")
+```
+
+| Adım | Ne yapıyor |
+|---|---|
+| Parçalara bölme | JSON ise string değerleri, değilse gizli HTML (yorum, CDATA, `display:none`, `visibility:hidden`, `font-size:0/1px`, `opacity:0`, beyaz/şeffaf yazı, `hidden` özelliği, `class="hidden"`/`sr-only` vb.) ve görünen metin; görünen metin satırlara ve cümlelere, 1000 karakterden uzun parçalar örtüşen parçalara bölünüyor |
+| Parça kontrolü | Her parça normalize edilip injection kurallarından, doküman kurallarından ve ML'den (15 karakterden uzunsa) ayrı ayrı geçiyor |
+| Gizli talimat | Gizli bir parçada herhangi bir kural ya da ML review/block verirse `indirect_injection.hidden_instruction`, block. ML tek başına engellemiyor, ama gizli metinle birlikte engelliyor: zararsız bir doküman okuyucunun göremeyeceği yere talimat koymaz |
+| Doküman kuralları (`checks/indirect.py`) | `addresses_the_model` (0.5, review): doküman onu okuyan modelle konuşuyor ("bu e-postayı okuyan yapay zeka", "AI okur ise", "Asistan için:", "if you are an AI, ...", "note to the AI"). "Asistan notu:" (asistan doktor) ve "an AI researcher" sayılmıyor. `instruction_marker` (0.3, tek başına allow): "[GİZLİ TALİMAT:", "SISTEM_MESAJI:", "/SYSTEM_OVERRIDE/" gibi işaretler; log satırları da böyle göründüğü için tek başına yetmiyor |
+| Tüm doküman | Ham metinde manipülasyon (tag karakterleri vb.), URL kontrolü. Kod kuralları dokümanlarda çalışmıyor: README'deki `pip install` ya da SQL örneği saldırı değil |
+| Uzunluk | 200.000 karakterin tamamı okunuyor (mesajlarda 8000); daha uzunu `input_length` ile review |
+
+`wrap()` spotlighting yapıyor ([Hines vd. 2024](https://arxiv.org/abs/2403.14720)): doküman `<<web 3f9a…>>` … `<</web 3f9a…>>` arasına giriyor ve kelimeler arasındaki boşluklar rastgele seçilen bir işaretle (`ˆ`, `¦`, `¤`, `‡`, `◊`) değişiyor. Okuyucunun göremediği kısımlar (HTML yorumları, `display:none` vb.) varsayılan olarak modele hiç gitmiyor (`keep_hidden=True` ile kalıyor); bu, tespitten bağımsız olarak gizleme yolunu kapatıyor. Sınır her `DocumentGuard` için rastgele, dokümanın içinde geçerse siliniyor; yani doküman sahte bir kapanış etiketiyle "veri bitti, şimdi talimat" diyemiyor. `instructions` sistem promptuna eklenecek açıklama. Bunun modele etkisini ölçmedim (bir LLM gerektiriyor). Makale GPT-3.5 ve GPT-4 ile saldırı başarısının belirgin düştüğünü raporluyor; küçük modellerde işe yaramayabilir.
+
+### Ölçüm
+
+`python -m scripts.evaluate_documents`. Test setindeki 30 saldırı (TCPI, başkası yazdı, hiç eğitilmedi), müşteri hizmetleri yazışmalarından oluşturulan ~1100 karakterlik destek kaydı dökümlerine altı şekilde gizleniyor. Gizleme kendi kelimesini eklemiyor.
+
+| | Düz satır | Dipnot | HTML yorumu | `display:none` | Beyaz yazı | JSON alanı |
+|---|---|---|---|---|---|---|
+| Dokümanın tamamına `Guardrail()` | 0/30 | 0/30 | 0/30 | 0/30 | 0/30 | 0/30 |
+| `DocumentGuard`, sadece kurallar | 2/30 | 2/30 | 2/30 (2 block) | 2/30 (2 block) | 2/30 (2 block) | 2/30 |
+| `DocumentGuard`, kurallar + ML | 22/30 | 27/30 | 22/30 (22 block) | 22/30 (22 block) | 22/30 (22 block) | 22/30 |
+
+Yanlış alarm: 158 kayıt dökümünde ve aynı dökümlerin zararsız HTML'li (yorumlar, `sr-only`, gizli "Yükleniyor…") halinde 0; elle yazılmış 20 benzer dokümanda (`data/benign_documents_tr.csv`) kurallar 2, kurallar + ML 9. Kurallardaki ikisi saldırı cümlelerini alıntılayan bir makale ve "eski kurallar geçersiz sayılacak" diyen bir toplantı tutanağı; yeni doküman kuralları hiçbirinde yanılmıyor. Süre: sadece kurallar 1.5 ms, kurallar + ML 57 ms / doküman (M4, BERTurk belirsiz parçalarda çalışıyor).
+
+AltaySec ve `prompt_injection_tr.csv`'deki 31 dolaylı örnek geliştirme seti: doküman kurallarını onları okuduktan sonra yazdım. Kurallar 14'ünü, kurallar + ML 31'ini işaretliyor (ML AltaySec ile eğitildi).
+
+Bu iş sırasında girişteki injection kurallarında bir eksik çıktı: "yok say" ayrı yazılınca (TDK yazımı) yakalanmıyordu, sadece "yoksay" biçimi vardı. Düzeltince kuralların yakaladığı saldırılar %15'ten %17'ye çıktı, yanlış alarm 416 normal mesajda yine 0.
