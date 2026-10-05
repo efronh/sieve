@@ -157,15 +157,20 @@ Each control below works only if the app does its part. If an assumption breaks,
 String arguments also go through the tampering, injection, code and URL rules. A typo in a spec raises an error at load.
 
 **Evidence.** The tool families of the corpus ([section 7](#7-attack-corpus)), against the example bank assistant's tools in [`corpus/tools.toml`](corpus/tools.toml). Asking for confirmation doesn't count as stopping an attack.
-- **Single calls:** 48 of 57 attack calls (43 attacks) stopped, and no false alarms in 15 benign calls whose arguments the user wrote differently (`+90 532…` for `0532…`, an IBAN with spaces, a phone number in words).
+- **Single calls:** 48 of 55 test calls (42 attacks) stopped, and no false alarms in 15 benign calls whose arguments the user wrote differently (`+90 532…` for `0532…`, an IBAN with spaces, a phone number in words).
 - **Document → call chains:** 9 of 10 stopped with TF-IDF alone, 10 with BERTurk.
 
 In two InjecAgent chains the document check flags nothing, because the instruction is a plain request with no words aimed at an AI. There, only `from_user` stops the call.
 
 Most of these attacks are mine, written after reading `tools.py`, so they test what I expected to break. 15 records are adapted from AgentDojo and InjecAgent.
 
+**Fixed.** `from_user` used to compare letters and digits as a substring:
+- `ayse.kaya@ornekmail.co` (a domain the attacker can register) and `ayse@kaya-ornekmail.com` both counted as the user's `ayse.kaya@ornekmail.com` (TOOL-RCPT-009, -010).
+- While fixing that, I found that numbers matched when one ended with the other. That made a valid foreign IBAN whose digits end with the user's TR IBAN count as the user's (TOOL-RCPT-016). It was the same in `OutputGuard`'s "new personal data" check.
+
+Now a value has to appear whole in the user's text, with only spaces and case ignored. Numbers match only as the same digits, or as the same Turkish phone number with or without `+90`/`0`. The three records are dev now.
+
 **Residual risk.** The spec is the boundary. A tool without `max`, `from_user` or `confirm` is open to whatever the model asks for, and a number like a card limit can't be checked against the user's words (TOOL-CHAIN-008 is stopped only by BERTurk on the document). `confirm` depends on the app's UI. Found by the corpus:
-- **`from_user` compares letters and digits as a substring.** `ayse.kaya@ornekmail.co` (a domain the attacker can register) and `ayse@kaya-ornekmail.com` both count as the user's `ayse.kaya@ornekmail.com` (TOOL-RCPT-009, -010).
 - **No limit across calls.** Three transfers of 20,000 all pass a 50,000 limit (TOOL-LIMIT-009, -010).
 - **Arguments get the input rules, but not the document rules or the ML layer.** An instruction for the agent that summarises tickets passes (TOOL-ARGINJ-007).
 - **Line breaks and formulas in arguments aren't checked.** That covers e-mail header and log line injection, and spreadsheet formulas (TOOL-ARGINJ-011 to -013).
@@ -384,7 +389,7 @@ At least 15 independent test groups for each of the 14 input families (210), and
 | Split attacks ([docs/operations.md](docs/operations.md)) | — | — | No script or data in the repo; to be rebuilt as MT-SPLIT |
 | [AgentDojo](https://github.com/ethz-spylab/agentdojo) banking suite (MIT) | 11 | 9 | Attack goals and injection places, rewritten in Turkish as calls to the example tools |
 | [InjecAgent](https://github.com/uiuc-kang-lab/InjecAgent) (MIT) | 4 | 4 | Direct-harm and data-stealing instructions, the same way |
-| Tool attacks written by me | 52 | 40 | After reading `tools.py`, so white-box; the replay reports them by source |
+| Tool attacks written by me | 53 | 39 | After reading `tools.py`, so white-box; the replay reports them by source. 3 are dev: the `from_user` fix followed them |
 | Benign tool calls | 15 | — | `BEN`, carrier `tool_call` |
 
-Today there are 83 independent test groups: 30 for messages and documents, and 53 for tools (43 single-call, 10 chains). PI-SOC, OBF-UNI, OBF-LANG, MT-SPLIT, MT-ESC and the output families (EXF-*, OUT-ACTIVE) have none, and TOOL-LIMIT has 8 of its 10.
+Today there are 82 independent test groups: 30 for messages and documents, and 52 for tools (42 single-call, 10 chains). PI-SOC, OBF-UNI, OBF-LANG, MT-SPLIT, MT-ESC and the output families (EXF-*, OUT-ACTIVE) have none; TOOL-LIMIT has 8 of its 10, TOOL-RCPT 9.

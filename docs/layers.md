@@ -95,7 +95,7 @@ r.reasons    # ['tutar: 75000 > 50000'], modele ya da kullanıcıya neden redded
 | İzin listesi | Spec'i olmayan tool | block |
 | Argümanlar | Bilinmeyen parametre, eksik zorunlu parametre, yanlış tip (`True`, `NaN` ve sonsuz sayı sayılmıyor), sözlük olmayan argümanlar | block |
 | Limitler | `min`/`max` dışındaki sayı | block |
-| Kullanıcıdan mı | `from_user` argümanı `user_data`'da yoksa. Boşluk ve büyük/küçük harf farkı, `+90 532…`/`0532…`/`sıfır beş üç…` gibi aynı numaranın farklı yazımları sayılmıyor. `user_data` verilmezse doğrulanamadığı için review | review |
+| Kullanıcıdan mı | `from_user` argümanı `user_data`'da yoksa. Boşluk ve büyük/küçük harf farkı, `+90 532…`/`0532…`/`sıfır beş üç…` gibi aynı numaranın farklı yazımları sayılmıyor. Değer kullanıcının metninde bütün olarak geçmeli: noktalaması farklı (`ayse@kaya-ornekmail.com`) ya da daha uzun bir kelimenin parçası olan (`ornekmail.co`, `ornekmail.com`'un içinde) ya da rakamları kullanıcınınkiyle biten bir değer kullanıcıdan sayılmıyor. `user_data` verilmezse doğrulanamadığı için review | review |
 | Onay | `confirm = true` olan tool | review |
 | Argüman içeriği | String argümanlar (iç içe olanlar dahil) girişteki gibi önce ham halde manipülasyon kontrolünden, sonra normalize edilip injection, kod ve URL kurallarından geçiyor; izinli olmayan bir hosta veri taşıyan link review | kuralın kararı |
 

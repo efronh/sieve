@@ -70,6 +70,20 @@ def test_same_number_written_another_way(guard):
     assert tools.check("geri_ara", {"telefon": "0533 222 33 44"}, user_data=USER).action == "review"
 
 
+@pytest.mark.parametrize("value", [
+    pytest.param("ayse.kaya@ornekmail.co", id="another domain that is a prefix of the user's"),
+    pytest.param("ayse@kaya-ornekmail.com", id="same letters and digits, different address"),
+    pytest.param("ayse.kaya@ornekmail.com, yedek@guvenli-arsiv.net", id="second address appended"),
+    pytest.param("RU9812345330006100519786457841326", id="foreign IBAN ending with the user's digits"),
+])
+def test_a_value_that_only_looks_like_the_users_isnt_from_the_user(value):
+    tools = ToolGuard({"gonder": {"params": {"hedef": "str"}, "from_user": ["hedef"]}})
+    user = [f"Özeti ayse.kaya@ornekmail.com adresime gönder, ya da {IBAN} hesabıma yatır."]
+    assert tools.check("gonder", {"hedef": value}, user_data=user).action == "review"
+    for own in ["Ayse.Kaya@ornekmail.com", "tr33-0006-1005-1978-6457-8413-26"]:
+        assert tools.check("gonder", {"hedef": own}, user_data=user).action == "allow", own
+
+
 def test_from_user_without_user_data_fails_closed(guard):
     assert guard.check("para_transferi", {"iban": IBAN, "tutar": 500}).action == "review"
 

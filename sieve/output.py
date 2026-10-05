@@ -35,8 +35,10 @@ MASK_LABEL = re.compile(r"\[(?:" + "|".join(LABEL_NAMES) + r")\]")
 PLACEHOLDER = re.compile(MASK_LABEL.pattern + r"|%5B[A-Z_]+%5D")
 # Phone numbers come as 0532..., +90 532... or 532...: long numbers match on their last digits.
 MIN_NUMBER_KEY = 7
-SAME_NUMBER_DIGITS = 10
+PHONE_DIGITS = 10  # a Turkish number without its prefixes
 WORDS = re.compile(r"\w+")
+SPACES_IN_DATA = re.compile(r"\s+")
+PHONE_PREFIX = re.compile(r"^(?:00)?(?:90)?0?")
 
 
 def only_letters_and_digits(text):
@@ -84,16 +86,22 @@ def mask_and_collect(text, layers):
     return masked, [v for v in replaced if not MASK_LABEL.fullmatch(v.strip())]
 
 
+# Numbers by their digits; anything else (e-mails, keys) as written, spaces and case aside: without its
+# punctuation, ayse@kaya-ornekmail.com would be the same address as ayse.kaya@ornekmail.com.
 def data_key(value):
     digits = "".join(u.digit for u in find_units(to_lower(value)) if u.real)
-    return digits if len(digits) >= MIN_NUMBER_KEY else only_letters_and_digits(value)
+    return digits if len(digits) >= MIN_NUMBER_KEY else SPACES_IN_DATA.sub("", value.lower())
 
 
+# The same digits, or the same Turkish phone number with or without its country and trunk prefix
+# (+90 532..., 0090 532..., 0532..., 532...). Not "one ends with the other": a foreign IBAN whose
+# digits end with the user's is someone else's account.
 def same_data(a, b):
     if a == b:
         return True
-    if a.isdigit() and b.isdigit() and min(len(a), len(b)) >= SAME_NUMBER_DIGITS:
-        return a.endswith(b) or b.endswith(a)
+    if a.isdigit() and b.isdigit():
+        a, b = PHONE_PREFIX.sub("", a, count=1), PHONE_PREFIX.sub("", b, count=1)
+        return a == b and len(a) == PHONE_DIGITS
     return False
 
 

@@ -89,6 +89,13 @@ def test_personal_data_the_user_did_not_give(guard, answer, new_data):
     assert result.action == ("review" if new_data else "allow")
 
 
+def test_an_iban_ending_with_the_users_digits_is_someone_elses(guard):
+    user = "IBAN'ım TR33 0006 1005 1978 6457 8413 26"
+    assert guard.check("IBAN'ınız TR330006100519786457841326.", user_data=[user]).action == "allow"
+    result = guard.check("Alıcının IBAN'ı RU9812345330006100519786457841326.", user_data=[user])
+    assert result.action == "review"
+
+
 def test_new_personal_data_needs_user_data(guard):
     result = guard.check("Kayıtlı TC: 12345678950.")
     assert result.action == "allow" and "12345678950" not in result.text

@@ -3,6 +3,7 @@
 #                                         "from_user": ["iban"], "confirm": True}})
 #   r = tools.check("para_transferi", {"iban": iban, "tutar": 100}, user_data=[user_message])
 import math
+import re
 from dataclasses import dataclass, field
 
 from sieve.actions import ALLOW, BLOCK, REVIEW, Finding, worst_action
@@ -10,9 +11,10 @@ from sieve.checks.code_payloads import CodePayloadLayer
 from sieve.checks.prompt_injection import PromptInjectionLayer
 from sieve.checks.tampering import TamperingLayer
 from sieve.checks.urls import URLCheckLayer
-from sieve.output import PLAIN_URL, carries_data, data_key, host_of, mask_and_collect, only_letters_and_digits, same_data
+from sieve.output import PLAIN_URL, carries_data, data_key, host_of, mask_and_collect, same_data
 from sieve.pipeline import LAYERS, clean
 
+SPACES = re.compile(r"\s+")
 TYPES = {"str": (str,), "number": (int, float), "integer": (int,), "bool": (bool,)}
 SPEC_KEYS = {"params", "optional", "min", "max", "from_user", "confirm"}
 CHECK = "tool_call"
@@ -68,11 +70,25 @@ def strings_in(value):
     return []
 
 
+# Whether the value is in the text as a whole: spaces and case aside, but not punctuation, and not as
+# part of a longer word. Ignoring punctuation made ayse@kaya-ornekmail.com the user's
+# ayse.kaya@ornekmail.com, and a substring made ayse.kaya@ornekmail.co (another domain) match too.
+def appears_in(value, text):
+    chars = SPACES.sub("", clean(value).lower())
+    if not chars:
+        return False
+    pattern = r"\s*".join(map(re.escape, chars))
+    if chars[0].isalnum():
+        pattern = r"(?<!\w)" + pattern
+    if chars[-1].isalnum():
+        pattern += r"(?!\w)"
+    return re.search(pattern, clean(text).lower()) is not None
+
+
 # Whether the user typed this value themselves: as is (spaces and case aside), or as the same
 # personal data written another way (0532... and +90 532... are the same phone number).
 def given_by_user(value, texts):
-    flat = only_letters_and_digits(str(value))
-    if flat and any(flat in only_letters_and_digits(t) for t in texts):
+    if any(appears_in(str(value), t) for t in texts):
         return True
     values = mask_and_collect(str(value), LAYERS)[1]
     known = [data_key(v) for t in texts for v in mask_and_collect(t, LAYERS)[1]]
