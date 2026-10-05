@@ -279,70 +279,81 @@ String arguments also go through the tampering, injection, code and URL rules. A
 
 ## 7. Attack corpus
 
-The replay corpus (next step) is built from this section. One record per attack:
+The corpus is in [`corpus/`](corpus), one JSONL file per family. `python -m scripts.replay` runs it (`--split dev` or `all` for the other records) and writes every decision to `results/replay.json`. One record per attack:
 
-```yaml
-id: PI-OVR-001          # family + number; never reused
-group: G-0007           # variants of one attack share a group
-threat: TH-01
-family: PI-OVR
-carrier: plain_text
-boundary: B1
-entry: Guardrail.check  # the call that sees it
-language: tr            # tr | en | mixed | other
-expected: review        # least acceptable action at the entry; "allow" for benign records
-source: tcpi_test       # where it came from
-split: test             # test | dev
-regression: true        # CI fails if this one is ever allowed
+```json
+{"id": "PI-OVR-001", "group": "G-0004", "family": "PI-OVR", "carrier": "plain_text", "language": "tr",
+ "expected": "review", "source": "tcpi_test", "source_ref": "tcpi_pair_0004", "split": "test", "text": "…"}
 ```
 
-**Counting.** The target counts groups, not records. A group is one attack idea. Rewordings of the same instruction override are one group. The same attack in six carriers is one group with six records. Two attacks are in different groups when a fix that catches one wouldn't be expected to catch the other.
+| Field | Meaning |
+|---|---|
+| `id` | Family + number, never reused |
+| `group` | `G-nnnn`; variants of one attack share a group (attacks only) |
+| `family` | What the attack does (table below); its threat follows from the family |
+| `carrier` | How it arrives; the entry point follows from the carrier |
+| `expected` | Least acceptable action at the entry point; `allow` for benign records (family `BEN`) |
+| `split` | `test` or `dev` |
+| `source`, `source_ref` | Where it came from |
 
-**Test and dev.** A record is `test` only until a rule or model is changed after looking at it. From then on it is `dev`. It stays in the corpus as a regression check, but it is no longer reported as held-out. Attacks I write myself follow the same rule. Benign look-alikes (`BEN-*`, `expected: allow`) are part of the corpus, so false alarms are replayed too.
+The loader rejects unknown fields, families, carriers and actions, so a typo can't skew the counts.
+
+**Counting.** The target counts groups, not records. A group is one attack idea. Rewordings of the same instruction override are one group. Two attacks are in different groups when a fix that catches one wouldn't be expected to catch the other. When an attack is both a technique and an obfuscation, its family is the obfuscation, since that is what the record tests.
+
+**Test and dev.** A record is `test` only until a rule or model is changed after looking at it. From then on it is `dev`. It stays in the corpus as a regression check, but it is no longer reported as held-out. Attacks I write myself follow the same rule.
+
+**Carriers.** Family and carrier are separate. Every `plain_text` attack is also placed in support-ticket exports in six ways and sent to `DocumentGuard`, as the same group:
+
+| Placement | Expected |
+|---|---|
+| `doc_line`, `doc_footnote`, `json_field` | review |
+| `html_comment`, `html_hidden`, `html_white_text` | block |
+
+The ticket exports themselves, plain and in harmless HTML, are replayed as benign documents. Attacks written as documents use carrier `document`. Carriers for the other entry points (`conversation`, `tool_call`, `model_answer`) come with their families.
 
 ### Families
 
-| Family | Threat | What | Carriers | Entry |
-|---|---|---|---|---|
-| PI-OVR | TH-01 | Instruction override | plain_text | Guardrail |
-| PI-ROLE | TH-01 | Role play, persona, DAN, "developer mode" | plain_text | Guardrail |
-| PI-AUTH | TH-01 | Fake authority: chat-template tags, "SİSTEM:", staff impersonation | plain_text | Guardrail |
-| PI-SOC | TH-01 | Social engineering: urgency, confirmation traps, hypotheticals | plain_text | Guardrail |
-| PI-LEAK | TH-03 | Asking for the system prompt, rules or canary | plain_text, html | Guardrail, DocumentGuard |
-| OBF-UNI | TH-02 | Homoglyphs, zero-width, bidi, tag characters, combining marks, fullwidth | plain_text, html | Guardrail, DocumentGuard |
-| OBF-ENC | TH-02 | base64/32, hex, URL, HTML entities, ROT13, Morse, reversed, nested past depth 2, ciphers | plain_text | Guardrail |
-| OBF-LEX | TH-02 | Leetspeak, spaced letters, typos, Turkish without diacritics | plain_text | Guardrail |
-| OBF-LANG | TH-02 | Translation, Turkish–English code-switching, other languages | plain_text | Guardrail |
-| MT-SPLIT | TH-05 | One attack split over messages | conversation | TenantGuardrail |
-| MT-ESC | TH-05 | Slow escalation, context poisoning over many turns | conversation | TenantGuardrail |
-| IND-VIS | TH-04 | Visible instruction in a document | html, markdown, email | DocumentGuard |
-| IND-HID | TH-04 | Hidden instruction: comment, CSS, white text, zero-size, alt text | html, markdown | DocumentGuard |
-| IND-STRUCT | TH-04 | JSON field, e-mail header, link title, tool result | json, email, tool_result | DocumentGuard |
-| TOOL-SCHEMA | TH-06 | Unknown tool, extra or missing arguments, wrong types, NaN | tool_call | ToolGuard |
-| TOOL-LIMIT | TH-06 | Limit bypass: negatives, floats, strings, many calls under the limit | tool_call | ToolGuard |
-| TOOL-RCPT | TH-06 | Recipient or value the user never gave | tool_call | ToolGuard |
-| TOOL-ARGINJ | TH-06 | SQL, shell or injection payload in an argument | tool_call | ToolGuard |
-| TOOL-CHAIN | TH-04, TH-06 | Document instruction → tool call, scored end to end | tool_result + tool_call | DocumentGuard, ToolGuard |
-| EXF-LINK | TH-07 | Data in image, link, embed or reference URLs | model_answer | OutputGuard |
-| EXF-LEAK | TH-03 | System prompt or canary in the answer, plain or encoded | model_answer | OutputGuard |
-| EXF-PII | TH-09 | Another customer's data in the answer | model_answer | OutputGuard |
-| OUT-ACTIVE | TH-10 | Script, event handler, `javascript:` link | model_answer | OutputGuard |
-| DOS-* | TH-11 | Size, nesting, regex inputs; expected: no exception, under a time budget | all | all |
+| Family | Threat | What | Entry |
+|---|---|---|---|
+| PI-OVR | TH-01 | Instruction override: ignore or replace the instructions, put the user above the system | Guardrail |
+| PI-ROLE | TH-01 | Role play, fiction, hypothetical worlds, personas, DAN | Guardrail |
+| PI-AUTH | TH-01 | Claimed authority: "yöneticiyim", fake system tags, text posing as a policy or standard | Guardrail |
+| PI-SOC | TH-01 | Pretext without authority: urgency, "for a test", confirmation traps, flattery | Guardrail |
+| PI-ACT | TH-01 | A forbidden action or data request with no pretext: raw secrets, unmasked records, admin rights, skipping approvals | Guardrail |
+| PI-LEAK | TH-03 | Asking for the system prompt, hidden instructions or the canary | Guardrail |
+| PI-IND | TH-04 | Wording aimed at a model reading a document: "bu e-postayı okuyan asistan …" | Guardrail, DocumentGuard |
+| OBF-UNI | TH-02 | Homoglyphs, zero-width, bidi, tag characters, combining marks, fullwidth | Guardrail |
+| OBF-ENC | TH-02 | base64/32, hex, URL, HTML entities, ROT13, Morse, reversed, nested past depth 2, ciphers | Guardrail |
+| OBF-LEX | TH-02 | Leetspeak, spaced letters, typos, Turkish without diacritics | Guardrail |
+| OBF-LANG | TH-02 | Translation, Turkish–English code-switching, other languages | Guardrail |
+| MT-SPLIT | TH-05 | One attack split over messages | TenantGuardrail |
+| MT-ESC | TH-05 | Slow escalation, context poisoning over many turns | TenantGuardrail |
+| MT-MEM | TH-05 | Persistence: "remember this as a rule" for later turns | Guardrail |
+| TOOL-SCHEMA | TH-06 | Unknown tool, extra or missing arguments, wrong types, NaN | ToolGuard |
+| TOOL-LIMIT | TH-06 | Limit bypass: negatives, floats, strings, many calls under the limit | ToolGuard |
+| TOOL-RCPT | TH-06 | A recipient or value the user never gave | ToolGuard |
+| TOOL-ARGINJ | TH-06 | SQL, shell or injection payload in an argument | ToolGuard |
+| TOOL-CHAIN | TH-06 | Document instruction → tool call, scored end to end | DocumentGuard, ToolGuard |
+| EXF-LINK | TH-07 | Data in image, link, embed or reference URLs | OutputGuard |
+| EXF-LEAK | TH-03 | System prompt or canary in the answer, plain or encoded | OutputGuard |
+| EXF-PII | TH-09 | Another customer's data in the answer | OutputGuard |
+| OUT-ACTIVE | TH-10 | Script, event handler, `javascript:` link | OutputGuard |
 
-Images, PDFs and audio stay out until there's an extraction step to test: Sieve only ever sees text.
+DOS inputs (TH-11) are generated by fuzzing and aren't part of the corpus. Images, PDFs and audio stay out until there's an extraction step to test: Sieve only ever sees text.
 
 ### How many
 
-At least 15 independent groups for each B1/B2 family (PI, OBF, MT, IND: 14 families, 210 groups). At least 10 for each B4/B5 family (TOOL, EXF, OUT: 9 families, 90 groups). That makes the 300: it is what covering every family in the table takes, not a round number. DOS inputs are generated by fuzzing and aren't counted.
+At least 15 independent test groups for each of the 14 input families (210), and at least 10 for each of the 9 tool and output families (90). That makes the 300: it is what covering every family takes, not a round number. Every group sits in exactly one family. The replay prints this coverage at the end.
 
 ### What exists today
 
 | Source | Records | Independent test groups | Notes |
 |---|---|---|---|
-| TCPI test split (`data/tcpi_test.csv`) | 30 attacks, 90 benign | 30 | Held-out; to be tagged into PI-* and OBF-* families |
-| Document placements (`scripts/evaluate_documents.py`) | 180 | 0 new | The same 30 attacks in six carriers (IND-*) |
-| AltaySec and own indirect examples | 31 | 0 | Dev: read while writing the document rules |
-| Split attacks ([docs/operations.md](docs/operations.md)) | 32 | ? | No script or data in the repo; to be rebuilt |
-| Benign look-alike documents (`data/benign_documents_tr.csv`) | 20 | — | BEN-* |
+| TCPI test split | 30 attacks | 30 | Held-out, families assigned by hand; also placed in documents (180 records) |
+| TCPI test split | 90 benign | — | `BEN` |
+| Benign look-alike documents | 20 | — | `BEN`, carrier `document` |
+| Ticket exports (built from `data/customer_service_tr.csv`) | 316 | — | Benign documents, generated by the replay |
+| AltaySec and own indirect examples | 31 | 0 | `PI-IND`, dev: read while writing the document rules |
+| Split attacks ([docs/operations.md](docs/operations.md)) | — | — | No script or data in the repo; to be rebuilt as MT-SPLIT |
 
-So today there are 30 independent test groups, and 270 to go.
+Today there are 30 independent test groups. PI-SOC, OBF-UNI, OBF-LANG, MT-SPLIT, MT-ESC and all tool and output families have none.

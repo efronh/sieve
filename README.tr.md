@@ -84,7 +84,7 @@ flowchart LR
 | Doküman kontrolü | Modelin okuduğu ama kullanıcının yazmadığı metinler için. Her cümleyi, JSON değerini ve gizli HTML parçasını ayrı kontrol ediyor; işaretlenen parça okuyucudan gizlenmişse dokümanı engelliyor; modele hitap eden dokümanları ("bu e-postayı okuyan yapay zeka", "if you are an AI") işaretliyor. `wrap()` dokümanı prompta girmeden önce veri olarak işaretliyor. |
 | Tool kontrolü | Uygulamanız bir tool çağrısını çalıştırmadan önce bakıyor. Listede olmayan tool, bilinmeyen ya da yanlış tipte argüman ve limit dışı tutar engelleniyor. Kullanıcıdan gelmesi gereken (IBAN, telefon) ama mesajlarında olmayan bir argüman ve `confirm` işaretli tool'lar review'a gidiyor. String argümanlar manipülasyon, injection, kod ve URL kurallarından geçiyor. |
 
-Neye karşı, hangi sınırda koruduğu ve geriye ne kaldığı (İngilizce): [THREAT_MODEL.md](THREAT_MODEL.md).
+Neye karşı, hangi sınırda koruduğu ve geriye ne kaldığı (İngilizce): [THREAT_MODEL.md](THREAT_MODEL.md). Yukarıdaki held-out ve doküman sonuçları [`corpus/`](corpus) altındaki saldırı korpusundan `python -m scripts.replay` ile yeniden üretilebiliyor.
 
 Ayrıntılar: [katmanlar](docs/layers.md), [ML](docs/ml.md), [LLM](docs/llm.md), [entegrasyon](docs/operations.md).
 
