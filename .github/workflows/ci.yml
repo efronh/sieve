@@ -21,3 +21,12 @@ jobs:
       - run: pip install -e ".[dev]" "anyjev @ git+https://github.com/nokia-applied-research/AnyJev.git@149e7f71949c08b57492ef7025b67a763c600a0f"
       - run: ruff check .
       - run: pytest
+      # Security regression gate: replays corpus/ (TF-IDF without BERTurk, as installed here) and fails if an
+      # attack the baseline caught gets through, recall drops below its floor, or the ML layer didn't load.
+      - run: python -m scripts.replay --baseline check
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: replay-${{ matrix.python-version }}
+          path: results/replay.json
+          if-no-files-found: ignore

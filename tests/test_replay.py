@@ -10,6 +10,7 @@ from scripts.replay import (
     OUTPUT_FAMILIES,
     OUTPUT_FAMILY_GROUPS,
     PLACEMENTS,
+    check_baseline,
     expand,
     load,
     passed,
@@ -105,3 +106,56 @@ def test_no_interval_when_records_share_an_attack():
     rows = [{"passed": True, "group": "G-0001"}, {"passed": False, "group": "G-0001"}]
     assert "CI" not in rate(rows) and "1 attacks" in rate(rows)
     assert "CI" in rate([{"passed": True, "group": "G-0001"}, {"passed": True, "group": "G-0002"}])
+
+
+SETUP = {"ml": True, "cascade": False, "model_sha256": "abc"}
+
+
+def result(id_, action, family="PI-OVR", expected="review", entry="guardrail"):
+    row = {"id": id_, "family": family, "expected": expected, "entry": entry, "split": "test", "action": action}
+    return dict(row, passed=passed(row, action))
+
+
+def baseline(**actions):
+    return {"config": dict(SETUP), "actions": {k.replace("_", "-"): v for k, v in actions.items()}}
+
+
+def test_an_attack_the_baseline_caught_failing_is_a_regression():
+    results = [result("PI-OVR-001", "allow"), result("PI-OVR-002", "review")]
+    problems, _ = check_baseline(results, SETUP, baseline(PI_OVR_001="review", PI_OVR_002="review"), floors={})
+    assert problems == ["regression PI-OVR-001: review -> allow (expected review)"]
+
+
+def test_a_hidden_placement_dropping_from_block_to_review_is_a_regression():
+    results = [result("PI-OVR-001@html_comment", "review", expected="block", entry="document")]
+    problems, _ = check_baseline(results, SETUP, {"config": SETUP, "actions": {"PI-OVR-001@html_comment": "block"}},
+                                 floors={})
+    assert problems and "regression" in problems[0]
+
+
+def test_new_false_alarms_new_records_and_fixes_are_notes_not_failures():
+    results = [result("BEN-001", "review", family="BEN", expected="allow"), result("PI-OVR-001", "review"),
+               result("PI-OVR-002", "allow")]
+    problems, notes = check_baseline(results, SETUP, baseline(BEN_001="allow", PI_OVR_001="allow"), floors={})
+    assert problems == []
+    assert notes == ["new false alarm BEN-001: review", "now passes PI-OVR-001: allow -> review",
+                     "new record PI-OVR-002: allow"]
+
+
+def test_a_missing_ml_layer_or_another_model_fails_the_gate():
+    problems, _ = check_baseline([], dict(SETUP, ml=False, model_sha256="def"), baseline(), floors={})
+    assert problems == ["the ML layer didn't load (model file or scikit-learn missing)",
+                        "the model file isn't the one the baseline was made with"]
+
+
+def test_recall_below_the_floor_fails_even_without_a_regression():
+    results = [result("PI-OVR-001", "review"), result("PI-OVR-002", "allow")]
+    problems, _ = check_baseline(results, SETUP, baseline(PI_OVR_001="review", PI_OVR_002="allow"),
+                                 floors={"guardrail": 0.7})
+    assert problems == ["guardrail: 50% of test attacks pass, floor is 70%"]
+
+
+def test_the_committed_baseline_covers_the_whole_corpus(records):
+    known = json.loads((ROOT / "corpus" / "baseline.json").read_text(encoding="utf-8"))
+    assert known["config"]["cascade"] is False
+    assert {r["id"] for r in records} <= set(known["actions"])
