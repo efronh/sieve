@@ -84,6 +84,8 @@ flowchart LR
 | Document guard | For text the model reads but the user didn't write. Checks each sentence, JSON value and hidden HTML part on its own; blocks when a flagged part is hidden from the reader; flags documents that talk to the model ("bu e-postayı okuyan yapay zeka", "if you are an AI"). `wrap()` marks the document as data before it goes into the prompt. |
 | Tool guard | Checks a tool call before your app runs it. Tools not on the list, unknown or wrongly typed arguments and amounts outside their limits are blocked. An argument that must come from the user (an IBAN, a phone number) but isn't in their messages, and tools marked `confirm`, go to review. String arguments go through the tampering, injection, code and URL rules. |
 
+What it defends against, where, and what's left: [THREAT_MODEL.md](THREAT_MODEL.md).
+
 More detail (in Turkish): [layers](docs/layers.md), [ML](docs/ml.md), [LLM](docs/llm.md), [operations](docs/operations.md).
 
 ## Quick start
