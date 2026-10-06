@@ -136,10 +136,14 @@ Politikadaki `on_error` bunu açık bir seçim yapıyor: `block` (varsayılan), 
 
 ```python
 from sieve import Guardrail, OutputGuard, guarded_reply
+from sieve.integrations.tenant import TenantGuardrail
 
 reply = guarded_reply(user_message, ask_model, Guardrail(), OutputGuard(SYSTEM_PROMPT))  # ask_model(system, user) -> str
 reply.text            # gösterilecek metin: kontrol edilmiş cevap ya da ret
 reply.model_called    # giriş engellendiyse ya da kontrolü hata verdiyse False
+
+# TenantGuardrail ile OutputGuard'ı vermeyin: cevap da kiracı politikasından geçer.
+reply = guarded_reply(user_message, ask_model, TenantGuardrail(policy, system_prompt=SYSTEM_PROMPT), session_id=session)
 ```
 
 ## Nasıl ölçtüm

@@ -10,6 +10,8 @@ from sieve.masking import LABEL_NAMES
 from sieve.masking.number_units import REPLACED, find_units, to_lower
 
 SAFE_REPLY = "Bu yanıt güvenlik nedeniyle gösterilemiyor."
+# The checks OutputGuard reports, which a tenant policy can set to enforce, shadow or off one by one.
+OUTPUT_CHECKS = ("canary", "prompt_overlap", "output_links", "output_masking")
 IMAGE_REMOVED = "[resim kaldırıldı]"
 EMBED_REMOVED = "[gömülü içerik kaldırıldı]"
 
@@ -141,9 +143,12 @@ def loaded_urls(tag, attrs):
 
 @dataclass
 class OutputResult:
-    text: str
+    text: str  # what to show: SAFE_REPLY when blocked
     action: str
     findings: list = field(default_factory=list)
+    # The answer after masking and link cleaning, before any block: what a policy in shadow or monitor
+    # mode shows. When the check itself failed there's no checked answer, so it's SAFE_REPLY too.
+    answer: str = SAFE_REPLY
 
 
 # Give the model guard.system_prompt (prompt + canary), then check every answer.
@@ -253,26 +258,26 @@ class OutputGuard:
         try:
             return self.run(answer, user_data)
         except Exception as e:
-            return OutputResult(SAFE_REPLY, BLOCK, [error_finding("output", e)])
+            return OutputResult(SAFE_REPLY, BLOCK, [error_finding("output", e)], answer=SAFE_REPLY)
 
     def run(self, answer, user_data=None):
         from sieve.pipeline import LAYERS
 
-        if self.canary_leaked(answer):
-            return OutputResult(SAFE_REPLY, BLOCK, [Finding("canary", 1.0, BLOCK, ["system_prompt_leak"])])
-
-        overlap = self.prompt_overlap(answer)
+        # Every check runs, also after a block, so a policy can put any of them in shadow mode.
         findings = []
+        if self.canary_leaked(answer):
+            findings.append(Finding("canary", 1.0, BLOCK, ["system_prompt_leak"]))
+        overlap = self.prompt_overlap(answer)
         if overlap >= LEAK_BLOCK_SHINGLES:
-            return OutputResult(SAFE_REPLY, BLOCK, [Finding("prompt_overlap", 1.0, BLOCK, [f"{overlap} shared phrases"])])
-        if overlap >= LEAK_REVIEW_SHINGLES:
+            findings.append(Finding("prompt_overlap", 1.0, BLOCK, [f"{overlap} shared phrases"]))
+        elif overlap >= LEAK_REVIEW_SHINGLES:
             findings.append(Finding("prompt_overlap", 0.5, REVIEW, [f"{overlap} shared phrases"]))
 
         answer, link_findings = self.clean_links(answer)
         for name, action in link_findings:
             findings.append(Finding("output_links", 1.0 if action == REVIEW else 0.0, action, [name]))
 
-        layers = self.masking_layers or LAYERS
+        layers = LAYERS if self.masking_layers is None else self.masking_layers
         masked, values = mask_and_collect(answer, layers)
         if masked != answer:
             findings.append(Finding("output_masking", 0.0, ALLOW, ["personal_data_masked"]))
@@ -283,4 +288,5 @@ class OutputGuard:
             if any(not any(same_data(data_key(v), k) for k in known) for v in values):
                 findings.append(Finding("output_masking", 1.0, REVIEW, ["new_personal_data"]))
 
-        return OutputResult(masked, worst_action(findings), findings)
+        action = worst_action(findings)
+        return OutputResult(SAFE_REPLY if action == BLOCK else masked, action, findings, answer=masked)

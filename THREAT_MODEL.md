@@ -25,7 +25,7 @@ The starting assumption: **the model is not a security boundary.** Anything an a
 | B1 | User → app | A chat message | [`Guardrail.check`](sieve/pipeline.py), [`TenantGuardrail.check`](sieve/integrations/tenant.py) | Normalize, mask personal data, injection/code/URL rules, ML; with a session: rate limits, split attacks |
 | B2 | Outside content → prompt | Retrieved page, e-mail, file, tool result | [`DocumentGuard.check`](sieve/documents.py), `TenantGuardrail.check_document` | Checks each sentence, JSON value and hidden HTML part on its own; blocks hidden instructions |
 | B3 | App → LLM | The prompt | `GuardrailResult.text`, `OutputGuard.system_prompt`, `DocumentGuard.wrap` | Masked user text; canary in the system prompt; documents inside a random boundary with datamarking |
-| B4 | LLM → user | The answer | [`OutputGuard.check`](sieve/output.py) | Canary and prompt-copy check, removes links and images that load or carry data, masks personal data |
+| B4 | LLM → user | The answer | [`OutputGuard.check`](sieve/output.py), `TenantGuardrail.check_output` | Canary and prompt-copy check, removes links and images that load or carry data, masks personal data |
 | B5 | LLM → tool | A tool call | [`ToolGuard.check`](sieve/tools.py), `TenantGuardrail.check_tool` | Allowlist, types, limits, "did the user give this value", confirmation, rules on string arguments |
 | B6 | Sieve → logs | Decision events | [`siem.py`](sieve/integrations/siem.py), [`traffic_log.py`](sieve/integrations/traffic_log.py) | No raw text: masked-text hash, keyed pseudonyms, optional masked excerpt |
 
@@ -213,7 +213,14 @@ The three records are dev now, as is TOOL-ARGINJ-016 (a DDE call), which I wrote
 
 **Evidence.** Unit tests.
 
-**Residual risk.** Short data the masking doesn't know (a name, a customer number, a balance), or personal data split over several parameters (`?a=100000&b=00146`), still fits in a clickable link. Plain URLs are reviewed, not removed. An allowed host with an open redirect or user content. Text the user copies out by hand. `OutputGuard` isn't wired into `TenantGuardrail`, so its decisions don't follow the tenant policy and don't reach the SIEM.
+**Residual risk.** Short data the masking doesn't know (a name, a customer number, a balance), or personal data split over several parameters (`?a=100000&b=00146`), still fits in a clickable link. Plain URLs are reviewed, not removed. An allowed host with an open redirect or user content. Text the user copies out by hand.
+
+**Fixed.** `OutputGuard` wasn't wired into `TenantGuardrail`, so its decisions didn't follow the tenant policy and didn't reach the SIEM. Now `TenantGuardrail.check_output` checks answers through the policy, like messages:
+- `canary`, `prompt_overlap`, `output_links` and `output_masking` can each be `enforce`, `shadow` or `off`, and their rule IDs can go in `disabled_rules`;
+- monitor mode and the policy's `[masking]` apply;
+- every flagged answer is a SIEM event with `direction = "output"`, the answer masked, never raw.
+
+Masking and link cleaning always happen; the policy only decides whether the answer is shown, reviewed or replaced with `SAFE_REPLY`. An answer whose check failed is never shown, whatever `on_error` says, since there's no checked text to show. With a `TenantGuardrail`, `guarded_reply` checks the answer through the policy too.
 
 ### TH-08 Personal data leaving in prompts or logs
 

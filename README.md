@@ -136,10 +136,14 @@ A check that raises fails closed:
 
 ```python
 from sieve import Guardrail, OutputGuard, guarded_reply
+from sieve.integrations.tenant import TenantGuardrail
 
 reply = guarded_reply(user_message, ask_model, Guardrail(), OutputGuard(SYSTEM_PROMPT))  # ask_model(system, user) -> str
 reply.text            # what to show: the checked answer, or a refusal
 reply.model_called    # False when the input was blocked or its check failed
+
+# With a TenantGuardrail, leave OutputGuard out: the answer goes through the tenant policy too.
+reply = guarded_reply(user_message, ask_model, TenantGuardrail(policy, system_prompt=SYSTEM_PROMPT), session_id=session)
 ```
 
 ## How I evaluated

@@ -13,6 +13,7 @@ from sieve.documents import DocumentGuard, DocumentResult
 from sieve.integrations.siem import emit, fired, to_event
 from sieve.integrations.throttle import ConversationWindow, RateLimiter, SessionLimiter
 from sieve.ml.injection import MLInjectionLayer, unavailable_reason
+from sieve.output import OUTPUT_CHECKS, SAFE_REPLY, OutputGuard, OutputResult
 from sieve.paths import POLICIES
 from sieve.pipeline import LAYERS, Guardrail, GuardrailResult, default_check_layers, mask
 from sieve.rules import RULES, rule_ids
@@ -76,7 +77,7 @@ def validate(data, source):
     problems += [f"unknown masking layer {k!r}" for k in data["masking"] if k not in masking_names]
 
     check_names = {layer.name for layer in default_check_layers()} | {"prompt_injection_ml", "session", TOOL_CHECK,
-                                                                      IndirectInjectionLayer.name}
+                                                                      IndirectInjectionLayer.name, *OUTPUT_CHECKS}
     problems += [f"unknown layer {k!r}" for k in data["layers"] if k not in check_names]
     problems += [f"layer {k!r}: mode must be one of {LAYER_MODES}" for k, v in data["layers"].items() if v not in LAYER_MODES]
 
@@ -156,7 +157,8 @@ def layer_of(check):
 
 
 class TenantGuardrail:
-    def __init__(self, policy, guardrail=None, clock=time.monotonic):
+    # system_prompt (and an optional fixed canary) are for the answer check: give the model guard.system_prompt.
+    def __init__(self, policy, guardrail=None, clock=time.monotonic, system_prompt="", canary=None):
         self.policy = policy
         self.guard = guardrail or build_guardrail(policy)
 
@@ -172,6 +174,13 @@ class TenantGuardrail:
         ml = next((layer for layer in self.guard.check_layers if layer.name == MLInjectionLayer.name), None)
         self.tools = ToolGuard(policy.tools, policy.allowed_hosts, ml_layer=ml, use_ml=ml is not None)
         self.documents = DocumentGuard(policy.allowed_hosts, ml_layer=ml, use_ml=ml is not None)
+        # Answers are masked with the same layers as messages, so the policy's [masking] applies to them too.
+        self.output = OutputGuard(system_prompt, policy.allowed_hosts, masking_layers=self.guard.masking_layers,
+                                  canary=canary)
+
+    @property
+    def system_prompt(self):
+        return self.output.system_prompt
 
     def apply_policy(self, finding):
         if finding.action == ALLOW:
@@ -254,6 +263,28 @@ class TenantGuardrail:
             return self.run_document(text, session_id, user_id)
         except Exception as e:
             return DocumentResult(BLOCK, self.failed(e, "document", session_id, user_id).findings)
+
+    # The model's answer, checked by OutputGuard and then the policy, like a message. Masking and link
+    # cleaning always apply; the policy decides whether the answer is shown, reviewed or replaced. An
+    # answer whose check failed is never shown, whatever on_error says: there's no checked text to show.
+    def check_output(self, answer, user_data=None, session_id=None, user_id=None):
+        try:
+            return self.run_output(answer, user_data, session_id, user_id)
+        except Exception as e:
+            return OutputResult(SAFE_REPLY, BLOCK, self.failed(e, "output", session_id, user_id).findings)
+
+    def run_output(self, answer, user_data=None, session_id=None, user_id=None):
+        start = time.perf_counter()
+        result = self.output.check(answer, user_data)
+        found = [f for f in result.findings if self.policy.layers.get(f.check) != "off"]
+        findings, action, would_action = self.decide(found)
+        text = SAFE_REPLY if action == BLOCK or result.answer == SAFE_REPLY else result.answer
+
+        if would_action != ALLOW or self.policy.log_allowed:
+            logged = GuardrailResult(result.answer, action, findings)
+            emit(to_event(logged, would_action, self.policy, original=answer, session_id=session_id, user_id=user_id,
+                          direction="output", latency_ms=(time.perf_counter() - start) * 1000))
+        return OutputResult(text, action, findings, answer=result.answer)
 
     def check(self, text, session_id=None, user_id=None, direction="input"):
         try:
