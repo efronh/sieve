@@ -202,7 +202,9 @@ class TenantGuardrail:
     # A tool call the model wants to make; see tools.py. Logged with direction "tool", arguments masked.
     def check_tool(self, name, args, user_data=None, session_id=None, user_id=None):
         start = time.perf_counter()
-        result = self.tools.check(name, args, user_data)
+        # Totals (max_total, max_calls) count per user, like the session limits.
+        who = user_id if user_id is not None else session_id
+        result = self.tools.check(name, args, user_data, user_id=who)
         found = [f for f in result.findings if self.policy.layers.get(f.check) != "off"]
         findings, action, would_action = self.decide(found)
 

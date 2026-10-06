@@ -101,6 +101,9 @@ RULES = {
     "tool_call.bad_arguments": Rule(AGENCY, 6, "Tool arguments don't match the spec"),
     "tool_call.out_of_range": Rule(AGENCY, 8, "Tool argument outside its limits"),
     "tool_call.not_from_user": Rule(AGENCY, 7, "Tool argument the user didn't give"),
+    "tool_call.total_over_limit": Rule(AGENCY, 8, "Tool argument total over its limit in the window"),
+    "tool_call.too_many_calls": Rule(AGENCY, 6, "Too many calls to a tool in the window"),
+    "tool_call.total_unchecked": Rule(AGENCY, 3, "Tool totals can't be checked without a user ID"),
     "tool_call.url_with_data": Rule(SID, 7, "URL carrying data in a tool argument"),
     "tool_call.needs_confirmation": Rule(AGENCY, 2, "Tool call needs the user's confirmation"),
 }

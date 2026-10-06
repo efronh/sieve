@@ -191,8 +191,10 @@ def entry_points():
     if ml is not None and ml.cascade:
         ml.stage.predict(["Merhaba"])  # BERTurk loads on first use; keep that out of the timings
 
+    # Each record is its own user, so totals over calls (max_total) don't carry from one record to the next.
     def calls(case):
-        return [f for c in case["calls"] for f in tools.check(c["tool"], c["args"], case["user_data"]).findings]
+        return [f for c in case["calls"]
+                for f in tools.check(c["tool"], c["args"], case["user_data"], user_id=case["id"]).findings]
 
     return {
         "guardrail": lambda case: guard.check(case["text"]).findings,

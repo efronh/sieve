@@ -80,12 +80,15 @@ tools = ToolGuard({
         "optional": ["aciklama"],      # diğerleri zorunlu
         "min": {"tutar": 1},
         "max": {"tutar": 50000},
+        "max_total": {"tutar": 50000}, # kullanıcı başına, pencere içindeki çağrıların toplamı
+        "max_calls": 10,               # pencere içinde en fazla bu kadar çağrı
+        "window_seconds": 86400,       # varsayılan bir gün
         "from_user": ["iban"],         # kullanıcının kendi mesajında geçmeli
         "confirm": True,               # her çağrıda kullanıcı onaylıyor
     },
 }, allowed_hosts=["ornekbank.com.tr"])
 
-r = tools.check(name, args, user_data=[user_message])
+r = tools.check(name, args, user_data=[user_message], user_id=user)
 r.action     # allow / review / block
 r.reasons    # ['tutar: 75000 > 50000'], modele ya da kullanıcıya neden reddedildiğini söylemek için
 ```
@@ -95,13 +98,14 @@ r.reasons    # ['tutar: 75000 > 50000'], modele ya da kullanıcıya neden redded
 | İzin listesi | Spec'i olmayan tool | block |
 | Argümanlar | Bilinmeyen parametre, eksik zorunlu parametre, yanlış tip (`True`, `NaN` ve sonsuz sayı sayılmıyor), sözlük olmayan argümanlar | block |
 | Limitler | `min`/`max` dışındaki sayı | block |
+| Toplamlar | Aynı kullanıcının pencere içindeki çağrılarıyla `max_total`'ı aşan toplam ya da `max_calls`'tan fazla çağrı: 20.000'lik üç transfer 50.000'lik limiti aşamıyor. Sieve'in engellemediği her çağrı sayılıyor (uygulamanın çalıştırıp çalıştırmadığını göremiyor; reddedilen bir onay da sayılıyor). Durum bellekte, süreç başına. `user_id` verilmezse toplam kontrol edilemediği için review | block / review |
 | Kullanıcıdan mı | `from_user` argümanı `user_data`'da yoksa. Boşluk ve büyük/küçük harf farkı, `+90 532…`/`0532…`/`sıfır beş üç…` gibi aynı numaranın farklı yazımları sayılmıyor. Değer kullanıcının metninde bütün olarak geçmeli: noktalaması farklı (`ayse@kaya-ornekmail.com`) ya da daha uzun bir kelimenin parçası olan (`ornekmail.co`, `ornekmail.com`'un içinde) ya da rakamları kullanıcınınkiyle biten bir değer kullanıcıdan sayılmıyor. `user_data` verilmezse doğrulanamadığı için review | review |
 | Onay | `confirm = true` olan tool | review |
 | Argüman içeriği | String argümanlar (iç içe olanlar dahil) girişteki gibi önce ham halde manipülasyon kontrolünden, sonra normalize edilip injection, kod ve URL kurallarından geçiyor; izinli olmayan bir hosta veri taşıyan link review | kuralın kararı |
 
 Spec'teki bir yazım hatası (bilinmeyen tip, olmayan parametreye limit, sayı yerine yazı olan limit, `confrim`) `ValueError` veriyor; yanlış yazılmış bir limit sessizce her tutara izin vermesin diye.
 
-Kiracı politikasında spec'ler `[tools.<ad>]` tablolarında, `TenantGuardrail.check_tool(name, args, user_data=...)` aynı shadow/monitor/`disabled_rules` kurallarıyla çalışıyor ve SIEM'e `direction = "tool"` olayı gönderiyor (argümanlar maskeli). Örnek: `policies/example_bank.toml`.
+Kiracı politikasında spec'ler `[tools.<ad>]` tablolarında, `TenantGuardrail.check_tool(name, args, user_data=..., user_id=...)` aynı shadow/monitor/`disabled_rules` kurallarıyla çalışıyor (toplamlar oturum limitleri gibi `user_id`'ye, yoksa `session_id`'ye göre sayılıyor) ve SIEM'e `direction = "tool"` olayı gönderiyor (argümanlar maskeli). Örnek: `policies/example_bank.toml`.
 
 ## Dokümanlar: `documents.py`
 

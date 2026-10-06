@@ -84,6 +84,79 @@ def test_a_value_that_only_looks_like_the_users_isnt_from_the_user(value):
         assert tools.check("gonder", {"hedef": own}, user_data=user).action == "allow", own
 
 
+class Clock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+def counted(clock, **spec):
+    tools = {"havale": {"params": {"iban": "str", "tutar": "number"}, "max": {"tutar": 50000}, **spec}}
+    return ToolGuard(tools, clock=clock)
+
+
+def matches_of(result):
+    return {m for f in result.findings for m in f.matches}
+
+
+def test_a_total_over_the_window_stops_calls_each_under_the_limit():
+    clock = Clock()
+    tools = counted(clock, max_total={"tutar": 50000})
+    call = ("havale", {"iban": IBAN, "tutar": 20000})
+    assert [tools.check(*call, user_id="42").action for _ in range(3)] == ["allow", "allow", "block"]
+    assert "total_over_limit" in matches_of(tools.check(*call, user_id="42"))
+    assert tools.check(*call, user_id="43").action == "allow"  # another user has their own total
+    clock.now = 24 * 60 * 60 + 1
+    assert tools.check(*call, user_id="42").action == "allow"  # the window moved on
+
+
+def test_blocked_calls_dont_count_and_negative_amounts_dont_lower_the_total():
+    tools = counted(Clock(), max_total={"tutar": 50000})
+    assert tools.check("havale", {"iban": IBAN, "tutar": 60000}, user_id="42").action == "block"
+    assert tools.check("havale", {"iban": IBAN, "tutar": -40000}, user_id="42").action == "allow"
+    assert tools.check("havale", {"iban": IBAN, "tutar": 45000}, user_id="42").action == "allow"
+    assert tools.check("havale", {"iban": IBAN, "tutar": 10000}, user_id="42").action == "block"
+
+
+def test_too_many_calls_in_the_window():
+    clock = Clock()
+    tools = counted(clock, max_calls=2, window_seconds=60)
+    call = ("havale", {"iban": IBAN, "tutar": 1})
+    assert [tools.check(*call, user_id="42").action for _ in range(3)] == ["allow", "allow", "block"]
+    assert "too_many_calls" in matches_of(tools.check(*call, user_id="42"))
+    clock.now = 61
+    assert tools.check(*call, user_id="42").action == "allow"
+
+
+def test_totals_without_a_user_id_fail_closed():
+    result = counted(Clock(), max_total={"tutar": 50000}).check("havale", {"iban": IBAN, "tutar": 1})
+    assert result.action == "review" and "total_unchecked" in matches_of(result)
+
+
+@pytest.mark.parametrize("spec", [
+    pytest.param({"max_total": {"tutr": 5}}, id="total of a misspelled parameter"),
+    pytest.param({"max_total": {"iban": 5}}, id="total of a string"),
+    pytest.param({"max_total": {"tutar": "5"}}, id="total as a string"),
+    pytest.param({"max_calls": 0}, id="no calls allowed"),
+    pytest.param({"max_calls": True}, id="max_calls as a bool"),
+    pytest.param({"window_seconds": 60}, id="window without a total"),
+])
+def test_broken_totals_are_rejected(spec):
+    with pytest.raises(ValueError):
+        counted(Clock(), **spec)
+
+
+def test_tenant_totals_count_per_user():
+    guard = TenantGuardrail(load_policy("example_bank", overrides={"mode": "enforce", "tools": {
+        "havale": {"params": {"iban": "str", "tutar": "number"}, "max_total": {"tutar": 50000}}}}))
+    call = ("havale", {"iban": IBAN, "tutar": 30000})
+    assert guard.check_tool(*call, user_id="42").action == "allow"
+    assert guard.check_tool(*call, session_id="yeni-oturum", user_id="42").action == "block"
+    assert guard.check_tool(*call, session_id="baska").action == "allow"
+
+
 def test_from_user_without_user_data_fails_closed(guard):
     assert guard.check("para_transferi", {"iban": IBAN, "tutar": 500}).action == "review"
 
