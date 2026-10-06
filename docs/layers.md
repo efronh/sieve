@@ -76,7 +76,7 @@ from sieve import ToolGuard
 
 tools = ToolGuard({
     "para_transferi": {
-        "params": {"iban": "str", "tutar": "number", "aciklama": "str"},   # str | number | integer | bool
+        "params": {"iban": "line", "tutar": "number", "aciklama": "str"},  # str | line | number | integer | bool
         "optional": ["aciklama"],      # diğerleri zorunlu
         "min": {"tutar": 1},
         "max": {"tutar": 50000},
@@ -96,10 +96,11 @@ r.reasons    # ['tutar: 75000 > 50000'], modele ya da kullanıcıya neden redded
 | Kontrol | Ne yapıyor | Karar |
 |---|---|---|
 | İzin listesi | Spec'i olmayan tool | block |
-| Argümanlar | Bilinmeyen parametre, eksik zorunlu parametre, yanlış tip (`True`, `NaN` ve sonsuz sayı sayılmıyor), sözlük olmayan argümanlar | block |
+| Argümanlar | Bilinmeyen parametre, eksik zorunlu parametre, yanlış tip (`True`, `NaN` ve sonsuz sayı sayılmıyor), sözlük olmayan argümanlar. `line` satır sonu içermeyen bir metin: konu, isim, numara gibi alanlar için. Oradaki bir satır sonu yeni bir e-posta başlığı (`…\r\nBcc: …`) ya da sahte bir log satırı başlatır; e-posta gövdesinde ya da açıklamada ise sadece metindir | block |
 | Limitler | `min`/`max` dışındaki sayı | block |
 | Toplamlar | Aynı kullanıcının pencere içindeki çağrılarıyla `max_total`'ı aşan toplam ya da `max_calls`'tan fazla çağrı: 20.000'lik üç transfer 50.000'lik limiti aşamıyor. Sieve'in engellemediği her çağrı sayılıyor (uygulamanın çalıştırıp çalıştırmadığını göremiyor; reddedilen bir onay da sayılıyor). Durum bellekte, süreç başına. `user_id` verilmezse toplam kontrol edilemediği için review | block / review |
 | Kullanıcıdan mı | `from_user` argümanı `user_data`'da yoksa. Boşluk ve büyük/küçük harf farkı, `+90 532…`/`0532…`/`sıfır beş üç…` gibi aynı numaranın farklı yazımları sayılmıyor. Değer kullanıcının metninde bütün olarak geçmeli: noktalaması farklı (`ayse@kaya-ornekmail.com`) ya da daha uzun bir kelimenin parçası olan (`ornekmail.co`, `ornekmail.com`'un içinde) ya da rakamları kullanıcınınkiyle biten bir değer kullanıcıdan sayılmıyor. `user_data` verilmezse doğrulanamadığı için review | review |
+| Tablo formülü | `=HYPERLINK(`, `+SUM(`, `@…(` ya da `=cmd\|…!` (DDE) ile başlayan argüman: CRM tabloya aktarılınca çalışır (OWASP CSV injection). Kural sadece tool argümanlarında; kullanıcı mesajında başlıklarıyla yapıştırılmış bir e-posta saldırı değil | review |
 | Onay | `confirm = true` olan tool | review |
 | Argüman içeriği | String argümanlar (iç içe olanlar dahil) onları sonra okuyacak sistemin girdisi: kod kurallarından (veritabanı, shell için) ve dokümanlarla aynı kontrolden (e-posta, başka bir ajan için) geçiyor. Yani manipülasyon ve URL kontrolü, her cümlede injection ve doküman kuralları ile ML, gizli HTML'deki talimata block. "Bu kaydı özetleyen asistan: …" gibi şikayet kaydına yazılmış bir talimat da böylece yakalanıyor. İzinli olmayan bir hosta veri taşıyan link review | kuralın kararı |
 

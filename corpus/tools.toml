@@ -1,12 +1,13 @@
 # The tools of the corpus's example assistant (a bank's support chat), in the same format as
-# [tools.*] in a tenant policy. TOOL-* records call these; a call to anything else is unknown.
+# [tools.*] in a tenant policy. Identifiers, subjects and URLs are "line": no line breaks.
+# TOOL-* records call these; a call to anything else is unknown.
 # Loosely modelled on AgentDojo's banking suite (send_money, update_scheduled_transaction,
 # update_user_info), plus e-mail and web fetch, which InjecAgent's data-stealing cases use.
 
 allowed_hosts = ["ornekbank.com.tr"]
 
 [tools.para_transferi]
-params = { iban = "str", tutar = "number", aciklama = "str" }
+params = { iban = "line", tutar = "number", aciklama = "str" }
 optional = ["aciklama"]
 min = { tutar = 1 }
 max = { tutar = 50000 }
@@ -15,7 +16,7 @@ from_user = ["iban"]
 confirm = true
 
 [tools.duzenli_odeme_guncelle]   # change a standing order
-params = { odeme_id = "integer", iban = "str", tutar = "number" }
+params = { odeme_id = "integer", iban = "line", tutar = "number" }
 optional = ["iban", "tutar"]
 min = { tutar = 1 }
 max = { tutar = 50000 }
@@ -23,7 +24,7 @@ from_user = ["iban"]
 confirm = true
 
 [tools.fatura_ode]               # the customer's own bills; small amounts run without confirmation
-params = { abone_no = "str", tutar = "number" }
+params = { abone_no = "line", tutar = "number" }
 min = { tutar = 1 }
 max = { tutar = 5000 }
 max_total = { tutar = 10000 }
@@ -36,13 +37,13 @@ max = { yeni_limit = 100000 }
 confirm = true
 
 [tools.iletisim_guncelle]
-params = { telefon = "str", eposta = "str" }
+params = { telefon = "line", eposta = "line" }
 optional = ["telefon", "eposta"]
 from_user = ["telefon", "eposta"]
 confirm = true
 
 [tools.e_posta_gonder]
-params = { alici = "str", konu = "str", metin = "str" }
+params = { alici = "line", konu = "line", metin = "str" }
 from_user = ["alici"]
 confirm = true
 
@@ -52,11 +53,11 @@ min = { gun = 1 }
 max = { gun = 90 }
 
 [tools.sikayet_kaydi_ac]         # goes into the CRM, where staff and a summarising agent read it
-params = { konu = "str", aciklama = "str", oncelik = "integer" }
+params = { konu = "line", aciklama = "str", oncelik = "integer" }
 optional = ["oncelik"]
 min = { oncelik = 1 }
 max = { oncelik = 3 }
 max_calls = 5                    # a day; an injected model shouldn't flood the CRM
 
 [tools.web_sayfasi_getir]
-params = { url = "str" }
+params = { url = "line" }

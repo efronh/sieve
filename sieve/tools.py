@@ -15,7 +15,14 @@ from sieve.output import PLAIN_URL, carries_data, data_key, host_of, mask_and_co
 from sieve.pipeline import LAYERS, clean
 
 SPACES = re.compile(r"\s+")
-TYPES = {"str": (str,), "number": (int, float), "integer": (int,), "bool": (bool,)}
+# line: a string without line breaks, for a subject, a name or an ID. A line break there starts a new mail
+# header ("...\r\nBcc: ...") or a fake log line; in a mail body or a description it's just text.
+TYPES = {"str": (str,), "line": (str,), "number": (int, float), "integer": (int,), "bool": (bool,)}
+LINE_BREAK = re.compile(r"[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]")
+# A cell a spreadsheet would run when the CRM is exported (OWASP "CSV injection"): =HYPERLINK(...),
+# +SUM(...), @IMPORTXML(...), or a DDE call like =cmd|' /C calc'!A0. A function name has to be right
+# before the "(", so "-5 TL fazla çekildi" or "+90 (532) ..." isn't one.
+FORMULA = re.compile(r"""^[\s"']*[=+\-@]\s*(?:[A-Za-z][A-Za-z0-9._]*\(|[^|\n]*\|[^!\n]*!)""")
 SPEC_KEYS = {"params", "optional", "min", "max", "max_total", "max_calls", "window_seconds", "from_user", "confirm"}
 CHECK = "tool_call"
 # max_total and max_calls count per user over this window unless the spec sets window_seconds: banks set
@@ -65,8 +72,10 @@ def spec_problems(name, spec):
 def has_type(value, name):
     if name == "bool":
         return isinstance(value, bool)
+    if name in ("str", "line"):
+        return isinstance(value, str) and not (name == "line" and LINE_BREAK.search(value))
     # bool is an int in Python, but True isn't an amount; json.loads accepts NaN, which no limit catches.
-    return isinstance(value, TYPES[name]) and not isinstance(value, bool) and (name == "str" or math.isfinite(value))
+    return isinstance(value, TYPES[name]) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def strings_in(value):
@@ -155,7 +164,8 @@ class ToolGuard:
             if key not in params:
                 problems.append(("bad_arguments", BLOCK, f"{key}: unknown parameter"))
             elif not has_type(value, params[key]):
-                problems.append(("bad_arguments", BLOCK, f"{key}: expected {params[key]}"))
+                expected = "one line" if params[key] == "line" and isinstance(value, str) else params[key]
+                problems.append(("bad_arguments", BLOCK, f"{key}: expected {expected}"))
         problems += [("bad_arguments", BLOCK, f"{key}: missing") for key in params
                      if key not in args and key not in spec.get("optional", ())]
 
@@ -188,6 +198,8 @@ class ToolGuard:
         for text in strings_in(args):
             if any(not self.is_allowed(url) and carries_data(url) for url in PLAIN_URL.findall(text)):
                 problems.append(("url_with_data", REVIEW, "link carrying data in an argument"))
+            if FORMULA.match(text):
+                problems.append(("spreadsheet_formula", REVIEW, "starts like a spreadsheet formula"))
         if spec.get("confirm"):
             problems.append(("needs_confirmation", REVIEW, "needs the user's confirmation"))
         return problems

