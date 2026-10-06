@@ -73,14 +73,14 @@ Each control below works only if the app does its part. If an assumption breaks,
 |---|---|---|---|---|---|---|
 | [TH-01](#th-01-direct-prompt-injection) | Direct prompt injection | AT1 | B1 | LLM01 | block when literal, else review | 30 held-out attacks, 57 white-box |
 | [TH-02](#th-02-obfuscated-injection) | Obfuscated injection | AT1, AT2 | B1, B2 | LLM01 | as TH-01 after decoding | Generated variants only |
-| [TH-03](#th-03-system-prompt-extraction) | System prompt extraction | AT1, AT2 | B1, B4 | LLM07 | review the request; block the leak | 15 requests; the leak itself: unit tests |
+| [TH-03](#th-03-system-prompt-extraction) | System prompt extraction | AT1, AT2 | B1, B4 | LLM07 | review the request; block the leak | 15 requests, 14 leaked answers |
 | [TH-04](#th-04-indirect-injection) | Indirect injection in documents | AT2, AT3 | B2 | LLM01 | block if hidden, review if visible | 30 attacks × 6 carriers, 14 documents |
 | [TH-05](#th-05-multi-turn-attacks) | Multi-turn attacks | AT1 | B1 | LLM01 | review | Not reproducible |
 | [TH-06](#th-06-malicious-tool-calls) | Malicious tool calls | AT1–AT3 via the model | B5 | LLM06 | block outside the spec, review the unverified | Unit tests |
-| [TH-07](#th-07-exfiltration-through-the-answer) | Exfiltration through the answer | AT1–AT3 via the model | B4 | LLM05 | remove + review | Unit tests |
+| [TH-07](#th-07-exfiltration-through-the-answer) | Exfiltration through the answer | AT1–AT3 via the model | B4 | LLM05 | remove + review | 13 attacks, 10 benign answers |
 | [TH-08](#th-08-personal-data-leaving-in-prompts-or-logs) | Personal data leaving in prompts or logs | — | B3, B6 | LLM02 | mask | Unit tests |
 | [TH-09](#th-09-another-customers-data-in-the-answer) | Another customer's data in the answer | AT1, AT3 via the model | B4 | LLM02 | review | 12 attacks, 12 benign answers |
-| [TH-10](#th-10-active-content-in-the-answer) | Active content in the answer | AT1–AT3 via the model | B4 | LLM05 | remove + review | Unit tests |
+| [TH-10](#th-10-active-content-in-the-answer) | Active content in the answer | AT1–AT3 via the model | B4 | LLM05 | remove + review | 13 attacks |
 | [TH-11](#th-11-resource-exhaustion) | Resource exhaustion | AT1, AT2 | B1, B2, B5 | LLM10 | review or block, never crash | Unit tests for the inputs that crashed |
 | [TH-12](#th-12-probing-the-guardrail) | Probing the guardrail | AT1 | B1 | LLM01 | block after repeated flags | Unit tests |
 | [TH-13](#th-13-model-and-training-data-integrity) | Model and training data integrity | AT4 | Load time | LLM03, LLM04 | — | No control for the model file |
@@ -123,9 +123,16 @@ With TF-IDF alone, as in CI, it's 40 of 57. What gets through is social engineer
 
 **Controls.** On input, the `reveal_system_prompt` rule. On output, [`OutputGuard`](sieve/output.py) puts a random canary in the system prompt. If the canary shows up in the answer (spaced, reversed, base64 or hex too), the answer is blocked. Five-word runs copied from the prompt: one run means review, three mean block.
 
-**Evidence.** For the leak itself, unit tests ([`tests/test_output_guard.py`](tests/test_output_guard.py)). For the request, the 15 PI-LEAK messages of the corpus: 12 are reviewed with the default setup, 9 with TF-IDF alone. The three that pass never say "system prompt": a config dump in JSON, a thesis pretext, and "what was written above your last answer".
+**Evidence.** For the leak itself, the EXF-LEAK family of the corpus: 14 answers that give away the canary or the prompt, against the example assistant's prompt ([`corpus/system_prompt.txt`](corpus/system_prompt.txt)). 9 are caught:
+- the canary as is, spaced, reversed, in base64, in hex, with zero-width spaces, and in an English translation;
+- the whole prompt;
+- one of its sentences (review).
 
-**Residual risk.** A paraphrase or summary of the prompt shares no five-word run and no canary, so it passes. A prompt shorter than five words has nothing to compare. Extracting one sentence per turn gets a review each time, never a block.
+The prompt in base64 (700 characters) isn't decoded, so it isn't caught as a copy. Masking takes it for a secret key, though, so it's reviewed and the text shown has `[GIZLI_ANAHTAR]` in its place. What passes: the canary in the NATO alphabet or with Cyrillic look-alike letters, a paraphrase of the prompt, and an English translation without the canary. Of 10 benign answers, one is reviewed: "0850 222 0 800 numaralı çağrı merkezimizi arayabilirsiniz" shares five words with the prompt's own call-centre sentence.
+
+For the request, the 15 PI-LEAK messages of the corpus: 12 are reviewed with the default setup, 9 with TF-IDF alone. The three that pass never say "system prompt": a config dump in JSON, a thesis pretext, and "what was written above your last answer".
+
+**Residual risk.** A paraphrase or summary of the prompt shares no five-word run and no canary, so it passes. So does a canary spelled out in words or written with look-alike letters. An answer that repeats an instruction the prompt gives the customer (the call-centre number) is reviewed. A prompt shorter than five words has nothing to compare. Extracting one sentence per turn gets a review each time, never a block.
 
 ### TH-04 Indirect injection
 
@@ -211,9 +218,13 @@ The three records are dev now, as is TOOL-ARGINJ-016 (a DDE call), which I wrote
 - Images, links, embeds and Markdown references carrying data are removed and reviewed. "Carrying data" means a value of 16 or more characters, a mask label like `[IBAN]`, or personal data the masking layers find in a path segment, a query key and value, or a subdomain (an 11-digit TC, a phone number, `cvv=123`).
 - Plain-text URLs carrying data are reviewed.
 
-**Evidence.** Unit tests.
+**Evidence.** The EXF-LINK family of the corpus: 14 answers in 13 groups, all reviewed. They cover Markdown and HTML images, links, reference definitions, `srcset`, `<link rel=prefetch>`, a video poster, a plain URL, a short TC, and a TC as a subdomain. Three are caught by something other than the link check:
+- an open redirect on the allowed host, and data split over path segments (`/100000/00146`), only because masking reads the data as personal data (a key, one TC);
+- a CSS `background-image`, only by the plain-URL scan, which reviews it but doesn't remove it.
 
-**Residual risk.** Short data the masking doesn't know (a name, a customer number, a balance), or personal data split over several parameters (`?a=100000&b=00146`), still fits in a clickable link. Plain URLs are reviewed, not removed. An allowed host with an open redirect or user content. Text the user copies out by hand.
+Data split over query parameters (`?a=100000&b=00146`) adds up to 16 characters and counts as data. All of these are white-box: written after reading `output.py`.
+
+**Residual risk.** Short data the masking doesn't know (a name, a customer number, a balance) still fits in a clickable link. An allowed host's open redirect isn't checked: the data leaves unless masking happens to see it. A CSS `url()` and plain URLs are reviewed, not removed. Text the user copies out by hand.
 
 **Fixed.** `OutputGuard` wasn't wired into `TenantGuardrail`, so its decisions didn't follow the tenant policy and didn't reach the SIEM. Now `TenantGuardrail.check_output` checks answers through the policy, like messages:
 - `canary`, `prompt_overlap`, `output_links` and `output_masking` can each be `enforce`, `shadow` or `off`, and their rule IDs can go in `disabled_rules`;
@@ -256,7 +267,9 @@ Of 12 benign answers, 1 is a false alarm: a branch's landline (`0312 555 12 34`)
 
 **Controls.** `OutputGuard` removes scripts, event handlers and `javascript:`/`vbscript:`/`data:` URLs, after decoding entities and ignoring the control characters browsers skip. Each one goes to review. On input, [`checks/code_payloads.py`](sieve/checks/code_payloads.py) catches SQL, shell, path traversal, XSS and template payloads in messages and tool arguments.
 
-**Residual risk.** Not a sanitizer: CSS, SVG, iframes from allowed hosts and renderer quirks are the app's job.
+**Evidence.** The OUT-ACTIVE family of the corpus: 13 answers, 10 reviewed with the active part removed. They cover a script tag, `onerror` and `onload` handlers, `javascript:`, `vbscript:` and `data:` links, `javascript:` hidden in entities or split by a tab, and an `iframe` and an `object` loading `javascript:`. What passes: a phishing form that posts to another host, a link whose text shows the bank's address but points elsewhere, and a `<meta http-equiv="refresh">`.
+
+**Residual risk.** Not a sanitizer: CSS, SVG, iframes from allowed hosts and renderer quirks are the app's job. Forms, meta refresh and link text that doesn't match the link aren't checked.
 
 ### TH-11 Resource exhaustion
 
@@ -451,5 +464,7 @@ At least 15 independent test groups for each of the 14 input families (210), and
 | Benign model answers | 12 | — | `BEN`, carrier `model_answer`: the user's own data in another format, the bank's phone numbers, numbers that only look like data |
 | Prompt-injection attacks written with Claude | 69 | 69 | `PI-OVR`, `PI-ROLE`, `PI-AUTH`, `PI-SOC`, `PI-ACT`, `PI-LEAK`, to 15 groups each; written knowing the rules, so white-box. None is a near copy of the training data |
 | Benign banking messages that share words with attacks | 15 | — | `BEN`: "önceki talimatımı unutun", "sistem mesajı", "rol yapma oyunu"; none is in the training data |
+| Output attacks written by me | 41 | 40 | `EXF-LINK`, `EXF-LEAK`, `OUT-ACTIVE`, carrier `model_answer`; after reading `output.py`, so white-box |
+| Benign answers with links, HTML or attack-like words | 10 | — | `BEN`, carrier `model_answer` |
 
-Today there are 297 independent test groups: 188 for messages and documents, 44 for conversations, 53 for tools (43 single-call, 10 chains), and 12 for model answers. EXF-LINK, EXF-LEAK and OUT-ACTIVE have none.
+Today there are 337 independent test groups: 188 for messages and documents, 44 for conversations, 53 for tools (43 single-call, 10 chains), and 52 for model answers. Every family has at least its minimum.
