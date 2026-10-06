@@ -255,3 +255,23 @@ def test_the_committed_baseline_covers_the_whole_corpus(records):
     known = json.loads((ROOT / "corpus" / "baseline.json").read_text(encoding="utf-8"))
     assert known["config"]["cascade"] is False
     assert {r["id"] for r in records} <= set(known["actions"])
+
+
+def test_the_holdout_report_shows_counts_but_never_a_text_or_an_id(tmp_path, capsys):
+    from scripts.replay import holdout_report, load_holdout
+    from sieve.actions import Finding
+
+    (tmp_path / "a.jsonl").write_text(json.dumps({"id": "HO-A-0001", "source": "a", "label": "attack", "category": "x",
+                                                  "text": "GIZLI-SALDIRI-METNI"}) + "\n", encoding="utf-8")
+    (tmp_path / "user_benign.txt").write_text("# a note\nGIZLI-NORMAL-METIN\n", encoding="utf-8")
+    records = load_holdout(tmp_path)
+    assert [r["source"] for r in records] == ["a", "user"]
+
+    def guardrail(record):
+        return [Finding("prompt_injection_rules", 0.9, "block" if "SALDIRI" in record["text"] else "allow", ["x"])]
+
+    summary = holdout_report(records, {"guardrail": guardrail})
+    out = capsys.readouterr().out
+    assert "GIZLI" not in out and "HO-A-0001" not in out
+    assert summary["a"]["flagged"] == 1 and summary["user"]["false_alarms"] == 0
+    assert summary["all"]["attacks"] == 1 and summary["all"]["benign"] == 1

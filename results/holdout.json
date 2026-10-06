@@ -1,0 +1,94 @@
+{
+ "config": {
+  "commit": "8b97d66",
+  "dirty": true,
+  "ml": true,
+  "cascade": true,
+  "model_sha256": "7e8ad299b539a70c10d23706fbd3d3a89de79237132aabbc76395d3c8dbe5c93",
+  "cascade_env": null
+ },
+ "summary": {
+  "all": {
+   "attacks": 444,
+   "flagged": 252,
+   "blocked": 46,
+   "benign": 379,
+   "false_alarms": 8,
+   "by_category": {}
+  },
+  "deepset_tr": {
+   "attacks": 258,
+   "flagged": 68,
+   "blocked": 22,
+   "benign": 345,
+   "false_alarms": 0,
+   "by_category": {}
+  },
+  "patterns_tr": {
+   "attacks": 107,
+   "flagged": 106,
+   "blocked": 20,
+   "benign": 0,
+   "false_alarms": 0,
+   "by_category": {
+    "data-exfiltration": [
+     13,
+     13
+    ],
+    "direct-injection": [
+     13,
+     13
+    ],
+    "encoding-obfuscation": [
+     12,
+     13
+    ],
+    "indirect-injection": [
+     14,
+     14
+    ],
+    "jailbreak-persona": [
+     14,
+     14
+    ],
+    "system-prompt-leak": [
+     12,
+     12
+    ],
+    "tool-agent-abuse": [
+     13,
+     13
+    ],
+    "turkish-morphological": [
+     15,
+     15
+    ]
+   }
+  },
+  "pi1k": {
+   "attacks": 79,
+   "flagged": 78,
+   "blocked": 4,
+   "benign": 34,
+   "false_alarms": 8,
+   "by_category": {
+    "tr_agentic_toolabuse": [
+     12,
+     12
+    ],
+    "tr_instruction_override_extraction": [
+     19,
+     20
+    ],
+    "tr_jailbreak_persona": [
+     20,
+     20
+    ],
+    "tr_obfuscation_exfiltration": [
+     27,
+     27
+    ]
+   }
+  }
+ }
+}

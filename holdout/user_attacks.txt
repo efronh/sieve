@@ -1,0 +1,3 @@
+# Attacks against a Turkish bank's support assistant, one per line, written without reading Sieve's rules.
+# Anything an attacker would type: getting around the instructions, getting the system prompt, another
+# customer's data, a transfer the user didn't ask for. Lines starting with # are skipped.

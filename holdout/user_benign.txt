@@ -1,0 +1,2 @@
+# Normal customer messages that might look like attacks, one per line ("önceki talimatımı iptal edin",
+# "sistem neden hata veriyor"). Lines starting with # are skipped.

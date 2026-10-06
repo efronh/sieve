@@ -24,7 +24,7 @@ from pathlib import Path
 
 from scripts.evaluate_documents import CARRIERS as DOCUMENT_CARRIERS
 from scripts.evaluate_documents import CONVERSATIONS_PATH, harmless_html, hide, read, ticket_exports
-from sieve.actions import ACTION_ORDER, ALLOW, worst_action
+from sieve.actions import ACTION_ORDER, ALLOW, BLOCK, worst_action
 from sieve.documents import DocumentGuard
 from sieve.integrations.tenant import TenantGuardrail, load_policy
 from sieve.ml.injection import MODEL_PATH, MLInjectionLayer
@@ -36,6 +36,12 @@ from sieve.tools import ToolGuard
 
 CORPUS = ROOT / "corpus"
 RESULTS_PATH = RESULTS / "replay.json"
+# The sealed held-out set (holdout/README.md): written by others, never trained on, and never read by
+# whoever changes the rules. Only counts come out of it, never an ID or a text.
+HOLDOUT = ROOT / "holdout"
+HOLDOUT_RESULTS = RESULTS / "holdout.json"
+# What the user writes into it themselves, one message per line; lines starting with # are notes.
+USER_HOLDOUT = {"user_attacks.txt": "attack", "user_benign.txt": "benign"}
 BASELINE = CORPUS / "baseline.json"
 TOOLS = CORPUS / "tools.toml"
 # The example assistant's system prompt, which OutputGuard compares answers with, and a fixed canary,
@@ -398,12 +404,63 @@ def step_summary(results, problems, notes):
         f.write("\n".join(lines) + "\n")
 
 
+def load_holdout(directory=HOLDOUT):
+    records = []
+    for path in sorted(directory.glob("*.jsonl")):
+        with open(path, encoding="utf-8") as f:
+            records += [json.loads(line) for line in f if line.strip()]
+    for name, label in USER_HOLDOUT.items():
+        if (directory / name).exists():
+            with open(directory / name, encoding="utf-8") as f:
+                texts = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+            records += [{"source": "user", "label": label, "category": "", "text": text} for text in texts]
+    return records
+
+
+def share(k, n):
+    low, high = wilson(k, n)
+    return f"{k}/{n} ({k / max(n, 1):.0%}, 95% CI {low:.0%}-{high:.0%})"
+
+
+# Each message through Guardrail, like the README's held-out numbers; per source and per the source's own
+# category labels, counts only.
+def holdout_report(records, checks):
+    rows = [(r["source"], r["label"], r.get("category") or "", outcome(checks["guardrail"](r))[1]) for r in records]
+    summary = {}
+    print("holdout: counts only, see holdout/README.md")
+    for source in sorted({row[0] for row in rows} | {"all"}):
+        mine = [row for row in rows if source in ("all", row[0])]
+        attacks = [d for _, label, _, d in mine if label == "attack"]
+        benign = [d for _, label, _, d in mine if label == "benign"]
+        flagged = sum(d != ALLOW for d in attacks)
+        entry = {"attacks": len(attacks), "flagged": flagged, "blocked": sum(d == BLOCK for d in attacks),
+                 "benign": len(benign), "false_alarms": sum(d != ALLOW for d in benign), "by_category": {}}
+        for category in sorted({c for _, label, c, _ in mine if label == "attack" and c} if source != "all" else ()):
+            found = [d for _, label, c, d in mine if label == "attack" and c == category]
+            entry["by_category"][category] = [sum(d != ALLOW for d in found), len(found)]
+        summary[source] = entry
+        alarms = f", false alarms {share(entry['false_alarms'], len(benign))}" if benign else ""
+        print(f"  {source:12} attacks flagged {share(flagged, len(attacks))}, blocked {entry['blocked']}{alarms}")
+        for category, (k, n) in entry["by_category"].items():
+            print(f"    {category:36} {k}/{n}")
+    return summary
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--split", choices=SPLITS + ("all",), default="test")
     parser.add_argument("--out", type=Path, default=RESULTS_PATH)
     parser.add_argument("--baseline", choices=("check", "update"))
+    parser.add_argument("--holdout", action="store_true", help="the sealed held-out set, counts only")
     args = parser.parse_args()
+    if args.holdout:
+        checks, ml = entry_points()
+        summary = holdout_report(load_holdout(), checks)
+        with open(HOLDOUT_RESULTS, "w", encoding="utf-8") as f:
+            json.dump({"config": config(ml), "summary": summary}, f, ensure_ascii=False, indent=1)
+            f.write("\n")
+        print(f"\nwrote {HOLDOUT_RESULTS.relative_to(ROOT)}")
+        return
     if args.baseline:
         # The baseline is what CI sees: TF-IDF without the BERTurk stage, every split.
         os.environ["SIEVE_CASCADE"] = "0"
