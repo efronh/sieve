@@ -148,8 +148,9 @@ class OutputResult:
 
 # Give the model guard.system_prompt (prompt + canary), then check every answer.
 class OutputGuard:
-    def __init__(self, system_prompt="", allowed_hosts=(), masking_layers=None):
-        self.canary = f"KNR-{secrets.token_hex(6)}"
+    # canary: a fixed one instead of a random one, e.g. so a SIEM rule can look for it across processes.
+    def __init__(self, system_prompt="", allowed_hosts=(), masking_layers=None, canary=None):
+        self.canary = canary or f"KNR-{secrets.token_hex(6)}"
         self.original_prompt = system_prompt
         self.system_prompt = (
             f"{system_prompt}\n\nInternal reference {self.canary}. "

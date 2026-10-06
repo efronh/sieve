@@ -102,6 +102,13 @@ def test_an_iban_ending_with_the_users_digits_is_someone_elses(guard):
     assert result.action == "review"
 
 
+def test_a_fixed_canary_is_used_and_still_caught():
+    out = OutputGuard(SYSTEM, canary="KNR-5e1f0c9a2b7d")
+    assert out.canary == "KNR-5e1f0c9a2b7d" and "KNR-5e1f0c9a2b7d" in out.system_prompt
+    assert out.check("Referans: K N R - 5 e 1 f 0 c 9 a 2 b 7 d").action == "block"
+    assert OutputGuard(SYSTEM).canary != OutputGuard(SYSTEM).canary
+
+
 def test_new_personal_data_needs_user_data(guard):
     result = guard.check("Kayıtlı TC: 12345678950.")
     assert result.action == "allow" and "12345678950" not in result.text
