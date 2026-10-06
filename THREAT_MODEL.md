@@ -281,7 +281,7 @@ Of 12 benign answers, 1 is a false alarm: a branch's landline (`0312 555 12 34`)
 
 **Evidence.** The OUT-ACTIVE family of the corpus: 13 answers, 10 reviewed with the active part removed. They cover a script tag, `onerror` and `onload` handlers, `javascript:`, `vbscript:` and `data:` links, `javascript:` hidden in entities or split by a tab, and an `iframe` and an `object` loading `javascript:`. What passes: a phishing form that posts to another host, a link whose text shows the bank's address but points elsewhere, and a `<meta http-equiv="refresh">`.
 
-**Residual risk.** Not a sanitizer: CSS, SVG, iframes from allowed hosts and renderer quirks are the app's job. Forms, meta refresh and link text that doesn't match the link aren't checked.
+**Residual risk.** Not a sanitizer: CSS, SVG, iframes from allowed hosts and renderer quirks are the app's job. Forms, meta refresh and link text that doesn't match the link aren't checked. An image or link whose text has brackets in it (`![a [b] c](…)`) isn't recognised: one carrying data is still flagged as a plain URL, but an outside image without data stays in the answer.
 
 ### TH-11 Resource exhaustion
 
@@ -295,18 +295,21 @@ Of 12 benign answers, 1 is a false alarm: a branch's landline (`0312 555 12 34`)
 - The paid LLM runs only when local layers are unsure, and reads at most 3,000 characters.
 - Session state is capped at 50,000 keys.
 - HTML is read in linear time: nothing inside a tag is scanned past the next `<`, and closing tags are looked up, not searched for.
+- Every pattern and every entry point is fuzzed for inputs whose cost grows faster than their length (`python -m scripts.fuzz_slow_inputs`).
 - JSON and hidden HTML are opened 64 levels deep at most. A document nested deeper is reviewed (`input_nesting`), since what's below goes unchecked; tool arguments nested deeper are blocked, since every parameter is a scalar anyway.
 
-**Evidence.** Unit tests for the inputs that used to crash, and for HTML that used to take minutes: each must be read in under 2 seconds.
+**Evidence.** Unit tests for the inputs that used to crash, and for 28 inputs that used to take from seconds to minutes ([`tests/test_slow_inputs.py`](tests/test_slow_inputs.py), and the HTML ones in `tests/test_documents.py`): each must finish in under 2 seconds. The fuzzer finds no pattern and no entry point whose time grows faster than its input.
 
 **Fixed.** I found this crash while writing this file: JSON nested a few thousand levels deep raised `RecursionError` in `DocumentGuard.check` and in `ToolGuard.check`. While fixing it, I found a second one: HTML comments inside hidden `div`s, 1,500 levels deep. Both now get a decision instead of an exception, and an attack ten levels deep is still read and blocked.
 
 Reading HTML attributes (TH-04), I found the hidden-HTML pattern was quadratic: from every `<` it scanned the rest of the document for a closing tag. 200 KB of `<a ` took 4 minutes to cut into parts, and 195 KB of unclosed `<div hidden>` 16 seconds. The same inputs now take 12–19 ms.
 
+Fuzzing every pattern then found more, and the worst wasn't a pattern. Masking reads the whole message, and for every lookalike digit (`ı`, `l`, `|`, `o`…) it walked out to both ends of its word again, so one long word cost its length squared: 2,000 `ı` took 1.5 seconds and 8,000 kept `Guardrail.check` busy for over 20. Each word is read once now. Eight patterns rescanned the text from every start: `URL_PASSWORD` in masking; four code rules, which see a tool argument whole (`sql_comment_bypass`, `sql_stacked_query`, `shell_pipe_to_shell`, `template_injection`); `fake_system_line`; and the Markdown link, image and reference patterns in `OutputGuard`, whose HTML tag pattern did the same. 100 KB of `a-` took over 5 seconds in `URL_PASSWORD`, 50 KB of one letter over 5 in the code rules, 400 KB of `<a ` over 15 in `OutputGuard`. Each now starts only where a match can begin, or stops at the last character a match can end on. No decision on the corpus changed. On random inputs the old and new rules and masking agree; `OutputGuard` now keeps the blank lines before a reference it removes, and reads `![a [b](url)` as the link it is in CommonMark rather than as an image.
+
 **Residual risk.**
-- Masking reads the whole message, with no size cap before it.
+- Masking reads the whole message, with no size cap before it. It's linear, but a long run of digits costs about 13 µs a character, since every window is tried as a number: 200 KB of digits takes about 3 seconds.
 - A 200,000-character document is a few hundred ML calls.
-- Only the HTML patterns have been tested for ReDoS, with the inputs above; the rule patterns haven't.
+- The fuzzer only tries runs of repeated pieces. A pattern that's slow on some other shape would pass it.
 - Rate limits apply only when the app passes a session or user ID, and only within one process.
 
 ### TH-12 Probing the guardrail

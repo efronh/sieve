@@ -21,9 +21,13 @@ LEAK_BLOCK_SHINGLES = 3
 MIN_DATA_LENGTH = 16
 
 LINK_TARGET = r"\(\s*<?((?:[^()\s>]|\([^()\s]*\))+)>?[^)]*\)"
-MD_IMAGE = re.compile(r"!\[([^\]]*)\]" + LINK_TARGET)
-MD_LINK = re.compile(r"(?<!!)\[([^\]]*)\]" + LINK_TARGET)
-MD_REFERENCE = re.compile(r"^\s*\[[^\]]+\]:\s*(\S+).*$", re.MULTILINE)
+# A label stops at the next "[": the link that matched before still matches from its last "[", and a run of
+# "[" no longer rescans the rest of the answer from each one. Neither pattern ever matched nested brackets.
+MD_IMAGE = re.compile(r"!\[([^\[\]]*)\]" + LINK_TARGET)
+MD_LINK = re.compile(r"(?<!!)\[([^\[\]]*)\]" + LINK_TARGET)
+# A reference starts on its own line (blank lines before it no longer count as part of it, so they stay when
+# it's removed), and its label is at most 999 characters, as in CommonMark.
+MD_REFERENCE = re.compile(r"^[^\S\n]*\[[^\]]{1,999}\]:\s*(\S+).*$", re.MULTILINE)
 HTML_TAG = re.compile(r"<[a-zA-Z][^>]*>")
 HTML_SCRIPT = re.compile(r"<script\b.*?(?:</script\s*>|$)", re.IGNORECASE | re.DOTALL)
 # Attributes the browser fetches on its own, without a click (<link href> too, see loaded_urls).
@@ -141,6 +145,14 @@ def loaded_urls(tag, attrs):
     return urls
 
 
+# pattern.sub on text up to the last closer, which every match ends with: past it nothing can match, and
+# leaving it out means every start finds its closer instead of scanning to the end and failing. 8,000
+# characters of "<a " used to take that rescan from each "<" (TH-11).
+def before_last(pattern, replace, text, closer):
+    end = text.rfind(closer) + 1
+    return pattern.sub(replace, text[:end]) + text[end:]
+
+
 @dataclass
 class OutputResult:
     text: str  # what to show: SAFE_REPLY when blocked
@@ -239,10 +251,10 @@ class OutputGuard:
                 return ""
             return m.group(0)
 
-        answer = MD_IMAGE.sub(md_image, answer)
+        answer = before_last(MD_IMAGE, md_image, answer, ")")
         answer = HTML_SCRIPT.sub(script, answer)
-        answer = HTML_TAG.sub(html_tag, answer)
-        answer = MD_LINK.sub(md_link, answer)
+        answer = before_last(HTML_TAG, html_tag, answer, ">")
+        answer = before_last(MD_LINK, md_link, answer, ")")
         answer = MD_REFERENCE.sub(reference, answer)
 
         for url in PLAIN_URL.findall(answer):

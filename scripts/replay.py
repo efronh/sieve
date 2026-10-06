@@ -6,8 +6,9 @@
 # Every single-message attack is also hidden in support-ticket exports in seven ways and sent to
 # DocumentGuard, so indirect injection is replayed without storing 7 copies of each attack. The
 # ticket exports themselves are replayed as benign documents. Six of the ways, and the exports, come
-# from evaluate_documents.py, so the numbers match it; the seventh puts the attack in an HTML attribute. The customer-service conversations are also replayed message by message
-# through TenantGuardrail, as benign conversations for the multi-turn families.
+# from evaluate_documents.py, so the numbers match it; the seventh puts the attack in an HTML attribute.
+# The customer-service conversations are also replayed message by message through TenantGuardrail, as
+# benign conversations for the multi-turn families.
 import argparse
 import hashlib
 import html

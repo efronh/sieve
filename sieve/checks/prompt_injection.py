@@ -109,7 +109,7 @@ SINGLE_PATTERNS = [
     ("bypass_safety", re.compile(r"\bbypass[\s_-]*(?:the\s+)?(?:filter|safety|guard|restriction|censor|security|filtre|guvenlik)\w*"), 0.5),
     ("special_mode", re.compile(r"\b(?:developer|gelistirici|debug|god|admin|yonetici)\s*mod\w*"), 0.3),
     ("fake_system_tag", re.compile(r"<\|?(?:im_start|im_end|system|endoftext)\|?>|\[/?inst\]|<</?sys>>"), 0.8),
-    ("fake_system_line", re.compile(r"^\s*(?:#{2,}\s*)?(?:system|sistem)\s*:", re.MULTILINE), 0.3),
+    ("fake_system_line", re.compile(r"^[^\S\n]*(?:#{2,}[^\S\n]*)?(?:system|sistem)\s*:", re.MULTILINE), 0.3),
     ("new_task", re.compile(r"\b(?:yeni gorev|yeni talimat|yeni kural|new task|new instruction)\w*"), 0.3),
     ("new_identity", re.compile(r"\b(?:artik sen|bundan sonra sen)\b(?! d[ae]\b)|\b(?:you are now|from now on you)\b"), 0.4),
     ("role_play", re.compile(r"\b(?:act as|pretend (?:to be|you)|gibi davran|rol yap)\w*"), 0.3),

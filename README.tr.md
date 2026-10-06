@@ -249,6 +249,7 @@ python -m scripts.evaluate_documents # dokümanlara gizlenmiş saldırılarda Do
 python -m scripts.replay             # saldırı korpusu: giriş noktası, aile, taşıyıcı ve kaynağa göre
 python -m scripts.replay --baseline check   # CI kapısı
 python -m scripts.replay --holdout   # mühürlü held-out set, sadece sayı
+python -m scripts.fuzz_slow_inputs  # maliyeti uzunluğundan hızlı büyüyen girdiler
 ```
 
 Scriptleri repo kökünden çalıştırın. macOS'ta repoyu iCloud'a senkronize bir klasörde tutmayın: iCloud `.venv/*.pth` dosyalarını gizli yapabiliyor, Python 3.13 gizli `.pth` dosyalarını atlıyor ve editable kurulum sessizce bozuluyor.

@@ -1,3 +1,4 @@
+import bisect
 import re
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -26,6 +27,9 @@ UNIT = re.compile(
 )
 
 
+WORD = re.compile(r"\S+")
+
+
 @dataclass
 class Unit:
     digit: str
@@ -41,18 +45,18 @@ def to_lower(text):
     return lower
 
 
-def word_around(text, index):
-    start = index
-    while start > 0 and not text[start - 1].isspace():
-        start -= 1
-    end = index
-    while end < len(text) and not text[end].isspace():
-        end += 1
-    return text[start:end]
+# A lookalike counts as a digit only on its own or in a word with a real digit. Each word is looked at once
+# per text: walking out to the word's ends again for every lookalike in it was quadratic, and 8,000 "ı"
+# kept a check busy for over 20 seconds.
+def lookalike_words(text):
+    words = [(m.start(), len(m.group()) == 1 or any(c.isdigit() for c in m.group())) for m in WORD.finditer(text)]
+    starts = [start for start, _ in words]
+    return lambda index: words[bisect.bisect_right(starts, index) - 1][1]
 
 
 def find_units(text):
     units = []
+    counts_as_digit = None
     for match in UNIT.finditer(text):
         part = match.group()
 
@@ -61,8 +65,8 @@ def find_units(text):
         elif part.isdigit():
             units.append(Unit(str(int(part)), match.start(), match.end(), True))
         else:
-            word = word_around(text, match.start())
-            if len(word) == 1 or any(c.isdigit() for c in word):
+            counts_as_digit = counts_as_digit or lookalike_words(text)
+            if counts_as_digit(match.start()):
                 units.append(Unit(LOOKALIKES[part], match.start(), match.end(), False))
 
     return units

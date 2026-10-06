@@ -249,6 +249,7 @@ python -m scripts.evaluate_documents # DocumentGuard on attacks hidden in docume
 python -m scripts.replay             # the attack corpus, per entry point, family, carrier and source
 python -m scripts.replay --baseline check   # the CI gate
 python -m scripts.replay --holdout   # the sealed held-out set, counts only
+python -m scripts.fuzz_slow_inputs  # inputs whose cost grows faster than their length
 ```
 
 Run scripts from the repo root. Don't keep the repo in an iCloud-synced folder on macOS: iCloud can mark `.venv/*.pth` files hidden, Python 3.13 skips hidden `.pth` files, and the editable install silently stops working.

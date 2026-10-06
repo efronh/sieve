@@ -21,7 +21,8 @@ KNOWN_KEYS = [
     re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
 ]
 
-URL_PASSWORD = re.compile(r"\b[a-z][a-z0-9+.-]*://[^\s:/@]+:([^\s@/]+)@", re.IGNORECASE)
+# A scheme is short; an unbounded one was read again from every word start in a long "a-a-a-..." run.
+URL_PASSWORD = re.compile(r"\b[a-z][a-z0-9+.-]{0,31}://[^\s:/@]+:([^\s@/]+)@", re.IGNORECASE)
 
 HAS_DIGIT_OR_SYMBOL = r"(?=[^\s\"',;]*[\d!@#$%^&*?.+\-_])"
 PASSWORD_WITH_COLON = re.compile(
