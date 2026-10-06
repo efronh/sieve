@@ -28,6 +28,8 @@ The sealed set gives the honest number, and it shows the main weakness. Split by
 
 The detector is very good at the style it was trained on and weak away from it.
 
+Precision depends on how many messages are attacks. On the sealed set, 252 of the 260 alarms were attacks (97% precision, F1 0.72), but half the set is attacks. If 1 message in 100 were an attack, the same recall and false-alarm rate would give 21% precision (95% CI 12–35%): about four alarms in five would be false. `python -m scripts.replay` prints precision, recall, F1, the miss rate and the false-alarm rate for every entry point, and this 1% figure next to them.
+
 ### Detectors compared
 
 Prompt-injection detection on 3,249 labelled messages (763 attacks). 5-fold cross-validation, with all variants of an attack kept in the same fold. The threshold is set so 1% of normal messages get flagged. The held-out set is the [TCPI](https://huggingface.co/datasets/3nesdeniz/turkish-conversation-prompt-injection) test split (120 messages), which is never used for training.
@@ -207,7 +209,7 @@ reply = guarded_reply(user_message, ask_model, TenantGuardrail(policy, system_pr
 
 - Attacks of my own in the sealed set (`holdout/user_attacks.txt`), written without reading the rules.
 - Better generalisation: more varied Turkish training data (never the sealed set), measured on the sealed set.
-- Detection apart from enforcement: per-detector actions and thresholds in the policy.
+- Detection apart from enforcement everywhere: the policy sets thresholds for the scored layers, but tool specs, output checks and session limits still have a fixed action per rule.
 - Names and addresses (NER), and a check for harmful content in answers.
 - An HTTP API and a Docker image.
 - A CI run with the BERTurk stage, not only TF-IDF.

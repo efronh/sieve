@@ -1,6 +1,6 @@
 # Sealed held-out set
 
-Attacks and benign messages that nobody who changes Sieve's rules or models has read. They're never trained on and never looked at one by one. `python -m scripts.replay --holdout` sends each through `Guardrail()` and prints only counts: per source, and per the source's own category labels. It never prints an ID or a text. The counts go to `results/holdout.json`.
+Attacks and benign messages that nobody who changes Sieve's rules or models has read. They're never trained on and never looked at one by one. `python -m scripts.replay --holdout` sends each through `Guardrail()` and prints only counts, per source and per the source's own category labels, and the rates computed from them (precision, recall, F1, miss and false-alarm rates). It never prints an ID or a text. They go to `results/holdout.json`.
 
 The rest of the corpus (`corpus/`) is mostly white-box: written knowing the rules. This set is what the detection numbers should be judged on.
 

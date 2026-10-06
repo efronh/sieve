@@ -1,6 +1,6 @@
 {
  "config": {
-  "commit": "8b97d66",
+  "commit": "16bbb36",
   "dirty": true,
   "ml": true,
   "cascade": true,
@@ -11,25 +11,55 @@
   "all": {
    "attacks": 444,
    "flagged": 252,
-   "blocked": 46,
    "benign": 379,
    "false_alarms": 8,
+   "recall": 0.5675675675675675,
+   "fnr": 0.43243243243243246,
+   "fpr": 0.021108179419525065,
+   "precision": 0.9692307692307692,
+   "f1": 0.7159090909090909,
+   "prevalence": 0.01,
+   "at_prevalence": 0.21358988809274615,
+   "at_prevalence_ci": [
+    0.12243077536156954,
+    0.34815792495112086
+   ],
+   "blocked": 46,
    "by_category": {}
   },
   "deepset_tr": {
    "attacks": 258,
    "flagged": 68,
-   "blocked": 22,
    "benign": 345,
    "false_alarms": 0,
+   "recall": 0.26356589147286824,
+   "fnr": 0.7364341085271318,
+   "fpr": 0.0,
+   "precision": 1.0,
+   "f1": 0.4171779141104294,
+   "prevalence": 0.01,
+   "at_prevalence": 1.0,
+   "at_prevalence_ci": [
+    0.1946862404731793,
+    1.0
+   ],
+   "blocked": 22,
    "by_category": {}
   },
   "patterns_tr": {
    "attacks": 107,
    "flagged": 106,
-   "blocked": 20,
    "benign": 0,
    "false_alarms": 0,
+   "recall": 0.9906542056074766,
+   "fnr": 0.009345794392523364,
+   "fpr": null,
+   "precision": null,
+   "f1": null,
+   "prevalence": 0.01,
+   "at_prevalence": null,
+   "at_prevalence_ci": null,
+   "blocked": 20,
    "by_category": {
     "data-exfiltration": [
      13,
@@ -68,9 +98,20 @@
   "pi1k": {
    "attacks": 79,
    "flagged": 78,
-   "blocked": 4,
    "benign": 34,
    "false_alarms": 8,
+   "recall": 0.9873417721518988,
+   "fnr": 0.012658227848101266,
+   "fpr": 0.23529411764705882,
+   "precision": 0.9069767441860465,
+   "f1": 0.9454545454545454,
+   "prevalence": 0.01,
+   "at_prevalence": 0.0406623735050598,
+   "at_prevalence_ci": [
+    0.024328446330153727,
+    0.07423727562825576
+   ],
+   "blocked": 4,
    "by_category": {
     "tr_agentic_toolabuse": [
      12,

@@ -28,6 +28,8 @@ Dürüst sayıyı mühürlü set veriyor ve asıl zayıflığı gösteriyor. Kay
 
 Dedektör eğitildiği üslupta çok iyi, ondan uzaklaşınca zayıf.
 
+Precision, mesajların ne kadarının saldırı olduğuna bağlı. Mühürlü sette 260 alarmın 252'si saldırıydı (%97 precision, F1 0.72), ama setin yarısı saldırı. 100 mesajdan 1'i saldırı olsaydı, aynı recall ve yanlış alarm oranıyla precision %21 olurdu (%95 CI %12–35): yaklaşık her beş alarmdan dördü yanlış. `python -m scripts.replay` her giriş noktası için precision, recall, F1, kaçırma oranını (FNR) ve yanlış alarm oranını (FPR), yanlarında da bu %1 hesabını basıyor.
+
 ### Dedektörlerin karşılaştırması
 
 3.249 etiketli mesajda (763 saldırı) prompt injection tespiti. 5 katlı çapraz doğrulama yaptım ve bir saldırının tüm varyasyonlarını aynı katta tuttum. Eşik, normal mesajların %1'ini işaretleyecek şekilde seçildi. Test seti [TCPI](https://huggingface.co/datasets/3nesdeniz/turkish-conversation-prompt-injection)'nin test bölümü (120 mesaj); eğitimde hiç kullanılmadı.
@@ -207,7 +209,7 @@ reply = guarded_reply(user_message, ask_model, TenantGuardrail(policy, system_pr
 
 - Mühürlü sete kuralları okumadan yazdığım kendi saldırılarım (`holdout/user_attacks.txt`).
 - Daha iyi genelleme: daha çeşitli Türkçe eğitim verisi (mühürlü set asla değil), sonucu mühürlü sette ölçmek.
-- Tespiti karardan ayırmak: politikada dedektör başına karar ve eşik.
+- Tespiti her yerde karardan ayırmak: politika skor üreten katmanların threshold'larını belirliyor, ama tool spec'i, çıkış kontrolleri ve oturum limitleri hâlâ kural başına sabit karar veriyor.
 - İsim ve adres (NER), cevaplarda zararlı içerik kontrolü.
 - Bir HTTP API ve Docker imajı.
 - CI'da sadece TF-IDF değil, BERTurk aşamasıyla da bir çalışma.

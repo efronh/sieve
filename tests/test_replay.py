@@ -11,12 +11,15 @@ from scripts.replay import (
     OUTPUT_FAMILY_GROUPS,
     PLACEMENTS,
     check_baseline,
+    detection,
+    entry_detection,
     expand,
     load,
     outcome,
     passed,
     rate,
     record_problems,
+    report,
     tool_guard,
     wilson,
 )
@@ -197,6 +200,50 @@ def test_no_interval_when_records_share_an_attack():
     assert "CI" in rate([{"passed": True, "group": "G-0001"}, {"passed": True, "group": "G-0002"}])
 
 
+def test_precision_recall_f1_and_fnr_count_any_flag():
+    metrics = detection(["review", "allow", "block", "allow"], ["allow", "review", "allow", "allow"])
+    assert (metrics["flagged"], metrics["false_alarms"]) == (2, 1)
+    assert metrics["precision"] == pytest.approx(2 / 3) and metrics["recall"] == metrics["fnr"] == 0.5
+    assert metrics["fpr"] == 0.25 and metrics["f1"] == pytest.approx(4 / 7)  # 2tp / (2tp + fp + fn)
+
+
+def test_no_precision_or_f1_without_benign_records():
+    metrics = detection(["review", "allow"], [])
+    assert metrics["recall"] == 0.5 and metrics["precision"] is None and metrics["f1"] is None
+    assert detection([], ["allow"])["recall"] is None
+
+
+def test_precision_at_one_attack_in_a_hundred():
+    # Recall 50%, 1 false alarm in 100: 0.005 caught for every 0.0099 false.
+    metrics = detection(["review", "allow"] * 50, ["review"] + ["allow"] * 99)
+    assert metrics["precision"] == pytest.approx(50 / 51)
+    assert metrics["at_prevalence"] == pytest.approx(0.005 / (0.005 + 0.0099))
+    low, high = metrics["at_prevalence_ci"]
+    assert low < metrics["at_prevalence"] < high <= 1
+
+
+def test_no_interval_when_a_benign_record_comes_in_two_forms():
+    rows = [{"id": "PI-OVR-001", "family": "PI-OVR", "detected": "review"},
+            {"id": "BEN-TICKET-001", "family": "BEN", "detected": "allow"},
+            {"id": "BEN-TICKET-001@html", "family": "BEN", "detected": "review"}]
+    metrics = entry_detection(rows)
+    assert metrics["fpr"] == 0.5 and metrics["at_prevalence"] is not None and metrics["at_prevalence_ci"] is None
+    assert entry_detection(rows[:2])["at_prevalence_ci"] is not None
+
+
+def test_the_report_returns_detection_and_latency_per_entry_point(capsys):
+    results = [{"id": f"PI-OVR-{i:03d}", "group": f"G-{i:04d}", "family": "PI-OVR", "carrier": "plain_text",
+                "source": "test", "entry": "guardrail", "detected": "review" if i % 2 else "allow",
+                "passed": bool(i % 2), "ms": float(i)} for i in range(1, 11)]
+    results.append({"id": "BEN-001", "family": "BEN", "carrier": "plain_text", "source": "test",
+                    "entry": "guardrail", "detected": "allow", "passed": True, "ms": 100.0})
+    summary = report(results, [], "test")
+    assert summary["guardrail"]["precision"] == 1.0 and summary["guardrail"]["recall"] == 0.5
+    assert summary["guardrail"]["ms"]["median"] == 6.0 and summary["guardrail"]["ms"]["p99"] == pytest.approx(91.0)  # never above the slowest
+    out = capsys.readouterr().out
+    assert "precision 100%, recall 50%, FNR 50%, F1 0.67, FPR 0.0%" in out and "p99 91.0" in out
+
+
 SETUP = {"ml": True, "cascade": False, "model_sha256": "abc"}
 
 
@@ -275,3 +322,4 @@ def test_the_holdout_report_shows_counts_but_never_a_text_or_an_id(tmp_path, cap
     assert "GIZLI" not in out and "HO-A-0001" not in out
     assert summary["a"]["flagged"] == 1 and summary["user"]["false_alarms"] == 0
     assert summary["all"]["attacks"] == 1 and summary["all"]["benign"] == 1
+    assert summary["all"]["precision"] == 1.0 and summary["all"]["f1"] == 1.0 and summary["all"]["fpr"] == 0

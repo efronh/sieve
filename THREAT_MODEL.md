@@ -113,7 +113,7 @@ With TF-IDF alone, as in CI, it's 40 of 57. What gets through is social engineer
 | `pi1k`, `patterns_tr` (authors around AltaySec, whose data is in training) | 184 of 186 (99%) | 8 of 34 look-alikes (24%) |
 | `deepset_tr` (a translation of deepset/prompt-injections, no link to Sieve) | 68 of 258 (26%) | 0 of 345 |
 
-The detector is very good at the style it was trained on and weak away from it. On a style close to its training data, look-alike benign messages trip it a quarter of the time. That's the most honest number Sieve has; the 30 TCPI attacks and the white-box corpus can't show it.
+The detector is very good at the style it was trained on and weak away from it. On a style close to its training data, look-alike benign messages trip it a quarter of the time. That's the most honest number Sieve has; the 30 TCPI attacks and the white-box corpus can't show it. Precision on the whole set is 97% (F1 0.72), but half the set is attacks. If 1 message in 100 were an attack, the same recall and false-alarm rate would give 21% precision (95% CI 12–35%).
 
 **Residual risk.** Detection doesn't carry over to attacks written in a different style (26% on the independent source). An attack in the attacker's own words is reviewed, never blocked, by default: of the 69 new PI attacks, 3 are blocked. Rules catch 0–5% of social-engineering attacks. The model and code are public, so the ML layer is a white-box target. The held-out numbers rest on 30 attacks someone else wrote; the corpus attacks are mine.
 
@@ -371,7 +371,7 @@ Of 12 benign answers, 1 is a false alarm: a branch's landline (`0312 555 12 34`)
 
 ## 7. Attack corpus
 
-The corpus is in [`corpus/`](corpus), one JSONL file per family. `python -m scripts.replay` runs it (`--split dev` or `all` for the other records) and writes every decision to `results/replay.json`. One record per attack:
+The corpus is in [`corpus/`](corpus), one JSONL file per family. `python -m scripts.replay` runs it (`--split dev` or `all` for the other records) and writes every decision to `results/replay.json`. For each entry point it prints the share of attacks at or above their expected action (by family, carrier and source), and, reading any flag as a detection, precision, recall, F1, the miss rate (FNR) and the false-alarm rate (FPR), with what precision would be if 1% of the traffic were attacks; latency as mean, median, p95 and p99. One record per attack:
 
 ```json
 {"id": "PI-OVR-001", "group": "G-0004", "family": "PI-OVR", "carrier": "plain_text", "language": "tr",
@@ -457,7 +457,7 @@ The corpus is mostly white-box, so detection is judged on [`holdout/`](holdout/R
 - three outside datasets, imported blind by [`scripts/import_holdout.py`](scripts/import_holdout.py), which prints only counts and drops anything close to a training or corpus text;
 - `holdout/user_attacks.txt` and `user_benign.txt`, for messages the project's owner writes without reading the rules.
 
-`python -m scripts.replay --holdout` reports it per source and per the source's own categories, in counts only; it never prints an ID or a text. Rules, thresholds and the model are improved on dev records and only measured here. Nothing from it goes into the baseline, so the CI gate can't push anyone to look at a single record. Results are in [TH-01](#th-01-direct-prompt-injection).
+`python -m scripts.replay --holdout` reports it per source and per the source's own categories, in counts and the rates computed from them; it never prints an ID or a text. Rules, thresholds and the model are improved on dev records and only measured here. Nothing from it goes into the baseline, so the CI gate can't push anyone to look at a single record. Results are in [TH-01](#th-01-direct-prompt-injection).
 
 ### What exists today
 
