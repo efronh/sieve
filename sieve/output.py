@@ -2,7 +2,7 @@ import re
 import secrets
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, unquote, urlsplit
 
 from sieve.actions import ALLOW, BLOCK, REVIEW, Finding, worst_action
 from sieve.checks.prompt_injection import decode_hidden_parts
@@ -67,15 +67,23 @@ def carries_data(url):
         parts = urlsplit(url)
     except ValueError:
         return True
-    values = parts.path.split("/")
-    for part in (parts.query, parts.fragment):
-        values += [s for kv in parse_qsl(part, keep_blank_values=True) for s in kv] + [part]
-    return bool(PLACEHOLDER.search(url)) or any(len(v) >= MIN_DATA_LENGTH for v in values)
+    segments = parts.path.split("/")
+    pairs = [kv for part in (parts.query, parts.fragment) for kv in parse_qsl(part, keep_blank_values=True)]
+    values = segments + [s for kv in pairs for s in kv] + [parts.query, parts.fragment]
+    if PLACEHOLDER.search(url) or any(len(v) >= MIN_DATA_LENGTH for v in values):
+        return True
+    # Personal data shorter than that: an 11-digit TC, a phone number, "cvv=123" (key and value read
+    # together), or a subdomain like 10000000146.attacker.example, which leaves through the DNS lookup.
+    texts = [unquote(s) for s in segments] + [s for kv in pairs for s in kv] + [f"{k} {v}" for k, v in pairs]
+    texts += (parts.hostname or "").split(".")
+    return any(mask_and_collect(t)[1] for t in texts if t)
 
 
 # Masks the text and returns it with the values masking replaced.
-def mask_and_collect(text, layers):
-    from sieve.pipeline import mask
+def mask_and_collect(text, layers=None):
+    from sieve.pipeline import LAYERS, mask
+
+    layers = LAYERS if layers is None else layers
 
     replaced = []
     token = REPLACED.set(replaced)

