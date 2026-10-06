@@ -3,10 +3,12 @@
 #   docs = DocumentGuard(allowed_hosts=["ornekbank.com.tr"])
 #   r = docs.check(page)                       # r.action: allow / review / block (block: leave it out)
 #   prompt = docs.instructions + ... + docs.wrap(page, source="web")
+import bisect
 import html
 import json
 import re
 import secrets
+from collections import defaultdict
 from dataclasses import dataclass, field
 
 from sieve.actions import ALLOW, BLOCK, REVIEW, Finding, error_finding, worst_action
@@ -25,20 +27,34 @@ MAX_PART_CHARS = 1000
 MIN_ML_CHARS = 15
 EXCERPT_CHARS = 200
 
-# Text a browser or a document viewer doesn't show. Group "text" is what's inside.
-HIDDEN_PARTS = [
+# Text a browser or a document viewer doesn't show: comments and CDATA (group "text" is what's inside; an
+# unclosed one takes the rest), and elements styled or marked so the reader can't see them (HIDDEN_START, up
+# to the closing tag). Nothing inside a tag is scanned past the next "<": the patterns that were took
+# 4 minutes on 200 KB of "<a <a <a", rescanning the rest of the document from every "<".
+HIDDEN_BLOCKS = [
     re.compile(r"<!--(?P<text>.*?)(?:-->|$)", re.DOTALL),
     re.compile(r"<!\[CDATA\[(?P<text>.*?)(?:\]\]>|$)", re.DOTALL),
-    re.compile(
-        r"<(?P<tag>\w+)\b[^>]*?(?:style\s*=\s*[\"'][^\"']*"
-        r"(?:display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*[01](?:px|pt)?\b|opacity\s*:\s*0(?:\.0+)?\b"
-        r"|color\s*:\s*(?:#fff(?:fff)?\b|white\b|transparent\b))"
-        r"[^\"']*[\"']|\sclass\s*=\s*[\"'][^\"']*\b(?:hidden|d-none|invisible|sr-only|visually-hidden)\b[^\"']*[\"']"
-        r"|\shidden\b)[^>]*>(?P<text>.*?)</(?P=tag)\s*>",
-        re.DOTALL | re.IGNORECASE,
-    ),
 ]
-TAG = re.compile(r"<[^>]+>")
+HIDDEN_START = re.compile(
+    r"<(?P<tag>\w+)\b[^<>]*?(?:style\s*=\s*[\"'][^\"'<>]*"
+    r"(?:display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*[01](?:px|pt)?\b|opacity\s*:\s*0(?:\.0+)?\b"
+    r"|color\s*:\s*(?:#fff(?:fff)?\b|white\b|transparent\b))"
+    r"[^\"'<>]*[\"']|\sclass\s*=\s*[\"'][^\"'<>]*\b(?:hidden|d-none|invisible|sr-only|visually-hidden)\b[^\"'<>]*[\"']"
+    r"|\shidden\b)[^<>]*>",
+    re.IGNORECASE,
+)
+END_TAG = re.compile(r"</(?P<tag>\w+)\s*>")
+TAG = re.compile(r"<[^<>]+>")
+# A start tag. A quoted value may hold ">" (a browser reads it to the next quote) but not "<", so the scan
+# stops at the next tag; a value with "<" in it is read as visible text instead.
+START_TAG = re.compile(r"<(?P<name>[a-zA-Z][\w:-]*+)(?P<attributes>(?:[^<>\"']|\"[^\"<]*\"|'[^'<]*')*+)>")
+ATTRIBUTE = re.compile(r"(?<![^\s\"'])(?P<name>[^\s\"'=<>/]++)\s*=\s*"
+                       r"(?:\"(?P<double>[^\"]*)\"|'(?P<single>[^']*)'|(?P<bare>[^\s\"'>]++))")
+# Attribute values the page shows; the rest (alt, title, aria-label, a meta description, data-*) only a tooltip,
+# a screen reader or a model reading the HTML gets.
+SHOWN_ATTRIBUTES = {"value", "placeholder"}
+# What wrap() keeps of a start tag: its name and its links, which the URL check reads.
+KEPT_ATTRIBUTES = {"href", "src"}
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 # Datamarking (Hines et al. 2024, arXiv:2403.14720): a mark between the words of the document, so
 # the model can tell its text from instructions. One mark per guard, picked at random.
@@ -71,6 +87,60 @@ def strings_in(value, max_depth=MAX_NESTING):
     return found, too_deep
 
 
+# (value, hidden) for each attribute value of the start tags in text that could be a sentence: two words or
+# more. Every attribute counts, whatever its name: the model reading the HTML gets them all, and a sentence in
+# class="..." is as hidden as one in alt. Each value once, since class lists repeat.
+def attributes_in(text):
+    found = {}
+    for tag in START_TAG.finditer(text):
+        pairs = [(m.group("name").lower(), html.unescape(next(v for v in m.group("double", "single", "bare")
+                                                              if v is not None)))
+                 for m in ATTRIBUTE.finditer(tag.group("attributes"))]
+        hidden_input = any(name == "type" and value.strip().lower() == "hidden" for name, value in pairs)
+        for name, value in pairs:
+            if len(value.split()) >= 2 and re.search(r"[^\W\d_]", value):
+                shown = name in SHOWN_ATTRIBUTES and not hidden_input
+                found[value] = found.get(value, False) or not shown  # hidden if hidden anywhere
+    return list(found.items())
+
+
+# (start tag, what's inside, start, end) for each hidden element, up to the first closing tag of its name.
+# The closing tags are found once and looked up, not searched for from every hidden start tag.
+def hidden_elements(text):
+    closes = defaultdict(list)
+    for m in END_TAG.finditer(text):
+        closes[m.group("tag").lower()].append(m)
+    found, taken = [], 0
+    for m in HIDDEN_START.finditer(text):
+        same = closes.get(m.group("tag").lower(), [])
+        i = bisect.bisect_left(same, m.end(), key=lambda close: close.start())
+        if m.start() >= taken and i < len(same):
+            found.append((m.group(0), text[m.end():same[i].start()], m.start(), same[i].end()))
+            taken = same[i].end()
+    return found
+
+
+# ([(start tag, what's inside)] for what the reader can't see, the text with each of those replaced by gap).
+# A comment has no start tag.
+def without_hidden(text, gap):
+    hidden = []
+    for pattern in HIDDEN_BLOCKS:
+        hidden += [("", m.group("text")) for m in pattern.finditer(text)]
+        text = pattern.sub(gap, text)
+    kept, last = [], 0
+    for start_tag, inner, start, end in hidden_elements(text):
+        hidden.append((start_tag, inner))
+        kept += [text[last:start], gap]
+        last = end
+    return hidden, "".join(kept) + text[last:]
+
+
+def links_only(tag):
+    kept = [m.group(0) for m in ATTRIBUTE.finditer(tag.group("attributes"))
+            if m.group("name").lower() in KEPT_ATTRIBUTES]
+    return f"<{tag.group('name')}{''.join(' ' + k for k in kept)}>"
+
+
 def split_long(text, size=MAX_PART_CHARS):
     if len(text) <= size:
         return [text]
@@ -79,8 +149,8 @@ def split_long(text, size=MAX_PART_CHARS):
 
 
 # ((part, hidden) pairs, whether something was nested too deep to read): the document cut into
-# sentences, JSON string values and hidden HTML, so an attack is read on its own and not diluted by
-# the pages around it.
+# sentences, JSON string values, hidden HTML and HTML attributes, so an attack is read on its own and not
+# diluted by the pages around it.
 def split_parts(text, depth=0):
     if depth > MAX_NESTING:
         return [], True
@@ -97,16 +167,16 @@ def split_parts(text, depth=0):
             parts, too_deep = parts + more, too_deep or deeper
         return parts, too_deep
 
-    hidden = []
-    for pattern in HIDDEN_PARTS:
-        hidden += [m.group("text") for m in pattern.finditer(text)]
-        text = pattern.sub("\n", text)
-    visible = html.unescape(TAG.sub("\n", text))
+    hidden, text = without_hidden(text, "\n")
+    # a hidden element's own attributes and what's inside it, then the attributes of what's left
+    nested = [(h, True) for start_tag, inner in hidden for h in [v for v, _ in attributes_in(start_tag)] + [inner]]
+    nested += attributes_in(text)
+    visible = html.unescape(TAG.sub("\n", START_TAG.sub("\n", text)))
 
     parts = []
-    for h in hidden:
-        more, deeper = split_parts(h, depth + 1)
-        parts, too_deep = parts + [(p, True) for p, _ in more], too_deep or deeper
+    for inner, is_hidden in nested:
+        more, deeper = split_parts(inner, depth + 1)
+        parts, too_deep = parts + [(p, is_hidden or h) for p, h in more], too_deep or deeper
     for line in visible.splitlines():
         for sentence in SENTENCE_END.split(line):
             parts += [(p, False) for p in split_long(sentence.strip()) if p]
@@ -152,12 +222,12 @@ class DocumentGuard:
         )
 
     # The document as the model should get it: inside a boundary it can't guess, with a mark between words.
-    # Text the reader can't see (HTML comments, display:none, ...) is left out unless keep_hidden.
+    # Text the reader can't see (HTML comments, display:none, attributes other than links) is left out unless
+    # keep_hidden.
     def wrap(self, text, source="belge", keep_hidden=False):
         source = re.sub(r"\W", "", source) or "belge"
         if not keep_hidden:
-            for pattern in HIDDEN_PARTS:
-                text = pattern.sub(" ", text)
+            text = START_TAG.sub(links_only, without_hidden(text, " ")[1])
         text = clean(text).replace(self.boundary, "").replace(self.mark, " ")
         marked = SPACES.sub(self.mark, text)
         return f"<<{source} {self.boundary}>>\n{marked}\n<</{source} {self.boundary}>>"

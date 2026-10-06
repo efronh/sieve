@@ -76,15 +76,23 @@ def test_benign_records_expect_allow():
     assert record_problems(benign, "BEN") == ["benign records expect allow"]
 
 
-def test_a_plain_text_attack_is_also_placed_in_six_documents():
+def test_a_plain_text_attack_is_also_placed_in_seven_documents():
     cases = [c for c in expand([ATTACK]) if c["family"] != "BEN"]
-    assert [c["id"] for c in cases] == ["PI-OVR-900"] + [f"PI-OVR-900@{carrier}" for carrier in PLACEMENTS]
+    assert [c["id"] for c in cases] == (["PI-OVR-900"] + [f"PI-OVR-900@{carrier}" for carrier in PLACEMENTS]
+                                        + ["PI-OVR-900@html_attribute"])
     placed = {c["carrier"]: c for c in cases[1:]}
     assert all(c["entry"] == "document" and c["group"] == "G-0900" for c in placed.values())
     assert {c for c, case in placed.items() if case["expected"] == "block"} == {"html_comment", "html_hidden",
-                                                                               "html_white_text"}
+                                                                               "html_white_text", "html_attribute"}
     assert ATTACK["text"] in json.loads(placed["json_field"]["text"]).values()
     assert f"<!-- {ATTACK['text']} -->" in placed["html_comment"]["text"]
+    assert f'="{ATTACK["text"]}"' in placed["html_attribute"]["text"]
+
+
+def test_benign_ticket_exports_come_plain_in_html_and_with_previews():
+    tickets = [c for c in expand([]) if c["id"].startswith("BEN-TICKET-001")]
+    assert [c["carrier"] for c in tickets] == ["ticket_export", "ticket_export_html", "ticket_export_previews"]
+    assert 'title="' in tickets[2]["text"] and tickets[0]["text"].splitlines()[1] in tickets[2]["text"]
 
 
 def test_document_attacks_and_benign_records_arent_placed_again(records):

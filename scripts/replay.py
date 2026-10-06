@@ -3,13 +3,14 @@
 #   python -m scripts.replay --baseline check   # the CI gate; "update" rewrites corpus/baseline.json
 # The record format, the families and why there should be 300 groups: THREAT_MODEL.md, section 7.
 #
-# Every single-message attack is also hidden in support-ticket exports in six ways and sent to
-# DocumentGuard, so indirect injection is replayed without storing 6 copies of each attack. The
-# ticket exports themselves are replayed as benign documents. Both come from evaluate_documents.py,
-# so the numbers match it. The customer-service conversations are also replayed message by message
+# Every single-message attack is also hidden in support-ticket exports in seven ways and sent to
+# DocumentGuard, so indirect injection is replayed without storing 7 copies of each attack. The
+# ticket exports themselves are replayed as benign documents. Six of the ways, and the exports, come
+# from evaluate_documents.py, so the numbers match it; the seventh puts the attack in an HTML attribute. The customer-service conversations are also replayed message by message
 # through TenantGuardrail, as benign conversations for the multi-turn families.
 import argparse
 import hashlib
+import html
 import json
 import logging
 import math
@@ -100,6 +101,11 @@ PLACEMENTS = {
     "html_white_text": ("white text", "block"),
     "json_field": ("json field", "review"),
 }
+# The seventh, not one of evaluate_documents.py's six so the exports those use don't move: an HTML attribute
+# the page doesn't show (carrier html_attribute, expected block), a different one by group.
+ATTRIBUTE_PLACES = ['<img src="/img/kampanya.png" alt="{}">', '<a href="/yardim" title="{}">Yardım</a>',
+                    '<meta name="description" content="{}">', '<button aria-label="{}">Yanıtla</button>',
+                    '<div class="kayit" data-not="{}"></div>']
 REQUIRED = {"id", "family", "carrier", "language", "expected", "source", "split"}
 # expected_match: rule IDs (rules.py) that must fire, e.g. tool_call.not_from_user for a recipient attack.
 OPTIONAL = {"group", "source_ref", "note", "expected_match"}
@@ -177,9 +183,17 @@ def benign_conversations(path=CONVERSATIONS_PATH):
     return [conversations[family] for family in sorted(conversations) if len(conversations[family]) >= 2]
 
 
+# A ticket export the way a ticket system's page shows it, each ticket's first message as its row's
+# tooltip: real customer sentences in attributes, to count false alarms on them.
+def with_previews(parts):
+    rows = "".join(f'<div class="kayit" title="{html.escape(p.splitlines()[1])}"><img src="/img/avatar.png" '
+                   f'alt="Müşteri fotoğrafı"><p>{p}</p></div>' for p in parts)
+    return f'<html><head><meta name="description" content="Müşteri destek kayıtları"></head><body>{rows}</body></html>'
+
+
 # The corpus plus what is built from it: each plain_text attack placed in ticket exports, the
-# exports themselves (plain and inside harmless HTML) as benign documents, and the customer-service
-# conversations as benign conversations.
+# exports themselves (plain, inside harmless HTML, and with previews in attributes) as benign documents,
+# and the customer-service conversations as benign conversations.
 def expand(records):
     exports = ticket_exports()
     cases = [dict(r, entry=CARRIERS[r["carrier"]]) for r in records]
@@ -191,11 +205,18 @@ def expand(records):
             parts = exports[(group_number(r) * len(DOCUMENT_CARRIERS) + j) % len(exports)]
             cases.append(dict(r, id=f"{r['id']}@{carrier}", carrier=carrier, entry="document", expected=expected,
                               text=hide(r["text"], parts, name)))
+        parts = exports[group_number(r) % len(exports)]
+        before, after = "\n\n".join(parts[:len(parts) // 2]), "\n\n".join(parts[len(parts) // 2:])
+        place = ATTRIBUTE_PLACES[group_number(r) % len(ATTRIBUTE_PLACES)].format(html.escape(r["text"]))
+        cases.append(dict(r, id=f"{r['id']}@html_attribute", carrier="html_attribute", entry="document",
+                          expected=BLOCK, text=f"<p>{before}</p>{place}<p>{after}</p>"))
     for i, parts in enumerate(exports, 1):
         base = {"family": "BEN", "language": "tr", "expected": ALLOW, "source": "customer_service_tr", "split": "test",
                 "entry": "document"}
         cases.append(dict(base, id=f"BEN-TICKET-{i:03d}", carrier="ticket_export", text="\n\n".join(parts)))
         cases.append(dict(base, id=f"BEN-TICKET-{i:03d}@html", carrier="ticket_export_html", text=harmless_html(parts)))
+        cases.append(dict(base, id=f"BEN-TICKET-{i:03d}@previews", carrier="ticket_export_previews",
+                          text=with_previews(parts)))
     for i, turns in enumerate(benign_conversations(), 1):
         cases.append({"id": f"BEN-CONV-{i:03d}", "family": "BEN", "carrier": "conversation", "language": "tr",
                       "expected": ALLOW, "source": "customer_service_tr", "split": "test", "entry": "conversation",

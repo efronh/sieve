@@ -17,7 +17,7 @@ Three sets, from the most independent to the least. "Caught" means flagged: sent
 |---|---|---|---|
 | Sealed held-out ([`holdout/`](holdout/README.md)) | 444 attacks and 379 normal messages from three outside datasets. Never trained on, never read by whoever changes the rules | 252 of 444 (57%) | 8 of 379 |
 | [TCPI](https://huggingface.co/datasets/3nesdeniz/turkish-conversation-prompt-injection) test split | 30 attacks and 90 normal messages written by someone else | 22 of 30 (73%) | 3 of 90 |
-| Attack corpus ([`corpus/`](corpus)) | 337 groups of attacks on messages, documents, conversations, tool calls and answers, mostly written with Claude knowing the rules | [by entry point below](#the-attack-corpus) | |
+| Attack corpus ([`corpus/`](corpus)) | 336 groups of attacks on messages, documents, conversations, tool calls and answers, mostly written with Claude knowing the rules | [by entry point below](#the-attack-corpus) | |
 
 The sealed set gives the honest number, and it shows the main weakness. Split by source:
 
@@ -66,9 +66,9 @@ The attack can also come in a document the model reads: a retrieved web page, an
 | `DocumentGuard`, rules only | 12 of 180 | 6 | 0 | 2 | 1.5 |
 | `DocumentGuard`, rules + ML (default) | 137 of 180 (76%) | 66 | 0 | 9 | 57 |
 
-The same attacks that the ML layer flags as messages (22 of 30) disappear once they sit inside a 1,000-character document. `DocumentGuard` cuts the document into sentences, JSON values and hidden HTML first, so each part is read on its own: 22 of 30 again in every carrier. A part flagged in text the reader can't see (comments, `display:none`, white text) blocks the document, so all 66 hidden attacks it caught are blocked. The look-alikes are documents I wrote to trip it (an article quoting attacks, e-mail disclaimers, a resident doctor's "Asistan notu:", logs with "SISTEM MESAJI:"); the ML layer flags 9 of them, the injection rules 2 of those same 9, the new document rules none.
+The same attacks that the ML layer flags as messages (22 of 30) disappear once they sit inside a 1,000-character document. `DocumentGuard` cuts the document into sentences, JSON values, hidden HTML and HTML attributes first, so each part is read on its own: 22 of 30 again in every carrier. A part flagged in text the reader can't see (comments, `display:none`, white text) blocks the document, so all 66 hidden attacks it caught are blocked. The look-alikes are documents I wrote to trip it (an article quoting attacks, e-mail disclaimers, a resident doctor's "Asistan notu:", logs with "SISTEM MESAJI:"); the ML layer flags 9 of them, the injection rules 2 of those same 9, the new document rules none.
 
-`DocumentGuard.wrap()` leaves out the text the reader can't see, puts the document between a random boundary and puts a random mark between its words (spotlighting, [Hines et al. 2024](https://arxiv.org/abs/2403.14720)), with a matching note for the system prompt. That works on the model, so it needs an LLM to measure; I haven't measured it.
+`DocumentGuard.wrap()` leaves out the text the reader can't see (attributes other than links included), puts the document between a random boundary and puts a random mark between its words (spotlighting, [Hines et al. 2024](https://arxiv.org/abs/2403.14720)), with a matching note for the system prompt. That works on the model, so it needs an LLM to measure; I haven't measured it.
 
 ### The attack corpus
 
@@ -77,7 +77,7 @@ Every attack in [`corpus/`](corpus) has a family, a carrier and the least action
 | Entry point | Attacks stopped | False alarms |
 |---|---|---|
 | Messages (`Guardrail`) | 129 of 174 (74%) | 3 of 105 |
-| Documents (`DocumentGuard`; each message attack also hidden 6 ways) | 781 of 1,058 placements of 188 attacks | 9 of 336 |
+| Documents (`DocumentGuard`; each message attack also hidden 7 ways) | 906 of 1,231 placements of 187 attacks | 9 of 494 |
 | Conversations (one `TenantGuardrail` session each) | 40 of 44 | 0 of 387 |
 | Tool calls (`ToolGuard`) | 48 of 54 | 0 of 15 |
 | A document, then the tool call it asks for | 10 of 10 | — |
@@ -117,7 +117,7 @@ flowchart LR
 | ML | TF-IDF on every message, BERTurk only in the grey zone. Can send a message to review, but never blocks on its own. |
 | LLM (optional) | [AnyJev](https://github.com/nokia-applied-research/AnyJev) reads probabilities from a local model's logits without generating text. Only sees masked text, and can't block until it's calibrated on reviewer labels. |
 | Output guard | Canary token, copied system prompt, masking the answer, personal data in the answer that the user never gave. Removes images, iframes and other auto-loading HTML pointing outside your hosts, links that carry data (query, path or fragment), `javascript:` links, `<script>` and `on…` handlers. It isn't an HTML sanitizer: if you render the answer as HTML, still pass it through one. |
-| Document guard | For text the model reads but the user didn't write. Checks each sentence, JSON value and hidden HTML part on its own; blocks when a flagged part is hidden from the reader; flags documents that talk to the model ("bu e-postayı okuyan yapay zeka", "if you are an AI"). `wrap()` marks the document as data before it goes into the prompt. |
+| Document guard | For text the model reads but the user didn't write. Checks each sentence, JSON value, hidden HTML part and HTML attribute on its own; blocks when a flagged part is hidden from the reader; flags documents that talk to the model ("bu e-postayı okuyan yapay zeka", "if you are an AI"). `wrap()` marks the document as data before it goes into the prompt. |
 | Tool guard | Checks a tool call before your app runs it. Tools not on the list, unknown or wrongly typed arguments and amounts outside their limits are blocked. An argument that must come from the user (an IBAN, a phone number) but isn't in their messages, and tools marked `confirm`, go to review. String arguments go through the code rules and the same check as documents, ML included, since a database, a mail or another agent reads them next. |
 
 What it defends against, where, and what's left: [THREAT_MODEL.md](THREAT_MODEL.md). The held-out and document numbers above can be replayed from the attack corpus in [`corpus/`](corpus) with `python -m scripts.replay`.
@@ -195,7 +195,7 @@ reply = guarded_reply(user_message, ask_model, TenantGuardrail(policy, system_pr
 ## Limitations
 
 - Detection generalises badly: 99% on two outside sources close to the training data, 26% on an independent one. More varied training data is the fix, not more rules.
-- Most of the corpus is white-box: 295 of its 337 test groups were written with Claude knowing the rules. It measures coverage and catches regressions; the sealed set measures detection. The sealed set's labels are its sources' own, and to keep it blind I haven't checked them.
+- Most of the corpus is white-box: 294 of its 336 test groups were written with Claude knowing the rules. It measures coverage and catches regressions; the sealed set measures detection. The sealed set's labels are its sources' own, and to keep it blind I haven't checked them.
 - The TCPI held-out set has 30 attacks, so one attack is about 3 points. Everything is from a single seed.
 - The LLM layer was only measured with Qwen3-1.7B. A bigger model might do better without labels. The abuse check has no labelled data.
 - The 1% threshold from cross-validation gave 3–8% false alarms on the held-out set. It needs recalibrating on real traffic.

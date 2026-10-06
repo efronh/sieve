@@ -148,11 +148,13 @@ For the request, the 15 PI-LEAK messages of the corpus: 12 are reviewed with the
 
 **Attack.** The instruction is in text the model reads but the user didn't write: a retrieved web page, an e-mail, a support ticket, a tool result. It can be hidden from human readers (HTML comment, `display:none`, white text) or visible.
 
-**Controls.** [`DocumentGuard`](sieve/documents.py) cuts the document into sentences, JSON values and hidden HTML. It runs injection rules, document rules ([`checks/indirect.py`](sieve/checks/indirect.py)) and ML on each part. A flagged hidden part blocks the whole document. `wrap()` leaves hidden text out of the prompt, puts the document inside a random boundary the document can't close, and marks the spaces between words (spotlighting).
+**Controls.** [`DocumentGuard`](sieve/documents.py) cuts the document into sentences, JSON values, hidden HTML and HTML attribute values. It runs injection rules, document rules ([`checks/indirect.py`](sieve/checks/indirect.py)) and ML on each part. A flagged hidden part blocks the whole document. `wrap()` leaves hidden text, and every attribute but links, out of the prompt, puts the document inside a random boundary the document can't close, and marks the spaces between words (spotlighting).
 
-**Evidence.** The 30 held-out attacks, each hidden in support-ticket exports in six ways: 137 of 180 flagged, 66 blocked (every caught attack in a hidden carrier). No false alarms on 316 ticket exports; 9 of 20 hand-written look-alike documents flagged (`python -m scripts.evaluate_documents`). The corpus also has 14 documents written as attacks with Claude, white-box, each a different carrier or approach. 7 are flagged, and they are the 7 that address the reader ("bu tabloyu okuyan asistan", "kodu inceleyen yapay zeka"), in an e-mail header, a Markdown image title, a search result, a ticket note, a code comment, a database row and a signature. The 7 that pass don't, or not in words the rules know: a policy article that says agents may reset passwords without verification, a note in a loan application, a fake "Kullanıcı:" turn, a phishing link for the summary, "özeti yazan model" adding a tracking image, a conditional instruction for the next turn, and an instruction in a `<meta>` description.
+**Evidence.** The 30 held-out attacks, each hidden in support-ticket exports in six ways: 137 of 180 flagged, 66 blocked (every caught attack in a hidden carrier). No false alarms on 316 ticket exports; 9 of 20 hand-written look-alike documents flagged (`python -m scripts.evaluate_documents`). The corpus also has 14 documents written as attacks with Claude, white-box, each a different carrier or approach. 7 are flagged, and they are the 7 that address the reader ("bu tabloyu okuyan asistan", "kodu inceleyen yapay zeka"), in an e-mail header, a Markdown image title, a search result, a ticket note, a code comment, a database row and a signature. The 7 that pass don't, or not in words the rules know: a policy article that says agents may reset passwords without verification, a note in a loan application, a fake "Kullanıcı:" turn, a phishing link for the summary, "özeti yazan model" adding a tracking image, a conditional instruction for the next turn, and an instruction in a `<meta>` description. Those are the numbers with TF-IDF alone, as in CI; with BERTurk, 3 more are reviewed (the policy article, the conditional instruction, the tracking image). The `<meta>` one showed that attributes weren't read, and is dev now.
 
-**Residual risk.** Visible-text attacks are only reviewed. The 180 placements are 30 independent attacks. Spotlighting needs an LLM to measure and hasn't been measured. Instructions that don't address a model (a poisoned policy, a form note) read like ordinary text. HTML attributes aren't read at all: the same sentence is reviewed in a `<p>` and passes in a `<meta content>`. Untested carriers: image alt text, PDF and DOCX.
+**Fixed.** HTML attributes weren't read: cutting the document dropped every tag with its attributes, while `wrap()` passed them to the model. Attribute values of two words or more are now read as hidden text, whatever the attribute's name: the model reading the HTML gets them all, and a sentence in `class` is as hidden as one in `alt`. `value` and `placeholder`, which the page shows, are read as visible text. `wrap()` keeps only `href` and `src`. The replay now also puts every message attack in an attribute (`html_attribute`: `alt`, `title`, a meta description, `aria-label` or `data-*`, by group): 125 of 174 test placements are blocked, as many as in a comment or `display:none`, against 1 before. 158 ticket exports with each ticket's first message as its row's `title` give no false alarm. An AltaySec example (dev) that hides its instruction in `<metadata subject=…>` went from review to block.
+
+**Residual risk.** Visible-text attacks are only reviewed. The 180 placements are 30 independent attacks. Spotlighting needs an LLM to measure and hasn't been measured. Instructions that don't address a model (a poisoned policy, a form note) read like ordinary text. A one-word attribute value isn't read, so an instruction written without spaces passes there. A value with `<` in it is read as visible text, so it's reviewed, not blocked; so is text inside `<script>` and `<style>`. The customer-service messages in the `title` previews are ones the ML layer was trained on, so no false alarm there is optimistic. Untested carriers: PDF and DOCX.
 
 ### TH-05 Multi-turn attacks
 
@@ -292,16 +294,19 @@ Of 12 benign answers, 1 is a false alarm: a branch's landline (`0312 555 12 34`)
 - A decision cache.
 - The paid LLM runs only when local layers are unsure, and reads at most 3,000 characters.
 - Session state is capped at 50,000 keys.
+- HTML is read in linear time: nothing inside a tag is scanned past the next `<`, and closing tags are looked up, not searched for.
 - JSON and hidden HTML are opened 64 levels deep at most. A document nested deeper is reviewed (`input_nesting`), since what's below goes unchecked; tool arguments nested deeper are blocked, since every parameter is a scalar anyway.
 
-**Evidence.** Unit tests for the inputs that used to crash.
+**Evidence.** Unit tests for the inputs that used to crash, and for HTML that used to take minutes: each must be read in under 2 seconds.
 
 **Fixed.** I found this crash while writing this file: JSON nested a few thousand levels deep raised `RecursionError` in `DocumentGuard.check` and in `ToolGuard.check`. While fixing it, I found a second one: HTML comments inside hidden `div`s, 1,500 levels deep. Both now get a decision instead of an exception, and an attack ten levels deep is still read and blocked.
+
+Reading HTML attributes (TH-04), I found the hidden-HTML pattern was quadratic: from every `<` it scanned the rest of the document for a closing tag. 200 KB of `<a ` took 4 minutes to cut into parts, and 195 KB of unclosed `<div hidden>` 16 seconds. The same inputs now take 12–19 ms.
 
 **Residual risk.**
 - Masking reads the whole message, with no size cap before it.
 - A 200,000-character document is a few hundred ML calls.
-- Nothing has been tested for ReDoS.
+- Only the HTML patterns have been tested for ReDoS, with the inputs above; the rule patterns haven't.
 - Rate limits apply only when the app passes a session or user ID, and only within one process.
 
 ### TH-12 Probing the guardrail
@@ -398,20 +403,20 @@ The loader rejects unknown fields, families, carriers and actions, so a typo can
 - the ML layer didn't load;
 - the model file isn't the one the baseline was made with.
 
-New false alarms, new records and attacks that now pass are reported but don't fail; there's no hard false-alarm gate yet, since 336 benign records would make it flaky. An intended change is committed together with `--baseline update`.
+New false alarms, new records and attacks that now pass are reported but don't fail; there's no hard false-alarm gate yet, since 494 benign documents would make it flaky. An intended change is committed together with `--baseline update`.
 
 **Counting.** The target counts groups, not records. A group is one attack idea. Rewordings of the same instruction override are one group. Two attacks are in different groups when a fix that catches one wouldn't be expected to catch the other. When an attack is both a technique and an obfuscation, its family is the obfuscation, since that is what the record tests.
 
 **Test and dev.** A record is `test` only until a rule or model is changed after looking at it. From then on it is `dev`. It stays in the corpus as a regression check, but it is no longer reported as held-out. Attacks I write myself follow the same rule.
 
-**Carriers.** Family and carrier are separate. Every `plain_text` attack is also placed in support-ticket exports in six ways and sent to `DocumentGuard`, as the same group:
+**Carriers.** Family and carrier are separate. Every `plain_text` attack is also placed in support-ticket exports in seven ways and sent to `DocumentGuard`, as the same group:
 
 | Placement | Expected |
 |---|---|
 | `doc_line`, `doc_footnote`, `json_field` | review |
-| `html_comment`, `html_hidden`, `html_white_text` | block |
+| `html_comment`, `html_hidden`, `html_white_text`, `html_attribute` | block |
 
-The ticket exports themselves, plain and in harmless HTML, are replayed as benign documents. Attacks written as documents use carrier `document`.
+`html_attribute` puts the attack in an `alt`, `title`, meta description, `aria-label` or `data-*` attribute, by group. The ticket exports themselves, plain, in harmless HTML and with each ticket's first message as a `title` preview, are replayed as benign documents. Attacks written as documents use carrier `document`.
 
 Tool calls use carrier `tool_call`, against the example assistant's tools in [`corpus/tools.toml`](corpus/tools.toml). `tool_chain` adds the document the assistant read before making the calls, and is scored end to end: the attack is stopped if either check stops it. `conversation` is the user's messages in order (`turns`), sent to one `TenantGuardrail` session with the default policy; the attack is stopped if any message is flagged. The customer-service conversations are replayed the same way as benign records. `model_answer` is what the model answered (`text`), checked by `OutputGuard` with the example assistant's system prompt ([`corpus/system_prompt.txt`](corpus/system_prompt.txt)) and a fixed canary; `user_data` holds what this user may see.
 
@@ -463,12 +468,12 @@ The corpus is mostly white-box, so detection is judged on [`holdout/`](holdout/R
 
 | Source | Records | Independent test groups | Notes |
 |---|---|---|---|
-| TCPI test split | 30 attacks | 30 | Held-out, families assigned by hand; also placed in documents (180 records) |
+| TCPI test split | 30 attacks | 30 | Held-out, families assigned by hand; also placed in documents (210 records) |
 | TCPI test split | 90 benign | — | `BEN` |
 | Benign look-alike documents | 20 | — | `BEN`, carrier `document` |
-| Ticket exports (built from `data/customer_service_tr.csv`) | 316 | — | Benign documents, generated by the replay |
+| Ticket exports (built from `data/customer_service_tr.csv`) | 474 | — | Benign documents, generated by the replay: 158 tickets, plain, in HTML and with `title` previews |
 | AltaySec and own indirect examples | 31 | 0 | `PI-IND`, dev: read while writing the document rules |
-| Indirect-injection documents written with Claude | 14 | 14 | `PI-IND`, carrier `document`; written knowing the document rules, so white-box. None is a near copy of the training data |
+| Indirect-injection documents written with Claude | 14 | 13 | `PI-IND`, carrier `document`; written knowing the document rules, so white-box. None is a near copy of the training data. 1 is dev: it showed attributes weren't read |
 | Split attacks ([docs/operations.md](docs/operations.md)) | — | — | No script or data in the repo; rebuilt as MT-SPLIT below |
 | Persistence attacks written with Claude | 13 | 13 | `MT-MEM`, carrier `plain_text`, also placed in documents; written knowing the rules, so white-box. None is a near copy of the training data |
 | Multi-turn attacks written with Claude | 44 | 44 | `MT-SPLIT`, `MT-ESC`, carrier `conversation`; white-box: written knowing how `session_split` works |
@@ -485,4 +490,4 @@ The corpus is mostly white-box, so detection is judged on [`holdout/`](holdout/R
 | Output attacks written by me | 41 | 40 | `EXF-LINK`, `EXF-LEAK`, `OUT-ACTIVE`, carrier `model_answer`; after reading `output.py`, so white-box |
 | Benign answers with links, HTML or attack-like words | 10 | — | `BEN`, carrier `model_answer` |
 
-Today there are 337 independent test groups: 188 for messages and documents, 44 for conversations, 53 for tools (43 single-call, 10 chains), and 52 for model answers. Every family has at least its minimum.
+Today there are 336 independent test groups: 187 for messages and documents, 44 for conversations, 53 for tools (43 single-call, 10 chains), and 52 for model answers. Every family has at least its minimum.

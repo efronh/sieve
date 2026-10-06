@@ -17,7 +17,7 @@ En bağımsızdan en aza üç set. "Yakalanan", işaretlenen demek: review'a gö
 |---|---|---|---|
 | Mühürlü held-out ([`holdout/`](holdout/README.md)) | Üç dış veri setinden 444 saldırı ve 379 normal mesaj. Hiç eğitilmedi, kuralları değiştiren kimse okumadı | 444'te 252 (%57) | 379'da 8 |
 | [TCPI](https://huggingface.co/datasets/3nesdeniz/turkish-conversation-prompt-injection) test bölümü | Başkasının yazdığı 30 saldırı ve 90 normal mesaj | 30'da 22 (%73) | 90'da 3 |
-| Saldırı korpusu ([`corpus/`](corpus)) | Mesaj, doküman, konuşma, tool çağrısı ve cevaplara karşı 337 saldırı grubu; çoğu kurallar bilinerek Claude ile yazıldı | [aşağıda giriş noktasına göre](#saldırı-korpusu) | |
+| Saldırı korpusu ([`corpus/`](corpus)) | Mesaj, doküman, konuşma, tool çağrısı ve cevaplara karşı 336 saldırı grubu; çoğu kurallar bilinerek Claude ile yazıldı | [aşağıda giriş noktasına göre](#saldırı-korpusu) | |
 
 Dürüst sayıyı mühürlü set veriyor ve asıl zayıflığı gösteriyor. Kaynağa göre:
 
@@ -66,9 +66,9 @@ Saldırı, modelin okuduğu bir dokümanın içinde de gelebilir: RAG'den gelen 
 | `DocumentGuard`, sadece kurallar | 180'de 12 | 6 | 0 | 2 | 1.5 |
 | `DocumentGuard`, kurallar + ML (varsayılan) | 180'de 137 (%76) | 66 | 0 | 9 | 57 |
 
-ML'in mesaj olarak işaretlediği saldırılar (30'da 22), 1.000 karakterlik bir dokümanın içine girince kayboluyor. `DocumentGuard` dokümanı önce cümlelere, JSON değerlerine ve gizli HTML parçalarına bölüyor, böylece her parça tek başına okunuyor ve her gizleme şeklinde yine 30'da 22 çıkıyor. Okuyucunun göremediği bir yerde (yorum, `display:none`, beyaz yazı) işaretlenen bir parça dokümanı engelliyor; yakalanan 66 gizli saldırının hepsi engellendi. Benzer dokümanlar onu yanıltmak için yazdıklarım: saldırı cümlelerini alıntılayan bir makale, e-posta gizlilik uyarıları, asistan doktorun "Asistan notu:", "SISTEM MESAJI:" içeren loglar. ML bunların 9'unda yanılıyor, injection kuralları aynı 9'un 2'sinde, yeni doküman kuralları hiçbirinde.
+ML'in mesaj olarak işaretlediği saldırılar (30'da 22), 1.000 karakterlik bir dokümanın içine girince kayboluyor. `DocumentGuard` dokümanı önce cümlelere, JSON değerlerine, gizli HTML parçalarına ve HTML özniteliklerine bölüyor, böylece her parça tek başına okunuyor ve her gizleme şeklinde yine 30'da 22 çıkıyor. Okuyucunun göremediği bir yerde (yorum, `display:none`, beyaz yazı) işaretlenen bir parça dokümanı engelliyor; yakalanan 66 gizli saldırının hepsi engellendi. Benzer dokümanlar onu yanıltmak için yazdıklarım: saldırı cümlelerini alıntılayan bir makale, e-posta gizlilik uyarıları, asistan doktorun "Asistan notu:", "SISTEM MESAJI:" içeren loglar. ML bunların 9'unda yanılıyor, injection kuralları aynı 9'un 2'sinde, yeni doküman kuralları hiçbirinde.
 
-`DocumentGuard.wrap()` ayrıca okuyucunun göremediği metni çıkarıyor, dokümanı tahmin edilemeyen bir sınırın içine alıyor ve kelimelerinin arasına rastgele bir işaret koyuyor (spotlighting, [Hines vd. 2024](https://arxiv.org/abs/2403.14720)); sistem promptuna eklenecek açıklamayı da veriyor. Bu modelin üzerinde çalıştığı için ölçmek bir LLM gerektiriyor; ölçmedim.
+`DocumentGuard.wrap()` ayrıca okuyucunun göremediği metni (linkler dışındaki öznitelikler dahil) çıkarıyor, dokümanı tahmin edilemeyen bir sınırın içine alıyor ve kelimelerinin arasına rastgele bir işaret koyuyor (spotlighting, [Hines vd. 2024](https://arxiv.org/abs/2403.14720)); sistem promptuna eklenecek açıklamayı da veriyor. Bu modelin üzerinde çalıştığı için ölçmek bir LLM gerektiriyor; ölçmedim.
 
 ### Saldırı korpusu
 
@@ -77,7 +77,7 @@ ML'in mesaj olarak işaretlediği saldırılar (30'da 22), 1.000 karakterlik bir
 | Giriş noktası | Durdurulan saldırı | Yanlış alarm |
 |---|---|---|
 | Mesajlar (`Guardrail`) | 174'te 129 (%74) | 105'te 3 |
-| Dokümanlar (`DocumentGuard`; her mesaj saldırısı ayrıca 6 şekilde gizli) | 188 saldırının 1.058 yerleşiminde 781 | 336'da 9 |
+| Dokümanlar (`DocumentGuard`; her mesaj saldırısı ayrıca 7 şekilde gizli) | 187 saldırının 1.231 yerleşiminde 906 | 494'te 9 |
 | Konuşmalar (her biri bir `TenantGuardrail` oturumu) | 44'te 40 | 387'de 0 |
 | Tool çağrıları (`ToolGuard`) | 54'te 48 | 15'te 0 |
 | Bir doküman, sonra istediği tool çağrısı | 10'da 10 | — |
@@ -117,7 +117,7 @@ flowchart LR
 | ML | TF-IDF her mesajda, BERTurk sadece gri bölgede. Mesajı review'a gönderebiliyor, tek başına engellemiyor. |
 | LLM (opsiyonel) | [AnyJev](https://github.com/nokia-applied-research/AnyJev), yerel bir modelin logit'lerinden metin üretmeden olasılık okuyor. Sadece maskelenmiş metni görüyor; reviewer etiketleriyle kalibre edilene kadar engelleyemiyor. |
 | Çıkış kontrolü | Canary, sistem promptunun kopyalanması, cevabın maskelenmesi, cevapta kullanıcının vermediği kişisel veri. İzinli hostlarınız dışına giden resim, iframe ve kendiliğinden yüklenen diğer HTML'i, veri taşıyan linkleri (query, path ya da fragment), `javascript:` linklerini, `<script>` ve `on…` handler'larını kaldırıyor. Bir HTML sanitizer değil: Cevabı HTML olarak gösteriyorsanız yine bir sanitizer'dan geçirin. |
-| Doküman kontrolü | Modelin okuduğu ama kullanıcının yazmadığı metinler için. Her cümleyi, JSON değerini ve gizli HTML parçasını ayrı kontrol ediyor; işaretlenen parça okuyucudan gizlenmişse dokümanı engelliyor; modele hitap eden dokümanları ("bu e-postayı okuyan yapay zeka", "if you are an AI") işaretliyor. `wrap()` dokümanı prompta girmeden önce veri olarak işaretliyor. |
+| Doküman kontrolü | Modelin okuduğu ama kullanıcının yazmadığı metinler için. Her cümleyi, JSON değerini, gizli HTML parçasını ve HTML özniteliğini ayrı kontrol ediyor; işaretlenen parça okuyucudan gizlenmişse dokümanı engelliyor; modele hitap eden dokümanları ("bu e-postayı okuyan yapay zeka", "if you are an AI") işaretliyor. `wrap()` dokümanı prompta girmeden önce veri olarak işaretliyor. |
 | Tool kontrolü | Uygulamanız bir tool çağrısını çalıştırmadan önce bakıyor. Listede olmayan tool, bilinmeyen ya da yanlış tipte argüman ve limit dışı tutar engelleniyor. Kullanıcıdan gelmesi gereken (IBAN, telefon) ama mesajlarında olmayan bir argüman ve `confirm` işaretli tool'lar review'a gidiyor. String argümanlar kod kurallarından ve dokümanlarla aynı kontrolden (ML dahil) geçiyor, çünkü onları sonra bir veritabanı, bir e-posta ya da başka bir ajan okuyor. |
 
 Neye karşı, hangi sınırda koruduğu ve geriye ne kaldığı (İngilizce): [THREAT_MODEL.md](THREAT_MODEL.md). Yukarıdaki held-out ve doküman sonuçları [`corpus/`](corpus) altındaki saldırı korpusundan `python -m scripts.replay` ile yeniden üretilebiliyor.
@@ -195,7 +195,7 @@ reply = guarded_reply(user_message, ask_model, TenantGuardrail(policy, system_pr
 ## Sınırlar
 
 - Tespit iyi genellemiyor: eğitim verisine yakın iki dış kaynakta %99, bağımsız birinde %26. Çözüm daha fazla kural değil, daha çeşitli eğitim verisi.
-- Korpusun çoğu white-box: 337 test grubunun 295'i kurallar bilinerek Claude ile yazıldı. Kapsamı ölçüyor ve regresyonu yakalıyor; tespiti mühürlü set ölçüyor. Mühürlü setin etiketleri kaynaklarının kendi etiketleri; kör kalmak için kontrol etmedim.
+- Korpusun çoğu white-box: 336 test grubunun 294'ü kurallar bilinerek Claude ile yazıldı. Kapsamı ölçüyor ve regresyonu yakalıyor; tespiti mühürlü set ölçüyor. Mühürlü setin etiketleri kaynaklarının kendi etiketleri; kör kalmak için kontrol etmedim.
 - TCPI test setinde 30 saldırı var, yani bir saldırı yaklaşık 3 puan. Her şey tek seed ile.
 - LLM katmanını sadece Qwen3-1.7B ile ölçtüm. Daha büyük bir model etiketsiz de daha iyi olabilir. Hakaret kontrolünün etiketli verisi yok.
 - Çapraz doğrulamadaki %1 eşik test setinde %3-8 yanlış alarm verdi. Gerçek trafikte yeniden ayarlanması gerekir.
