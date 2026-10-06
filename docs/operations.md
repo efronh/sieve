@@ -44,7 +44,7 @@ Olaylara ham metin hiç yazılmıyor. `message_hash` maskelenmiş metnin hash'i,
 - Gölge katmanlardan ve kapalı kurallardan gelen bulgular işaretli sayılmıyor.
 - Bölünmüş saldırılarda iki yarısı tek başına geçen 32 saldırının 29'u yakalandı. 429 sentetik normal sohbette 2 yanlış alarm çıktı (mesaj sınırında yan yana gelen kelimeler). Bu yüzden sadece review'a atıyor.
 - Durum bellekte, en fazla 50.000 anahtar tutuluyor (en eskisi atılıyor). Birden fazla süreç varsa her biri ayrı sayıyor.
-- Mesaj başına süre oturumsuz ~0.5 ms, oturumla ~1.3 ms (son mesajlar birleştirilip kurallar bir kez daha çalıştırılıyor).
+- Mesaj başına süre oturumsuz ~0.8 ms, oturumla ~1.3 ms (son mesajlar birleştirilip kurallar bir kez daha çalıştırılıyor).
 
 ## Gerçek trafikten veri toplama
 
