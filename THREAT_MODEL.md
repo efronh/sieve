@@ -155,10 +155,10 @@ Each control below works only if the app does its part. If an assumption breaks,
 | `confirm = true` | review |
 | Link carrying data | review |
 
-String arguments also go through the tampering, injection, code and URL rules. A typo in a spec raises an error at load.
+A string argument is input for whatever reads it next. So it goes through the code rules (for a database or a shell) and the whole document check (for a mail or another agent): tampering, URL, injection and document rules and ML on each sentence, and a block for an instruction in hidden HTML. A typo in a spec raises an error at load.
 
 **Evidence.** The tool families of the corpus ([section 7](#7-attack-corpus)), against the example bank assistant's tools in [`corpus/tools.toml`](corpus/tools.toml). Asking for confirmation doesn't count as stopping an attack.
-- **Single calls:** 48 of 53 test calls (41 attacks) stopped, and no false alarms in 15 benign calls whose arguments the user wrote differently (`+90 532…` for `0532…`, an IBAN with spaces, a phone number in words).
+- **Single calls:** 48 of 52 test calls (40 attacks) stopped, and no false alarms in 15 benign calls whose arguments the user wrote differently (`+90 532…` for `0532…`, an IBAN with spaces, a phone number in words).
 - **Document → call chains:** 9 of 10 stopped with TF-IDF alone, 10 with BERTurk.
 
 In two InjecAgent chains the document check flags nothing, because the instruction is a plain request with no words aimed at an AI. There, only `from_user` stops the call.
@@ -173,10 +173,11 @@ Now a value has to appear whole in the user's text, with only spaces and case ig
 
 **Fixed.** There was no limit across calls: three transfers of 20,000 each passed a 50,000 limit (TOOL-LIMIT-009, -010). A spec can now set `max_total` (a parameter summed over the user's calls) and `max_calls`, over `window_seconds`. Both records are dev now, as is TOOL-LIMIT-015 (six tickets where one was asked for), which I wrote together with `max_calls`.
 
+**Fixed.** Arguments only got the input rules, so an instruction for the agent that summarises tickets passed (TOOL-ARGINJ-007, dev now). They now get the document check, ML included. TOOL-ARGINJ-015, written with it, hides an instruction in an e-mail body's HTML and is blocked. A tool call takes 0.6 ms instead of 0.1 with TF-IDF, and with BERTurk on unsure sentences it takes longer. No new false alarms in the 17 benign calls, with or without BERTurk.
+
 **Residual risk.** The spec is the boundary. A tool without `max`, `from_user` or `confirm` is open to whatever the model asks for, and a number like a card limit can't be checked against the user's words (TOOL-CHAIN-008 is stopped only by BERTurk on the document). `confirm` depends on the app's UI. Found by the corpus:
 - **Totals live in memory, per process, per user ID.** Across processes or user accounts, the limit splits again. Without a user ID the call is reviewed.
 - **A call counts unless Sieve blocked it.** Sieve can't see whether the app ran the call, so a declined confirmation still uses up the total. In monitor mode, calls Sieve would have blocked run but aren't counted.
-- **Arguments get the input rules, but not the document rules or the ML layer.** An instruction for the agent that summarises tickets passes (TOOL-ARGINJ-007).
 - **Line breaks and formulas in arguments aren't checked.** That covers e-mail header and log line injection, and spreadsheet formulas (TOOL-ARGINJ-011 to -013).
 - **A URL needs a value of 16 or more characters to count as carrying data.** An 11-digit TC passes (TOOL-RCPT-015).
 
@@ -393,7 +394,7 @@ At least 15 independent test groups for each of the 14 input families (210), and
 | Split attacks ([docs/operations.md](docs/operations.md)) | — | — | No script or data in the repo; to be rebuilt as MT-SPLIT |
 | [AgentDojo](https://github.com/ethz-spylab/agentdojo) banking suite (MIT) | 11 | 8 | Attack goals and injection places, rewritten in Turkish as calls to the example tools |
 | [InjecAgent](https://github.com/uiuc-kang-lab/InjecAgent) (MIT) | 4 | 4 | Direct-harm and data-stealing instructions, the same way |
-| Tool attacks written by me | 54 | 39 | After reading `tools.py`, so white-box; the replay reports them by source. 5 are dev: a fix followed them |
+| Tool attacks written by me | 55 | 38 | After reading `tools.py`, so white-box; the replay reports them by source. 7 are dev: a fix followed them, or they were written with it |
 | Benign tool calls | 17 | — | `BEN`, carrier `tool_call`; 2 written with `max_total` are dev |
 
-Today there are 81 independent test groups: 30 for messages and documents, and 51 for tools (41 single-call, 10 chains). PI-SOC, OBF-UNI, OBF-LANG, MT-SPLIT, MT-ESC and the output families (EXF-*, OUT-ACTIVE) have none; TOOL-LIMIT has 7 of its 10, TOOL-RCPT 9.
+Today there are 80 independent test groups: 30 for messages and documents, and 50 for tools (40 single-call, 10 chains). PI-SOC, OBF-UNI, OBF-LANG, MT-SPLIT, MT-ESC and the output families (EXF-*, OUT-ACTIVE) have none; TOOL-LIMIT has 7 of its 10, TOOL-RCPT 9.

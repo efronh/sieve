@@ -150,9 +150,9 @@ class TenantGuardrail:
         self.limiter = SessionLimiter(limits.get("max_flagged", 3), window, limits.get("cooldown_seconds", 900), clock)
         self.context_messages = limits.get("context_messages", 4)
         self.conversation = ConversationWindow(self.context_messages, window, clock)
-        self.tools = ToolGuard(policy.tools, policy.allowed_hosts)
-        # The same ML layer as for messages, so its shadow mode and "off" apply to documents too.
+        # The same ML layer as for messages, so its shadow mode and "off" apply to documents and tool arguments too.
         ml = next((layer for layer in self.guard.check_layers if layer.name == MLInjectionLayer.name), None)
+        self.tools = ToolGuard(policy.tools, policy.allowed_hosts, ml_layer=ml, use_ml=ml is not None)
         self.documents = DocumentGuard(policy.allowed_hosts, ml_layer=ml, use_ml=ml is not None)
 
     def apply_policy(self, finding):

@@ -10,9 +10,7 @@ from dataclasses import dataclass, field
 
 from sieve.actions import ALLOW, BLOCK, REVIEW, Finding, worst_action
 from sieve.checks.code_payloads import CodePayloadLayer
-from sieve.checks.prompt_injection import PromptInjectionLayer
-from sieve.checks.tampering import TamperingLayer
-from sieve.checks.urls import URLCheckLayer
+from sieve.documents import DocumentGuard
 from sieve.output import PLAIN_URL, carries_data, data_key, host_of, mask_and_collect, same_data
 from sieve.pipeline import LAYERS, clean
 
@@ -132,15 +130,18 @@ class ToolUsage:
 
 
 class ToolGuard:
-    def __init__(self, tools, allowed_hosts=(), clock=time.monotonic):
+    def __init__(self, tools, allowed_hosts=(), clock=time.monotonic, ml_layer=None, use_ml=True):
         problems = [p for name, spec in tools.items() for p in spec_problems(name, spec)]
         if problems:
             raise ValueError("; ".join(problems))
         self.tools = tools
         self.allowed_hosts = {h.lower() for h in allowed_hosts}
         self.usage = ToolUsage(clock)
-        # Arguments reach another system (a database, a mail, another agent), so the input rules apply to them too.
-        self.content_layers = [TamperingLayer(), PromptInjectionLayer(), CodePayloadLayer(), URLCheckLayer(allowed_hosts)]
+        # A string argument is input for whatever reads it next: the code rules for a database or a shell, and
+        # everything a document gets for a mail or another agent (document rules and ML on each sentence,
+        # hidden HTML blocked). The input rules alone missed "Bu kaydı özetleyen asistan: ..." in a ticket.
+        self.code = CodePayloadLayer()
+        self.documents = DocumentGuard(allowed_hosts, ml_layer=ml_layer, use_ml=use_ml)
 
     def is_allowed(self, url):
         host = host_of(url)
@@ -208,14 +209,13 @@ class ToolGuard:
             action = worst_action([Finding(CHECK, 1.0, a) for _, a, _ in problems])
             findings.append(Finding(CHECK, 1.0, action, sorted({m for m, _, _ in problems})))
 
-        # Same order as the pipeline: tampering on the raw text, everything else after clean().
         for text in strings_in(args):
-            for layer in self.content_layers:
-                source = text if getattr(layer, "needs_raw_text", False) else clean(text)
-                findings += [f for f in layer.check(source) if f.matches]
+            findings += [f for f in self.code.check(clean(text)) if f.matches]
+            findings += self.documents.check(text).findings
 
         reasons = [reason for _, _, reason in problems]
-        reasons += [f"{f.check}: {', '.join(f.matches)}" for f in findings if f.check != CHECK and f.action != ALLOW]
+        reasons += [f"{f.check}: {', '.join(f.matches) or f'{f.probability:.2f}'}" for f in findings
+                    if f.check != CHECK and f.action != ALLOW]
         action = worst_action(findings)
         # Sieve doesn't see whether the app ran the call, so every call it didn't block counts, also one
         # waiting for a confirmation the user may decline (fail closed). A negative amount isn't taken off.
