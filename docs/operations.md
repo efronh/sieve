@@ -19,6 +19,7 @@ result = guard.check(text, session_id="abc", user_id="42")
 Politika TOML dosyalarında. `policies/default.toml` temel ayarlar, `policies/<kiracı>.toml` sadece değiştirdiği anahtarları eziyor. Bilinmeyen bir kural ID'si, katman ya da mod yüklemede hata veriyor; böylece yanlış yazılmış bir istisna kuralı sessizce açık bırakmıyor.
 
 - `mode = "monitor"` her şeye izin veriyor ama olaya ne olacağını (`would_action`) yazıyor.
+- `on_error` bir kontrol hata verirse ne olacağını söylüyor: `block` (varsayılan), `review` ya da `allow` (açık kalma, yine de loglanıyor). Shadow moddaki bir katmanın hatası engellemiyor. Politikanın kendi kodu hata verirse `on_error` ne derse desin sonuç block. Olayda kural `layer_error`, ayrıntıda katman ve hata tipi var, hata mesajı yok. `layer_error` `disabled_rules`'a yazılamıyor.
 - `[layers]` altında her katman `enforce`, `shadow` (sadece kayıt) ya da `off`.
 - `[tools.<ad>]` modelin çağırabileceği tool'lar, `guard.check_tool(...)` ile ([katmanlar](layers.md#tool-çağrıları-toolspy)). `[layers] tool_call` bunları açıp kapatıyor.
 - Modelin okuyacağı dokümanlar (RAG, e-posta, tool sonucu) `guard.check_document(text)` ile ([katmanlar](layers.md#dokümanlar-documentspy)); olay `direction = "document"`, doküman maskeli. `[layers] indirect_injection` doküman kurallarını açıp kapatıyor; ML ve injection kuralları mesajlardaki ayarlarını kullanıyor.

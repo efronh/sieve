@@ -5,7 +5,7 @@ import unicodedata
 from collections import OrderedDict
 from dataclasses import dataclass, field
 
-from sieve.actions import BLOCK, REVIEW, Finding, worst_action
+from sieve.actions import BLOCK, REVIEW, Finding, error_finding, failed, worst_action
 from sieve.checks.code_payloads import CodePayloadLayer
 from sieve.checks.prompt_injection import PromptInjectionLayer
 from sieve.checks.tampering import TamperingLayer
@@ -147,30 +147,41 @@ class Guardrail:
             return copy.deepcopy(self.cache[key])  # a copy, so a caller editing findings can't change the cache
 
         result = self.run(text)
-        if self.cache_size:
+        if self.cache_size and not failed(result.findings):  # a failed check may work on the next try
             self.cache[key] = copy.deepcopy(result)
             if len(self.cache) > self.cache_size:
                 self.cache.popitem(last=False)
         return result
 
     def run(self, text):
-        cleaned = clean(text)
-        masked = mask(cleaned, self.masking_layers)
+        try:
+            cleaned = clean(text)
+            masked = mask(cleaned, self.masking_layers)
+        except Exception as e:
+            # Without masked text there's nothing safe to pass on to the model.
+            return GuardrailResult("", BLOCK, [error_finding("masking", e)])
 
         findings = []
         if len(cleaned) > self.max_check_chars:
             # Checks only read the start, so the rest can't be trusted: send to review.
             findings.append(Finding("input_length", 1.0, REVIEW, [f"{len(cleaned)} chars"]))
 
+        # One layer failing doesn't stop the others, so the event still shows what they found.
         for layer in self.check_layers:
             source = text if getattr(layer, "needs_raw_text", False) else cleaned
-            findings += layer.check(source[:self.max_check_chars])
+            try:
+                findings += layer.check(source[:self.max_check_chars])
+            except Exception as e:
+                findings.append(error_finding(layer.name, e))
         llm_called = False
         if self.llm_layer is not None and worst_action(findings) != BLOCK:
-            skip = set() if needs_llm(findings, self.llm_min_ml) else set(getattr(self.llm_layer, "gated_checks", ()))
-            llm_findings = self.llm_layer.check(head_and_tail(masked, self.llm_max_chars), skip=skip)
-            llm_called = bool(llm_findings)
-            findings += llm_findings
+            try:
+                skip = set() if needs_llm(findings, self.llm_min_ml) else set(getattr(self.llm_layer, "gated_checks", ()))
+                llm_findings = self.llm_layer.check(head_and_tail(masked, self.llm_max_chars), skip=skip)
+                llm_called = bool(llm_findings)
+                findings += llm_findings
+            except Exception as e:
+                findings.append(error_finding("llm", e))
 
         return GuardrailResult(masked, worst_action(findings), findings, llm_called)
 

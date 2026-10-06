@@ -65,7 +65,7 @@ Each control below works only if the app does its part. If an assumption breaks,
 - Confirmation for `confirm = true` tools is real UI confirmation, outside the model. [TH-06]
 - The app's renderer sanitizes HTML and Markdown. `OutputGuard` removes what can run code or send data; it is not a sanitizer. [TH-10]
 - `SIEVE_PSEUDONYM_KEY` is set. Without it, pseudonyms are keyed with the tenant name. [TH-08]
-- The app treats an exception from Sieve as a block. Sieve doesn't catch its own errors today ([TH-15](#th-15-guard-failure)). [all]
+- The app keeps the order: check the input, ask the model only if it wasn't blocked, show the answer only after `OutputGuard`. `guarded_reply` does this in one call ([TH-15](#th-15-guard-failure)). [all]
 
 ## 5. Threats
 
@@ -85,7 +85,7 @@ Each control below works only if the app does its part. If an assumption breaks,
 | [TH-12](#th-12-probing-the-guardrail) | Probing the guardrail | AT1 | B1 | LLM01 | block after repeated flags | Unit tests |
 | [TH-13](#th-13-model-and-training-data-integrity) | Model and training data integrity | AT4 | Load time | LLM03, LLM04 | — | No control for the model file |
 | [TH-14](#th-14-policy-misconfiguration) | Policy misconfiguration | Operator error | Load time | — | fail at load | Unit tests |
-| [TH-15](#th-15-guard-failure) | Guard failure | Any | All | — | undefined today | Known gap |
+| [TH-15](#th-15-guard-failure) | Guard failure | Any | All | — | block (`on_error`) | Unit tests |
 
 "Unit tests" means the control has tests in `tests/`, but no attack set it is scored against.
 
@@ -308,19 +308,32 @@ Of 12 benign answers, 1 is a false alarm: a branch's landline (`0312 555 12 34`)
 **Risk.** A layer fails, and the message goes through unchecked.
 
 **Today:**
-- No layer catches its own exceptions. They reach the caller, and what happens next is up to the app.
+- **Every check fails closed.** A layer that raises becomes a `layer_error` finding, with the layer and the exception's type but never its message, which can quote the input. The decision is block:
+  - in `Guardrail` the other layers still run, and failed masking passes no text on;
+  - `DocumentGuard` blocks the document;
+  - `ToolGuard` blocks the call, which doesn't count toward the totals;
+  - `OutputGuard` replaces the answer with `SAFE_REPLY`.
+
+  A failed check isn't cached, so the next try can work.
+- **With a tenant policy, `on_error` makes it an explicit choice:** `block` (the default), `review`, or `allow` (fail open, still logged). A layer in shadow mode doesn't block when it fails, since its result wouldn't count. `layer_error` can't be put in `disabled_rules`. If the policy code itself raises, the result is a block whatever `on_error` says.
+- **`guarded_reply(message, ask_model, guard, output_guard)`** asks the model only when the input check didn't block or fail, and returns the answer only through `OutputGuard`. That also holds for a guard object that raises.
 - Without sentence-transformers, the cascade falls back to TF-IDF alone, with its own threshold. That fallback is intended and documented.
 
 **Fixed.** If the model file was missing or scikit-learn wasn't installed, the ML layer dropped out without an error or a log line, even when the policy said `prompt_injection_ml = "enforce"`. That was a silent fail-open on the main detector for TH-01. Now `TenantGuardrail` fails at start when the policy wants the ML layer (enforce or shadow) and it's unavailable; running without it has to be written as `prompt_injection_ml = "off"`. `Guardrail()` and `DocumentGuard()` without a policy still run, but log a warning. The CI gate also fails when the ML layer doesn't load.
 
-**Residual risk.** There is no explicit fail-open or fail-closed policy for a layer that raises while running.
+**Fixed.** A layer that raised used to reach the app as an exception, and nothing said whether that meant block. Unit tests now inject a failure into each check and count the model calls ([`tests/test_fail_closed.py`](tests/test_fail_closed.py)).
+
+**Residual risk.**
+- **Nothing bounds how long a check takes.** Sieve runs locally and synchronously, so a timeout is the caller's to set (TH-11).
+- **An app that calls the model on its own loses the guarantee** if it doesn't keep the order `guarded_reply` keeps.
+- **An error inside `ask_model` itself isn't caught.** No unchecked text can come of it.
 
 ## 6. What would hurt most
 
 1. **An attack in the user's own words is never blocked by default.** If the app ignores `review`, only the output and tool checks are left (TH-01, TH-04).
 2. **Tool specs are the real boundary for actions.** A loose spec is an open tool (TH-06).
 3. **The model file is code.** Anyone who can write it can run code in the app (TH-13).
-4. **A layer that raises is undefined.** The exception reaches the app, and nothing says whether that means block (TH-15).
+4. **Nothing bounds how long a check takes.** A pathological input (nothing has been tested for ReDoS) can stall a request, and the timeout is the caller's (TH-11, TH-15).
 5. **The detection numbers rest on 30 independent attacks** (TH-01 to TH-04).
 
 ## 7. Attack corpus

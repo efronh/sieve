@@ -123,6 +123,25 @@ if docs.check(page).action != "block":                    # block: leave the pag
     answer = my_llm(system=SYSTEM_PROMPT + "\n" + docs.instructions, user=user_message + "\n" + context)
 ```
 
+### When Sieve itself fails
+
+A check that raises fails closed:
+- the message, document or tool call is blocked;
+- an answer is replaced with a safe reply;
+- with a tenant policy, the SIEM event names the layer and the exception's type, never its message.
+
+`on_error` in the policy makes this an explicit choice: `block` (the default), `review`, or `allow` to fail open. If the policy code itself raises, the result is a block either way.
+
+`guarded_reply` keeps the order those guarantees depend on. The model is only asked when the input check didn't block or fail, and its answer only reaches the user through `OutputGuard`:
+
+```python
+from sieve import Guardrail, OutputGuard, guarded_reply
+
+reply = guarded_reply(user_message, ask_model, Guardrail(), OutputGuard(SYSTEM_PROMPT))  # ask_model(system, user) -> str
+reply.text            # what to show: the checked answer, or a refusal
+reply.model_called    # False when the input was blocked or its check failed
+```
+
 ## How I evaluated
 
 - Paraphrases, translations and obfuscated versions of the same attack share a `family`, and a family is never split between train and test. Otherwise the test set would be full of near-copies of the training data.
@@ -149,6 +168,7 @@ sieve/
   output.py          OutputGuard
   tools.py           ToolGuard
   documents.py       DocumentGuard
+  reply.py           guarded_reply: input check → model → OutputGuard, failing closed
   masking/           tc, iban, card, card_security, phone, email, vkn, credentials
   checks/            prompt_injection, tampering, code_payloads, urls, indirect
   ml/                TF-IDF → BERTurk cascade, augmentation

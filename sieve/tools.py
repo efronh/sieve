@@ -8,7 +8,7 @@ import time
 from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 
-from sieve.actions import ALLOW, BLOCK, REVIEW, Finding, worst_action
+from sieve.actions import ALLOW, BLOCK, REVIEW, Finding, error_finding, worst_action
 from sieve.checks.code_payloads import CodePayloadLayer
 from sieve.documents import MAX_NESTING, DocumentGuard, strings_in
 from sieve.output import PLAIN_URL, carries_data, data_key, host_of, mask_and_collect, same_data
@@ -194,7 +194,14 @@ class ToolGuard:
             problems.append(("needs_confirmation", REVIEW, "needs the user's confirmation"))
         return problems
 
+    # A check that fails blocks the call, and it doesn't count toward the totals.
     def check(self, name, args, user_data=None, user_id=None):
+        try:
+            return self.run(name, args, user_data, user_id)
+        except Exception as e:
+            return ToolResult(BLOCK, [error_finding("tool_call", e)], [f"the check failed: {type(e).__name__}"])
+
+    def run(self, name, args, user_data=None, user_id=None):
         spec = self.tools.get(name)
         if spec is None:
             return ToolResult(BLOCK, [Finding(CHECK, 1.0, BLOCK, ["unknown_tool"])], [f"unknown tool {name!r}"])

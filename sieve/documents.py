@@ -9,7 +9,7 @@ import re
 import secrets
 from dataclasses import dataclass, field
 
-from sieve.actions import ALLOW, BLOCK, REVIEW, Finding, worst_action
+from sieve.actions import ALLOW, BLOCK, REVIEW, Finding, error_finding, worst_action
 from sieve.checks.indirect import IndirectInjectionLayer
 from sieve.checks.prompt_injection import PromptInjectionLayer
 from sieve.checks.tampering import TamperingLayer
@@ -169,7 +169,14 @@ class DocumentGuard:
             findings += self.ml_layer.check(cleaned)
         return findings
 
+    # A check that fails blocks the document: leave it out of the prompt.
     def check(self, text):
+        try:
+            return self.run(text)
+        except Exception as e:
+            return DocumentResult(BLOCK, [error_finding("document", e)])
+
+    def run(self, text):
         findings = []
         if len(text) > MAX_DOCUMENT_CHARS:
             findings.append(Finding("input_length", 1.0, REVIEW, [f"{len(text)} chars"]))

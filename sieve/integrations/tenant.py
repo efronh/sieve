@@ -1,12 +1,13 @@
 # Per-tenant TOML policy (layers, modes, rule exceptions); decisions go to siem.py.
 #   guard = TenantGuardrail(load_policy("example_bank"))
 import json
+import logging
 import time
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from sieve.actions import ACTION_ORDER, ALLOW, BLOCK, REVIEW, Finding, worst_action
+from sieve.actions import ACTION_ORDER, ALLOW, BLOCK, ERROR_CHECK, REVIEW, Finding, error_finding, worst_action
 from sieve.checks.indirect import IndirectInjectionLayer
 from sieve.documents import DocumentGuard, DocumentResult
 from sieve.integrations.siem import emit, fired, to_event
@@ -21,11 +22,15 @@ from sieve.tools import ToolGuard, ToolResult, spec_problems
 POLICY_DIR = POLICIES
 MODES = ("enforce", "monitor")
 LAYER_MODES = ("enforce", "shadow", "off")
-KEYS = {"version", "mode", "max_check_chars", "log_excerpt", "log_allowed", "disabled_rules", "masking", "layers",
-        "session", "url_check", "tools"}
+KEYS = {"version", "mode", "on_error", "max_check_chars", "log_excerpt", "log_allowed", "disabled_rules", "masking",
+        "layers", "session", "url_check", "tools"}
+# What a check that raises means: block (fail closed, the default), review, or allow (fail open, still logged).
+ON_ERROR = ("block", "review", "allow")
 SESSION_KEYS = {"max_requests_per_minute", "max_chars_per_window", "max_flagged", "cooldown_seconds",
                 "window_seconds", "context_messages"}
 SESSION_CHECKS = {"session", "session_split"}  # both follow the "session" layer mode
+
+logger = logging.getLogger("sieve")
 
 
 @dataclass(frozen=True)
@@ -33,6 +38,7 @@ class Policy:
     tenant: str
     version: str
     mode: str
+    on_error: str
     max_check_chars: int
     log_excerpt: bool
     log_allowed: bool
@@ -61,6 +67,10 @@ def validate(data, source):
     problems = [f"unknown key {k!r}" for k in data if k not in KEYS]
     if data["mode"] not in MODES:
         problems.append(f"mode must be one of {MODES}")
+    if data.get("on_error", "block") not in ON_ERROR:
+        problems.append(f"on_error must be one of {ON_ERROR}")
+    if ERROR_CHECK in data["disabled_rules"]:
+        problems.append(f"{ERROR_CHECK} can't be disabled; set on_error instead")
 
     masking_names = {layer.name for layer in LAYERS}
     problems += [f"unknown masking layer {k!r}" for k in data["masking"] if k not in masking_names]
@@ -90,6 +100,7 @@ def load_policy(tenant="default", directory=POLICY_DIR, overrides=None):
         tenant=tenant,
         version=data["version"],
         mode=data["mode"],
+        on_error=data.get("on_error", "block"),
         max_check_chars=data["max_check_chars"],
         log_excerpt=data["log_excerpt"],
         log_allowed=data["log_allowed"],
@@ -165,12 +176,26 @@ class TenantGuardrail:
     def apply_policy(self, finding):
         if finding.action == ALLOW:
             return finding
+        if finding.check == ERROR_CHECK:
+            return self.apply_on_error(finding)
         if self.policy.layers.get(layer_of(finding.check)) == "shadow":
             return as_allowed(finding, shadow=True)
         # Only when every rule in the finding is disabled: a partial exception can't
         # recompute the score, so the finding stands (fail closed).
         if all(rule_id in self.policy.disabled_rules for rule_id, _ in rule_ids(finding)):
             return as_allowed(finding, suppressed=True)
+        return finding
+
+    # A failed layer that the policy has in shadow or off wouldn't decide anything anyway; for the others,
+    # on_error says what an unchecked message gets.
+    def apply_on_error(self, finding):
+        layer = finding.matches[0].split(":")[0] if finding.matches else ""
+        mode = self.policy.layers.get(layer)
+        if mode in ("shadow", "off"):
+            return as_allowed(finding, shadow=mode == "shadow", suppressed=mode == "off")
+        if self.policy.on_error != BLOCK:
+            return Finding(finding.check, finding.probability, self.policy.on_error, finding.matches,
+                           would_action=BLOCK)
         return finding
 
     def enforced_rule(self, rule_id, check):
@@ -206,8 +231,38 @@ class TenantGuardrail:
         action = ALLOW if self.policy.mode == "monitor" else worst_action(findings)
         return findings, action, would_action
 
-    # A tool call the model wants to make; see tools.py. Logged with direction "tool", arguments masked.
+    # When the policy code itself raises, the policy can't be trusted: always block, whatever on_error says.
+    def failed(self, error, direction, session_id, user_id):
+        logger.warning("sieve: %s check failed with %s", direction, type(error).__name__)
+        result = GuardrailResult("", BLOCK, [error_finding("policy", error)])
+        try:
+            emit(to_event(result, BLOCK, self.policy, original="", session_id=session_id, user_id=user_id,
+                          direction=direction))
+        except Exception:
+            pass  # the event may be what failed; the decision stands
+        return result
+
     def check_tool(self, name, args, user_data=None, session_id=None, user_id=None):
+        try:
+            return self.run_tool(name, args, user_data, session_id, user_id)
+        except Exception as e:
+            failure = self.failed(e, "tool", session_id, user_id)
+            return ToolResult(BLOCK, failure.findings, [f"the check failed: {type(e).__name__}"])
+
+    def check_document(self, text, session_id=None, user_id=None):
+        try:
+            return self.run_document(text, session_id, user_id)
+        except Exception as e:
+            return DocumentResult(BLOCK, self.failed(e, "document", session_id, user_id).findings)
+
+    def check(self, text, session_id=None, user_id=None, direction="input"):
+        try:
+            return self.run(text, session_id, user_id, direction)
+        except Exception as e:
+            return self.failed(e, direction, session_id, user_id)
+
+    # A tool call the model wants to make; see tools.py. Logged with direction "tool", arguments masked.
+    def run_tool(self, name, args, user_data=None, session_id=None, user_id=None):
         start = time.perf_counter()
         # Totals (max_total, max_calls) count per user, like the session limits.
         who = user_id if user_id is not None else session_id
@@ -223,7 +278,7 @@ class TenantGuardrail:
         return ToolResult(action, findings, result.reasons)
 
     # A document the model will read (retrieved page, e-mail, tool result); see documents.py.
-    def check_document(self, text, session_id=None, user_id=None):
+    def run_document(self, text, session_id=None, user_id=None):
         start = time.perf_counter()
         result = self.documents.check(text)
         found = [f for f in result.findings if self.policy.layers.get(f.check) != "off"]
@@ -235,7 +290,7 @@ class TenantGuardrail:
                           direction="document", latency_ms=(time.perf_counter() - start) * 1000))
         return DocumentResult(action, findings, result.flagged_parts)
 
-    def check(self, text, session_id=None, user_id=None, direction="input"):
+    def run(self, text, session_id=None, user_id=None, direction="input"):
         start = time.perf_counter()
         who = user_id if user_id is not None else session_id
         track = self.session_on and direction == "input" and who is not None

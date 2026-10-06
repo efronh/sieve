@@ -3,6 +3,7 @@
 
 version = "2026-09-24.1"
 mode = "enforce"         # enforce | monitor (log what would happen, always allow)
+on_error = "block"       # a check that raises: block (fail closed) | review | allow (fail open, still logged)
 max_check_chars = 8000
 log_excerpt = false      # put the first 200 masked characters into SIEM events
 log_allowed = false      # also send allowed messages to the SIEM (SIEMs bill by event volume)

@@ -18,6 +18,8 @@ RULES = {
     # pipeline.py
     "input_length": Rule(DOS, 4, "Input longer than the checked window"),
     "input_nesting": Rule(DOS, 4, "Document nested deeper than the checked depth"),
+    # actions.py, any layer; integrations/tenant.py: the policy code itself
+    "layer_error": Rule(None, 8, "A check raised; the policy's on_error decides (block by default)"),
 
     # integrations/throttle.py, via integrations/tenant.py
     "session.rate_limit": Rule(DOS, 5, "Too many requests per minute"),
@@ -111,7 +113,7 @@ RULES = {
 }
 
 # Layers whose match text is a detail ("12000 chars"), not a rule name.
-DETAIL_ONLY = {"input_length", "input_nesting", "prompt_overlap", "session_split"}
+DETAIL_ONLY = {"input_length", "input_nesting", "layer_error", "prompt_overlap", "session_split"}
 
 
 # Shadow markers like would_review are not rules.

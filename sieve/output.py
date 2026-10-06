@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from urllib.parse import parse_qsl, unquote, urlsplit
 
-from sieve.actions import ALLOW, BLOCK, REVIEW, Finding, worst_action
+from sieve.actions import ALLOW, BLOCK, REVIEW, Finding, error_finding, worst_action
 from sieve.checks.prompt_injection import decode_hidden_parts
 from sieve.masking import LABEL_NAMES
 from sieve.masking.number_units import REPLACED, find_units, to_lower
@@ -248,7 +248,14 @@ class OutputGuard:
 
     # user_data: texts whose personal data this user may see (their own message, their account record),
     # unmasked. Personal data in the answer that isn't in them may belong to someone else.
+    # A check that fails replaces the answer: the user never sees an unchecked one.
     def check(self, answer, user_data=None):
+        try:
+            return self.run(answer, user_data)
+        except Exception as e:
+            return OutputResult(SAFE_REPLY, BLOCK, [error_finding("output", e)])
+
+    def run(self, answer, user_data=None):
         from sieve.pipeline import LAYERS
 
         if self.canary_leaked(answer):

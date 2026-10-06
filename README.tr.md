@@ -123,6 +123,25 @@ if docs.check(page).action != "block":                    # block: sayfayı dı�
     answer = my_llm(system=SYSTEM_PROMPT + "\n" + docs.instructions, user=user_message + "\n" + context)
 ```
 
+### Sieve'in kendisi hata verirse
+
+Hata veren bir kontrol kapalı kalıyor:
+- mesaj, doküman ya da tool çağrısı engelleniyor;
+- cevabın yerine güvenli bir yanıt geliyor;
+- kiracı politikası varsa, SIEM olayında katman ve hatanın tipi yazıyor, hata mesajı yazmıyor.
+
+Politikadaki `on_error` bunu açık bir seçim yapıyor: `block` (varsayılan), `review` ya da açık kalmak için `allow`. Politikanın kendi kodu hata verirse sonuç her durumda block.
+
+`guarded_reply` bu garantilerin dayandığı sırayı koruyor. Model sadece giriş kontrolü engellemediyse ve hata vermediyse çağrılıyor, cevabı da kullanıcıya sadece `OutputGuard` üzerinden ulaşıyor:
+
+```python
+from sieve import Guardrail, OutputGuard, guarded_reply
+
+reply = guarded_reply(user_message, ask_model, Guardrail(), OutputGuard(SYSTEM_PROMPT))  # ask_model(system, user) -> str
+reply.text            # gösterilecek metin: kontrol edilmiş cevap ya da ret
+reply.model_called    # giriş engellendiyse ya da kontrolü hata verdiyse False
+```
+
 ## Nasıl ölçtüm
 
 - Bir saldırının parafrazları, çevirileri ve gizlenmiş halleri aynı `family` altında. Bir aile hiçbir zaman eğitim ve test arasında bölünmüyor; yoksa test seti eğitim verisinin neredeyse kopyalarıyla dolardı.
@@ -149,6 +168,7 @@ sieve/
   output.py          OutputGuard
   tools.py           ToolGuard
   documents.py       DocumentGuard
+  reply.py           guarded_reply: giriş kontrolü → model → OutputGuard, hata olursa kapalı
   masking/           tc, iban, card, card_security, phone, email, vkn, credentials
   checks/            prompt_injection, tampering, code_payloads, urls, indirect
   ml/                TF-IDF → BERTurk kademesi, augmentation

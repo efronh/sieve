@@ -27,3 +27,16 @@ def action_for(score, review_at, block_at):
 
 def worst_action(findings):
     return max((f.action for f in findings), key=ACTION_ORDER.get, default=ALLOW)
+
+
+ERROR_CHECK = "layer_error"
+
+
+# A check that raised fails closed: unchecked input is treated as blocked. Only what failed and the
+# exception's type are kept, never its message, which can quote the input.
+def error_finding(where, error):
+    return Finding(ERROR_CHECK, 1.0, BLOCK, [f"{where}: {type(error).__name__}"])
+
+
+def failed(findings):
+    return any(f.check == ERROR_CHECK for f in findings)
