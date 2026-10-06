@@ -81,7 +81,7 @@ Each control below works only if the app does its part. If an assumption breaks,
 | [TH-08](#th-08-personal-data-leaving-in-prompts-or-logs) | Personal data leaving in prompts or logs | — | B3, B6 | LLM02 | mask | Unit tests |
 | [TH-09](#th-09-another-customers-data-in-the-answer) | Another customer's data in the answer | AT1, AT3 via the model | B4 | LLM02 | review | Unit tests |
 | [TH-10](#th-10-active-content-in-the-answer) | Active content in the answer | AT1–AT3 via the model | B4 | LLM05 | remove + review | Unit tests |
-| [TH-11](#th-11-resource-exhaustion) | Resource exhaustion | AT1, AT2 | B1, B2, B5 | LLM10 | review or block, never crash | No; one known crash |
+| [TH-11](#th-11-resource-exhaustion) | Resource exhaustion | AT1, AT2 | B1, B2, B5 | LLM10 | review or block, never crash | Unit tests for the inputs that crashed |
 | [TH-12](#th-12-probing-the-guardrail) | Probing the guardrail | AT1 | B1 | LLM01 | block after repeated flags | Unit tests |
 | [TH-13](#th-13-model-and-training-data-integrity) | Model and training data integrity | AT4 | Load time | LLM03, LLM04 | — | No control for the model file |
 | [TH-14](#th-14-policy-misconfiguration) | Policy misconfiguration | Operator error | Load time | — | fail at load | Unit tests |
@@ -247,11 +247,13 @@ The three records are dev now, as is TOOL-ARGINJ-016 (a DDE call), which I wrote
 - A decision cache.
 - The paid LLM runs only when local layers are unsure, and reads at most 3,000 characters.
 - Session state is capped at 50,000 keys.
+- JSON and hidden HTML are opened 64 levels deep at most. A document nested deeper is reviewed (`input_nesting`), since what's below goes unchecked; tool arguments nested deeper are blocked, since every parameter is a scalar anyway.
 
-**Evidence.** None.
+**Evidence.** Unit tests for the inputs that used to crash.
+
+**Fixed.** I found this crash while writing this file: JSON nested a few thousand levels deep raised `RecursionError` in `DocumentGuard.check` and in `ToolGuard.check`. While fixing it, I found a second one: HTML comments inside hidden `div`s, 1,500 levels deep. Both now get a decision instead of an exception, and an attack ten levels deep is still read and blocked.
 
 **Residual risk.**
-- **Known crash:** JSON nested about 5,000 levels deep raises `RecursionError` in `DocumentGuard.check` and in `ToolGuard.check` (found while writing this file).
 - Masking reads the whole message, with no size cap before it.
 - A 200,000-character document is a few hundred ML calls.
 - Nothing has been tested for ReDoS.
@@ -295,19 +297,18 @@ The three records are dev now, as is TOOL-ARGINJ-016 (a DDE call), which I wrote
 
 **Today:**
 - No layer catches its own exceptions. They reach the caller, and what happens next is up to the app.
-- If the model file is missing or scikit-learn isn't installed, `default_check_layers` leaves the ML layer out without an error or a log line. That is a silent fail-open on the main detector for TH-01, even when the policy says `prompt_injection_ml = "enforce"`.
 - Without sentence-transformers, the cascade falls back to TF-IDF alone, with its own threshold. That fallback is intended and documented.
 
-The CI gate fails when the ML layer doesn't load, so a missing model can't ship unnoticed. In production nothing checks it yet.
+**Fixed.** If the model file was missing or scikit-learn wasn't installed, the ML layer dropped out without an error or a log line, even when the policy said `prompt_injection_ml = "enforce"`. That was a silent fail-open on the main detector for TH-01. Now `TenantGuardrail` fails at start when the policy wants the ML layer (enforce or shadow) and it's unavailable; running without it has to be written as `prompt_injection_ml = "off"`. `Guardrail()` and `DocumentGuard()` without a policy still run, but log a warning. The CI gate also fails when the ML layer doesn't load.
 
-**Residual risk.** There is no explicit fail-open or fail-closed policy. That is the next change to the code after the corpus.
+**Residual risk.** There is no explicit fail-open or fail-closed policy for a layer that raises while running.
 
 ## 6. What would hurt most
 
 1. **An attack in the user's own words is never blocked by default.** If the app ignores `review`, only the output and tool checks are left (TH-01, TH-04).
 2. **Tool specs are the real boundary for actions.** A loose spec is an open tool (TH-06).
 3. **The model file is code.** Anyone who can write it can run code in the app (TH-13).
-4. **Failures are silent or undefined.** A missing model means no ML, and deep JSON crashes the guard (TH-15, TH-11).
+4. **A layer that raises is undefined.** The exception reaches the app, and nothing says whether that means block (TH-15).
 5. **The detection numbers rest on 30 independent attacks** (TH-01 to TH-04).
 
 ## 7. Attack corpus
