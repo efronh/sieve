@@ -194,6 +194,15 @@ def test_tenant_totals_count_per_user():
     assert guard.check_tool(*call, session_id="baska").action == "allow"
 
 
+def test_deeply_nested_arguments_are_blocked_not_a_crash():
+    deep = "x"
+    for _ in range(5000):
+        deep = [deep]
+    tools = ToolGuard({"f": {"params": {"x": "str"}}})
+    result = tools.check("f", {"x": deep})
+    assert result.action == "block" and result.reasons == ["arguments nested more than 64 levels"]
+
+
 def test_from_user_without_user_data_fails_closed(guard):
     assert guard.check("para_transferi", {"iban": IBAN, "tutar": 500}).action == "review"
 

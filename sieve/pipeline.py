@@ -18,7 +18,7 @@ from sieve.masking.iban import IBANMaskingLayer
 from sieve.masking.phone import PhoneMaskingLayer
 from sieve.masking.tc import TCMaskingLayer
 from sieve.masking.vkn import VKNMaskingLayer
-from sieve.ml.injection import MLInjectionLayer
+from sieve.ml.injection import MLInjectionLayer, warn_without_ml
 
 INVISIBLE_CHARS = re.compile(
     r"[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff\u00ad\ufe00-\ufe0f\U000e0100-\U000e01ef]"
@@ -53,6 +53,8 @@ def default_check_layers():
     layers = [TamperingLayer(), PromptInjectionLayer(), CodePayloadLayer(), URLCheckLayer()]
     if MLInjectionLayer.is_available():
         layers.append(MLInjectionLayer())  # can review, never blocks on its own (BLOCK_AT)
+    else:
+        warn_without_ml()
     return layers
 
 

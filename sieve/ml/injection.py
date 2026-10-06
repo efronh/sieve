@@ -1,4 +1,5 @@
 import importlib.util
+import logging
 import os
 import warnings
 from pathlib import Path
@@ -11,6 +12,21 @@ MODEL_PATH = MODELS / "prompt_injection_tr.joblib"
 DEFAULT_REVIEW_AT = 0.5
 BLOCK_AT = 1.01  # ML alone never blocks
 EMBEDDING_MODEL = "dbmdz/bert-base-turkish-cased"
+
+logger = logging.getLogger("sieve")
+
+
+def unavailable_reason(path=MODEL_PATH):
+    if not Path(path).exists():
+        return f"no model file at {path}"
+    if importlib.util.find_spec("sklearn") is None:
+        return "scikit-learn isn't installed"
+    return None
+
+
+# Running on without the main detector for attacks in the user's own words used to be silent (TH-15).
+def warn_without_ml():
+    logger.warning("running without prompt_injection_ml: %s", unavailable_reason() or "not available")
 
 
 def prepare(text):
@@ -116,7 +132,7 @@ class MLInjectionLayer:
 
     @staticmethod
     def is_available(path=MODEL_PATH):
-        return Path(path).exists() and importlib.util.find_spec("sklearn") is not None
+        return unavailable_reason(path) is None
 
     def tfidf_probability(self, text):
         return float(self.model.predict_proba([prepare(text)])[0][1])

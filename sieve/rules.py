@@ -17,6 +17,7 @@ PI, SID, OUT, AGENCY, LEAK, DOS = "LLM01:2025", "LLM02:2025", "LLM05:2025", "LLM
 RULES = {
     # pipeline.py
     "input_length": Rule(DOS, 4, "Input longer than the checked window"),
+    "input_nesting": Rule(DOS, 4, "Document nested deeper than the checked depth"),
 
     # integrations/throttle.py, via integrations/tenant.py
     "session.rate_limit": Rule(DOS, 5, "Too many requests per minute"),
@@ -110,7 +111,7 @@ RULES = {
 }
 
 # Layers whose match text is a detail ("12000 chars"), not a rule name.
-DETAIL_ONLY = {"input_length", "prompt_overlap", "session_split"}
+DETAIL_ONLY = {"input_length", "input_nesting", "prompt_overlap", "session_split"}
 
 
 # Shadow markers like would_review are not rules.

@@ -14,10 +14,13 @@ from sieve.checks.indirect import IndirectInjectionLayer
 from sieve.checks.prompt_injection import PromptInjectionLayer
 from sieve.checks.tampering import TamperingLayer
 from sieve.checks.urls import URLCheckLayer
-from sieve.ml.injection import MLInjectionLayer
+from sieve.ml.injection import MLInjectionLayer, warn_without_ml
 from sieve.pipeline import clean, mask
 
 MAX_DOCUMENT_CHARS = 200_000
+# JSON or hidden HTML nested deeper than this isn't opened further: thousands of levels crashed the parser
+# with a RecursionError. What's below goes unchecked, so the document is reviewed, like an overlong one.
+MAX_NESTING = 64
 MAX_PART_CHARS = 1000
 MIN_ML_CHARS = 15
 EXCERPT_CHARS = 200
@@ -50,14 +53,22 @@ class DocumentResult:
     flagged_parts: list = field(default_factory=list)  # masked, first EXCERPT_CHARS characters, for the reviewer
 
 
-def strings_in(value):
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, dict):
-        value = list(value.values())
-    if isinstance(value, list):
-        return [s for v in value for s in strings_in(v)]
-    return []
+# (every string in a JSON value or tool arguments, in order; whether some were deeper than max_depth),
+# without recursion.
+def strings_in(value, max_depth=MAX_NESTING):
+    found, too_deep = [], False
+    stack = [(value, 0)]
+    while stack:
+        item, depth = stack.pop()
+        if isinstance(item, str):
+            found.append(item)
+        elif isinstance(item, (dict, list, tuple)):
+            if depth >= max_depth:
+                too_deep = True
+                continue
+            children = list(item.values()) if isinstance(item, dict) else list(item)
+            stack += [(child, depth + 1) for child in reversed(children)]
+    return found, too_deep
 
 
 def split_long(text, size=MAX_PART_CHARS):
@@ -67,15 +78,24 @@ def split_long(text, size=MAX_PART_CHARS):
     return [text[i:i + size] for i in range(0, len(text) - size // 10, step)]
 
 
-# (part, hidden) pairs: the document cut into sentences, JSON string values and hidden HTML,
-# so an attack is read on its own and not diluted by the pages around it.
-def parts_of(text):
+# ((part, hidden) pairs, whether something was nested too deep to read): the document cut into
+# sentences, JSON string values and hidden HTML, so an attack is read on its own and not diluted by
+# the pages around it.
+def split_parts(text, depth=0):
+    if depth > MAX_NESTING:
+        return [], True
     try:
-        values = strings_in(json.loads(text))
+        values, too_deep = strings_in(json.loads(text))
     except ValueError:
-        values = None
+        values, too_deep = None, False
+    except RecursionError:
+        values, too_deep = None, True
     if values:
-        return [pair for value in values for pair in parts_of(value)]
+        parts = []
+        for value in values:
+            more, deeper = split_parts(value, depth + 1)
+            parts, too_deep = parts + more, too_deep or deeper
+        return parts, too_deep
 
     hidden = []
     for pattern in HIDDEN_PARTS:
@@ -83,11 +103,18 @@ def parts_of(text):
         text = pattern.sub("\n", text)
     visible = html.unescape(TAG.sub("\n", text))
 
-    parts = [(p, True) for h in hidden for p, _ in parts_of(h)]
+    parts = []
+    for h in hidden:
+        more, deeper = split_parts(h, depth + 1)
+        parts, too_deep = parts + [(p, True) for p, _ in more], too_deep or deeper
     for line in visible.splitlines():
         for sentence in SENTENCE_END.split(line):
             parts += [(p, False) for p in split_long(sentence.strip()) if p]
-    return parts
+    return parts, too_deep
+
+
+def parts_of(text):
+    return split_parts(text)[0]
 
 
 def merge(findings):
@@ -107,6 +134,8 @@ class DocumentGuard:
         self.part_layers = [PromptInjectionLayer(), IndirectInjectionLayer()]
         if ml_layer is None and use_ml and MLInjectionLayer.is_available():
             ml_layer = MLInjectionLayer()  # reviews, never blocks on its own
+        elif ml_layer is None and use_ml:
+            warn_without_ml()
         self.ml_layer = ml_layer
         self.tampering = TamperingLayer()
         self.urls = URLCheckLayer(allowed_hosts)
@@ -149,9 +178,13 @@ class DocumentGuard:
         findings += self.tampering.check(text)
         findings += self.urls.check(clean(text))
 
+        parts, too_deep = split_parts(text)
+        if too_deep:
+            findings.append(Finding("input_nesting", 1.0, REVIEW, [f"more than {MAX_NESTING} levels"]))
+
         flagged_parts = []
         hidden_flagged = False
-        for part, hidden in parts_of(text):
+        for part, hidden in parts:
             part_findings = self.check_part(part)
             if worst_action(part_findings) != ALLOW:
                 flagged_parts.append(mask(part)[:EXCERPT_CHARS])

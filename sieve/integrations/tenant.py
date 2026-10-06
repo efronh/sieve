@@ -11,7 +11,7 @@ from sieve.checks.indirect import IndirectInjectionLayer
 from sieve.documents import DocumentGuard, DocumentResult
 from sieve.integrations.siem import emit, fired, to_event
 from sieve.integrations.throttle import ConversationWindow, RateLimiter, SessionLimiter
-from sieve.ml.injection import MLInjectionLayer
+from sieve.ml.injection import MLInjectionLayer, unavailable_reason
 from sieve.paths import POLICIES
 from sieve.pipeline import LAYERS, Guardrail, GuardrailResult, default_check_layers, mask
 from sieve.rules import RULES, rule_ids
@@ -103,6 +103,13 @@ def load_policy(tenant="default", directory=POLICY_DIR, overrides=None):
 
 
 def build_guardrail(policy):
+    # A policy that wants the ML layer but can't have it must not quietly run without it (fail closed at
+    # startup); running without it has to be written down as "off".
+    ml_mode = policy.layers.get(MLInjectionLayer.name, "enforce")
+    if ml_mode != "off" and not MLInjectionLayer.is_available():
+        raise ValueError(f"policy {policy.tenant!r}: prompt_injection_ml is {ml_mode!r} but unavailable "
+                         f"({unavailable_reason() or 'not available'}); set [layers] prompt_injection_ml = \"off\" "
+                         "to run without it")
     masking = [layer for layer in LAYERS if policy.masking.get(layer.name, True)]
 
     checks = []

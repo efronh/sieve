@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 from sieve.actions import ALLOW, BLOCK, REVIEW, Finding, worst_action
 from sieve.checks.code_payloads import CodePayloadLayer
-from sieve.documents import DocumentGuard
+from sieve.documents import MAX_NESTING, DocumentGuard, strings_in
 from sieve.output import PLAIN_URL, carries_data, data_key, host_of, mask_and_collect, same_data
 from sieve.pipeline import LAYERS, clean
 
@@ -76,16 +76,6 @@ def has_type(value, name):
         return isinstance(value, str) and not (name == "line" and LINE_BREAK.search(value))
     # bool is an int in Python, but True isn't an amount; json.loads accepts NaN, which no limit catches.
     return isinstance(value, TYPES[name]) and not isinstance(value, bool) and math.isfinite(value)
-
-
-def strings_in(value):
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, dict):
-        value = list(value.values())
-    if isinstance(value, (list, tuple)):
-        return [s for v in value for s in strings_in(v)]
-    return []
 
 
 # Whether the value is in the text as a whole: spaces and case aside, but not punctuation, and not as
@@ -195,7 +185,7 @@ class ToolGuard:
         problems += [("not_from_user", REVIEW, f"{key}: not in the user's messages") for key in spec.get("from_user", ())
                      if key in args and not given_by_user(args[key], texts)]
 
-        for text in strings_in(args):
+        for text in strings_in(args)[0]:
             if any(not self.is_allowed(url) and carries_data(url) for url in PLAIN_URL.findall(text)):
                 problems.append(("url_with_data", REVIEW, "link carrying data in an argument"))
             if FORMULA.match(text):
@@ -211,6 +201,10 @@ class ToolGuard:
 
         if not isinstance(args, dict):
             return ToolResult(BLOCK, [Finding(CHECK, 1.0, BLOCK, ["bad_arguments"])], ["arguments must be an object"])
+        texts, too_deep = strings_in(args)
+        if too_deep:  # every parameter is a scalar, so nesting is wrong anyway; this level of it crashed the check
+            return ToolResult(BLOCK, [Finding(CHECK, 1.0, BLOCK, ["bad_arguments"])],
+                              [f"arguments nested more than {MAX_NESTING} levels"])
 
         counted = spec.get("max_total") or "max_calls" in spec
         key = (str(user_id), name) if counted and user_id is not None else None
@@ -221,7 +215,7 @@ class ToolGuard:
             action = worst_action([Finding(CHECK, 1.0, a) for _, a, _ in problems])
             findings.append(Finding(CHECK, 1.0, action, sorted({m for m, _, _ in problems})))
 
-        for text in strings_in(args):
+        for text in texts:
             findings += [f for f in self.code.check(clean(text)) if f.matches]
             findings += self.documents.check(text).findings
 
