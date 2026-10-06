@@ -7,7 +7,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from sieve.actions import ACTION_ORDER, ALLOW, BLOCK, ERROR_CHECK, REVIEW, Finding, error_finding, worst_action
+from sieve.actions import ACTION_ORDER, ALLOW, BLOCK, ERROR_CHECK, REVIEW, Finding, action_for, error_finding, worst_action
 from sieve.checks.indirect import IndirectInjectionLayer
 from sieve.documents import DocumentGuard, DocumentResult
 from sieve.integrations.siem import emit, fired, to_event
@@ -24,7 +24,12 @@ POLICY_DIR = POLICIES
 MODES = ("enforce", "monitor")
 LAYER_MODES = ("enforce", "shadow", "off")
 KEYS = {"version", "mode", "on_error", "max_check_chars", "log_excerpt", "log_allowed", "disabled_rules", "masking",
-        "layers", "session", "url_check", "tools"}
+        "layers", "thresholds", "session", "url_check", "tools"}
+# Layers that report a score: a policy can set where review and block start ([thresholds.<layer>]), and the
+# decision is made again from the score. The other checks (tool specs, answers, sessions) decide by rule.
+SCORED_LAYERS = ("tampering", "prompt_injection_rules", "code_payloads", "url_check", "indirect_injection",
+                 "prompt_injection_ml")
+NEVER = "never"  # block_at = "never": the layer can review but not block
 # What a check that raises means: block (fail closed, the default), review, or allow (fail open, still logged).
 ON_ERROR = ("block", "review", "allow")
 SESSION_KEYS = {"max_requests_per_minute", "max_chars_per_window", "max_flagged", "cooldown_seconds",
@@ -46,6 +51,7 @@ class Policy:
     disabled_rules: frozenset
     masking: dict
     layers: dict
+    thresholds: dict
     session: dict
     allowed_hosts: tuple
     tools: dict
@@ -82,10 +88,30 @@ def validate(data, source):
     problems += [f"layer {k!r}: mode must be one of {LAYER_MODES}" for k, v in data["layers"].items() if v not in LAYER_MODES]
 
     problems += [f"unknown rule {r!r}" for r in data["disabled_rules"] if r not in RULES]
+    problems += threshold_problems(data.get("thresholds", {}))
     problems += [f"unknown session key {k!r}" for k in data.get("session", {}) if k not in SESSION_KEYS]
     problems += [p for name, spec in data.get("tools", {}).items() for p in spec_problems(name, spec)]
     if problems:
         raise ValueError(f"{source}: " + "; ".join(problems))
+
+
+def is_share(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and 0 < value <= 1
+
+
+# Both ends have to be written: a layer's own defaults differ, and half a pair would be easy to misread.
+def threshold_problems(thresholds):
+    problems = []
+    for layer, limits in thresholds.items():
+        if layer not in SCORED_LAYERS:
+            problems.append(f"thresholds: {layer!r} isn't a layer with a score; one of {SCORED_LAYERS}")
+        elif not isinstance(limits, dict) or set(limits) != {"review_at", "block_at"}:
+            problems.append(f"thresholds.{layer}: needs review_at and block_at, nothing else")
+        elif not is_share(limits["review_at"]):
+            problems.append(f"thresholds.{layer}: review_at must be above 0 and at most 1")
+        elif limits["block_at"] != NEVER and not (is_share(limits["block_at"]) and limits["block_at"] >= limits["review_at"]):
+            problems.append(f"thresholds.{layer}: block_at must be \"never\" or between review_at and 1")
+    return problems
 
 
 def load_policy(tenant="default", directory=POLICY_DIR, overrides=None):
@@ -108,6 +134,7 @@ def load_policy(tenant="default", directory=POLICY_DIR, overrides=None):
         disabled_rules=frozenset(data["disabled_rules"]),
         masking=data["masking"],
         layers=data["layers"],
+        thresholds=data.get("thresholds", {}),
         session=data.get("session", {}),
         allowed_hosts=tuple(data.get("url_check", {}).get("allowed_hosts", [])),
         tools=data.get("tools", {}),
@@ -182,7 +209,9 @@ class TenantGuardrail:
     def system_prompt(self):
         return self.output.system_prompt
 
+    # How a finding becomes a decision; docs/operations.md, "Karar nasıl veriliyor".
     def apply_policy(self, finding):
+        finding = self.apply_thresholds(finding)
         if finding.action == ALLOW:
             return finding
         if finding.check == ERROR_CHECK:
@@ -194,6 +223,16 @@ class TenantGuardrail:
         if all(rule_id in self.policy.disabled_rules for rule_id, _ in rule_ids(finding)):
             return as_allowed(finding, suppressed=True)
         return finding
+
+    # The policy's own thresholds for a scored layer: the layer reports, the policy decides.
+    def apply_thresholds(self, finding):
+        limits = self.policy.thresholds.get(finding.check)
+        if not limits:
+            return finding
+        block_at = float("inf") if limits["block_at"] == NEVER else limits["block_at"]
+        action = action_for(finding.probability, limits["review_at"], block_at)
+        return Finding(finding.check, finding.probability, action, finding.matches, finding.level, finding.shadow,
+                       finding.would_action, finding.suppressed)
 
     # A failed layer that the policy has in shadow or off wouldn't decide anything anyway; for the others,
     # on_error says what an unchecked message gets.

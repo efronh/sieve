@@ -334,7 +334,7 @@ Of 12 benign answers, 1 is a false alarm: a branch's landline (`0312 555 12 34`)
 
 **Controls.** `load_policy` rejects unknown keys, layers, modes, rule IDs and malformed tool specs. Disabling only some of the rules in a finding keeps the finding. Monitor and shadow modes still log what would have happened (`would_action`).
 
-**Residual risk.** `mode = "monitor"` or `shadow` layers left on in production allow everything; the only trace is the events. Whoever can edit `policies/` can turn Sieve off: policy files are trusted input.
+**Residual risk.** `mode = "monitor"` or `shadow` layers left on in production allow everything; the only trace is the events. `[thresholds]` can also loosen a layer (a higher `review_at`, `block_at = "never"`); that's a decision the policy file holds, and every event carries the policy version, but nothing warns about it. Whoever can edit `policies/` can turn Sieve off: policy files are trusted input.
 
 ### TH-15 Guard failure
 

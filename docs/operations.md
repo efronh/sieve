@@ -25,6 +25,23 @@ Politika TOML dosyalarında. `policies/default.toml` temel ayarlar, `policies/<k
 - Modelin cevabı `guard.check_output(answer, user_data=[...])` ile; modele `guard.system_prompt` verilmeli (sistem promptu + canary, kurucuda `system_prompt=` ile). Olay `direction = "output"`, cevap maskeli. `[layers]` altında `canary`, `prompt_overlap`, `output_links`, `output_masking` ayrı ayrı `enforce`/`shadow`/`off` olabiliyor. Maskeleme ve link temizleme her durumda yapılıyor; politika sadece cevabın gösterilip gösterilmeyeceğine karar veriyor. Kontrolü hata veren bir cevap `on_error` ne derse desin gösterilmiyor.
 - Modelin okuyacağı dokümanlar (RAG, e-posta, tool sonucu) `guard.check_document(text)` ile ([katmanlar](layers.md#dokümanlar-documentspy)); olay `direction = "document"`, doküman maskeli. `[layers] indirect_injection` doküman kurallarını açıp kapatıyor; ML ve injection kuralları mesajlardaki ayarlarını kullanıyor.
 - `disabled_rules` kapatılacak kural ID'leri. Bir bulgudaki kuralların hepsi kapalıysa bulgu bastırılıyor (`suppressed`); bir kısmı kapalıysa bulgu olduğu gibi kalıyor.
+- `[thresholds.<katman>]` skor üreten bir katmanda review ve block'un nerede başladığını politikaya bırakıyor: `review_at` ve `block_at` (0–1 arası, ya da engellememesi için `block_at = "never"`), ikisi birden yazılmalı. Skor üreten katmanlar: `tampering`, `prompt_injection_rules`, `code_payloads`, `url_check`, `indirect_injection`, `prompt_injection_ml`. Katman skoru raporluyor, karar politikanın eşiğiyle yeniden veriliyor; örneğin ML'in de engelleyebilmesi için `[thresholds.prompt_injection_ml]` altında `block_at = 0.95`.
+
+### Karar nasıl veriliyor
+
+Her giriş noktası (mesaj, doküman, tool çağrısı, model cevabı) aynı sırayı izliyor:
+
+1. **Katmanlar bulgu üretiyor.** Her bulguda bir skor (0–1), katmanın kendi kararı ve tetiklenen kural ID'leri var. Skor üreten katmanlar kararı kendi eşikleriyle veriyor; tool spec'i, çıkış kontrolleri ve oturum limitleri kural başına sabit bir karar veriyor.
+2. **Politika her bulguya şu sırayla uygulanıyor:**
+   1. Katman için `[thresholds]` varsa karar skordan bu eşiklerle yeniden hesaplanıyor.
+   2. Bulgu bir `layer_error` ise `on_error` karar veriyor; hata veren katman shadow ya da off ise engellemiyor.
+   3. Katman `shadow` ise bulgu allow oluyor, ne olacağı `would_action` olarak loglanıyor. `off` ise bulgu hiç kullanılmıyor.
+   4. Bulgudaki kuralların hepsi `disabled_rules`'taysa bulgu bastırılıyor. Bir kısmıysa bulgu olduğu gibi kalıyor, çünkü skor kural kural yeniden hesaplanamıyor (fail closed).
+3. **En ağır karar kazanıyor:** block > review > allow. Bulgular toplanmıyor; iki review bir block etmiyor.
+4. **`mode = "monitor"` ise** sonuç her durumda allow, ama olayda `would_action` var.
+5. **Politikanın kendi kodu hata verirse** sonuç `on_error`'a bakılmadan block.
+
+**Öncelik:** `policies/default.toml` < `policies/<kiracı>.toml` < koddan verilen `overrides`. Tablolar (`[layers]`, `[masking]`, `[thresholds.*]`, `[tools.*]`, `[session]`) anahtar anahtar birleşiyor; listeler (`disabled_rules`, `allowed_hosts`) birleşmiyor, yenisi eskisinin yerine geçiyor. Birleşmiş politika yüklenirken doğrulanıyor: bilinmeyen bir anahtar, katman, kural, tool spec'i ya da eşik hata veriyor.
 
 Kural ID'leri `rules.py`'de, `<katman>.<eşleşme>` biçiminde (ör. `prompt_injection_rules.ignore_instructions`). Her birinin bir OWASP LLM Top 10 (2025) kodu ve 1-10 arası bir önem derecesi var. SIEM kuralları bunlara bağlı olacağı için ID'ler değiştirilmiyor. Katalogda olmayan bir ID üretilirse `tests/test_rules.py` hata veriyor.
 

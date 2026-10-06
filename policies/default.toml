@@ -30,6 +30,13 @@ session = "enforce"      # the [session] limits below
 tool_call = "enforce"    # the [tools.*] specs below, via TenantGuardrail.check_tool
 indirect_injection = "enforce"  # document rules, via TenantGuardrail.check_document
 
+# Where review and block start for a layer with a score, instead of the layer's own thresholds; both
+# ends are required. Layers: tampering, prompt_injection_rules, code_payloads, url_check,
+# indirect_injection, prompt_injection_ml.
+# [thresholds.prompt_injection_ml]
+# review_at = 0.5
+# block_at = 0.95        # or "never"; ML alone never blocks without this
+
 [session]                # per user (or session when there's no user ID); needs session_id / user_id in check()
 max_requests_per_minute = 30
 max_chars_per_window = 50000
