@@ -167,14 +167,14 @@ With TF-IDF alone, as in CI, it's 40 of 57. What gets through is social engineer
 A string argument is input for whatever reads it next. So it goes through the code rules (for a database or a shell) and the whole document check (for a mail or another agent): tampering, URL, injection and document rules and ML on each sentence, and a block for an instruction in hidden HTML. A typo in a spec raises an error at load.
 
 **Evidence.** The tool families of the corpus ([section 7](#7-attack-corpus)), against the example bank assistant's tools in [`corpus/tools.toml`](corpus/tools.toml). Asking for confirmation doesn't count as stopping an attack.
-- **Single calls:** 48 of 51 test calls (41 attacks) stopped, and no false alarms in 15 benign calls whose arguments the user wrote differently (`+90 532…` for `0532…`, an IBAN with spaces, a phone number in words).
+- **Single calls:** 48 of 54 test calls (43 attacks) stopped, and no false alarms in 15 benign calls whose arguments the user wrote differently (`+90 532…` for `0532…`, an IBAN with spaces, a phone number in words).
 - **Document → call chains:** 9 of 10 stopped with TF-IDF alone, 10 with BERTurk.
 
 In two InjecAgent chains the document check flags nothing, because the instruction is a plain request with no words aimed at an AI. There, only `from_user` stops the call.
 
 Most of these attacks are mine, written after reading `tools.py`, so they test what I expected to break. 15 records are adapted from AgentDojo and InjecAgent.
 
-48 of 48 wasn't a held-out score. Every test record that failed led to a fix below and moved to dev, so the test split is what passed from the start. The 3 that fail now (TOOL-LIMIT-016 to -018) were written with Claude after reading the limit code, aimed at the gaps listed under residual risk, so they record known gaps rather than measure anything. A real held-out number for tool calls needs new attacks, written by someone who hasn't seen the fixes.
+48 of 48 wasn't a held-out score. Every test record that failed led to a fix below and moved to dev, so the test split is what passed from the start. The 6 that fail now (TOOL-LIMIT-016 to -018, TOOL-RCPT-018 to -020) were written with Claude after reading the limit and `from_user` code, aimed at the gaps listed under residual risk, so they record known gaps rather than measure anything. A real held-out number for tool calls needs new attacks, written by someone who hasn't seen the fixes.
 
 **Fixed.** `from_user` used to compare letters and digits as a substring:
 - `ayse.kaya@ornekmail.co` (a domain the attacker can register) and `ayse@kaya-ornekmail.com` both counted as the user's `ayse.kaya@ornekmail.com` (TOOL-RCPT-009, -010).
@@ -197,6 +197,7 @@ The three records are dev now, as is TOOL-ARGINJ-016 (a DDE call), which I wrote
 **Residual risk.** The spec is the boundary. A tool without `max`, `from_user` or `confirm` is open to whatever the model asks for, and a number like a card limit can't be checked against the user's words (TOOL-CHAIN-008 is stopped only by BERTurk on the document). `confirm` depends on the app's UI. Found by the corpus:
 - **Totals live in memory, per process, per user ID.** Across processes or user accounts, the limit splits again. Without a user ID the call is reviewed.
 - **Totals are per tool.** 45,000 by transfer and 45,000 by standing order to the same IBAN pass a 50,000 transfer limit (TOOL-LIMIT-016); there is no budget shared across tools.
+- **`from_user` checks that a value appears, not what the user meant by it.** An IBAN from a scam SMS the user asked about, or one they said not to pay to, counts as theirs (TOOL-RCPT-018, -019). And only the parameters listed are checked: 5,000 instead of the 500 the user asked for goes to their own recipient with nothing but a confirmation (-020).
 - **No limit across calls unless the spec sets one.** Four standing orders of 50,000 pass where `max` is set but `max_total` isn't (-017), and 25 page fetches where one was asked for pass a tool without `max_calls` or `confirm` (-018). Confirmation alone doesn't count as stopping an attack, and the user may approve each one.
 - **A call counts unless Sieve blocked it.** Sieve can't see whether the app ran the call, so a declined confirmation still uses up the total. In monitor mode, calls Sieve would have blocked run but aren't counted.
 - **Line breaks are only checked where the spec says `line`.** A fake log line inside a multi-line description still goes through, so the log writer has to escape it.
@@ -437,11 +438,11 @@ At least 15 independent test groups for each of the 14 input families (210), and
 | [AgentDojo](https://github.com/ethz-spylab/agentdojo) banking suite (MIT) | 11 | 8 | Attack goals and injection places, rewritten in Turkish as calls to the example tools |
 | [InjecAgent](https://github.com/uiuc-kang-lab/InjecAgent) (MIT) | 4 | 4 | Direct-harm and data-stealing instructions, the same way |
 | Obfuscated attacks written with Claude | 62 | 62 | `OBF-*`, one group per trick; written knowing the decoders in `pipeline.py`, so white-box like the tool attacks |
-| Tool attacks written by me | 60 | 39 | After reading `tools.py`, so white-box; the replay reports them by source. 13 are dev: a fix followed them, or they were written with it |
+| Tool attacks written by me | 63 | 41 | After reading `tools.py`, so white-box; the replay reports them by source. 13 are dev: a fix followed them, or they were written with it |
 | Benign tool calls | 17 | — | `BEN`, carrier `tool_call`; 2 written with `max_total` are dev |
 | Answers with another customer's data, written by me | 14 | 12 | `EXF-PII`, carrier `model_answer`; after reading `output.py`, so white-box. 1 is dev: written after the IBAN fix in TH-06 |
 | Benign model answers | 12 | — | `BEN`, carrier `model_answer`: the user's own data in another format, the bank's phone numbers, numbers that only look like data |
 | Prompt-injection attacks written with Claude | 69 | 69 | `PI-OVR`, `PI-ROLE`, `PI-AUTH`, `PI-SOC`, `PI-ACT`, `PI-LEAK`, to 15 groups each; written knowing the rules, so white-box. None is a near copy of the training data |
 | Benign banking messages that share words with attacks | 15 | — | `BEN`: "önceki talimatımı unutun", "sistem mesajı", "rol yapma oyunu"; none is in the training data |
 
-Today there are 295 independent test groups: 188 for messages and documents, 44 for conversations, 51 for tools (41 single-call, 10 chains), and 12 for model answers. EXF-LINK, EXF-LEAK and OUT-ACTIVE have none; TOOL-RCPT has 9 of its 10.
+Today there are 297 independent test groups: 188 for messages and documents, 44 for conversations, 53 for tools (43 single-call, 10 chains), and 12 for model answers. EXF-LINK, EXF-LEAK and OUT-ACTIVE have none.
