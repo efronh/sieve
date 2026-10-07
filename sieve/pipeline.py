@@ -33,18 +33,19 @@ LLM_MAX_CHARS = 3000
 CACHE_SIZE = 2048
 
 # Order matters: secrets first (a connection string looks like an e-mail),
-# then longer, more specific numbers, so a card or phone number isn't
-# partly eaten by the TC checksum; expiry date and CVV right after the card,
-# since they need [KART] as context; random-looking tokens last.
+# then longer, more specific numbers; expiry date and CVV right after the card,
+# since they need [KART] as context; a tax number with its keyword, then a TC
+# number with its checksum, before phones, which have neither: "5748 6794 88 6"
+# is a TC number, not a phone number and a 6; random-looking tokens last.
 LAYERS = [
     SecretMaskingLayer(),
     EmailMaskingLayer(),
     IBANMaskingLayer(),
     CardMaskingLayer(),
     CardSecurityMaskingLayer(),
-    PhoneMaskingLayer(),
-    TCMaskingLayer(),
     VKNMaskingLayer(),
+    TCMaskingLayer(),
+    PhoneMaskingLayer(),
     RandomTokenMaskingLayer(),
 ]
 

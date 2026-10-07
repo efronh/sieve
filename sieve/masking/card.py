@@ -33,7 +33,7 @@ class CardMaskingLayer:
             real_only = [u for u in group if u.real]
 
             for length in (16, 15):
-                spans += find_windows(group, length, MIN_REAL_DIGITS, is_card)
-                spans += find_windows(real_only, length, length, is_card)
+                spans += find_windows(group, length, MIN_REAL_DIGITS, is_card, lower)
+                spans += find_windows(real_only, length, length, is_card, lower)
 
         return apply_masks(text, spans, LABEL)

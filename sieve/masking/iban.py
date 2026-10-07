@@ -1,6 +1,6 @@
 import re
 
-from sieve.masking.number_units import apply_masks, find_units, find_windows, split_into_groups, to_lower
+from sieve.masking.number_units import apply_masks, find_units, find_windows, keyword_window, split_into_groups, to_lower
 
 LABEL = "[IBAN]"
 TR_IBAN_DIGITS = 24
@@ -34,19 +34,6 @@ def include_tr_prefix(spans, text):
             start -= len(before) - prefix.start()
         result.append((start, end))
     return result
-
-
-def find_by_keyword(group, text):
-    real_units = [u for u in group if u.real]
-    if len(real_units) != TR_IBAN_DIGITS:
-        return []
-
-    start = real_units[0].start
-    before = text[max(0, start - KEYWORD_DISTANCE):start]
-
-    if KEYWORDS.search(before):
-        return [(start, real_units[-1].end)]
-    return []
 
 
 def find_foreign_ibans(text):
@@ -84,12 +71,16 @@ class IBANMaskingLayer:
         spans = []
         for group in split_into_groups(find_units(lower)):
             real_only = [u for u in group if u.real]
+            whole = {(units[0].start, units[-1].end) for units in (group, real_only) if units}
+            windows = (find_windows(group, TR_IBAN_DIGITS, MIN_REAL_DIGITS, is_valid_tr_iban, lower)
+                       + find_windows(real_only, TR_IBAN_DIGITS, MIN_REAL_DIGITS, is_valid_tr_iban, lower))
+            # Without "TR" in front, 24 valid digits among other numbers are about as likely a stretch across
+            # them (1 in 97 is valid), so they count only when nothing else is around them.
+            for window, prefixed in zip(windows, include_tr_prefix(windows, lower)):
+                if prefixed != window or window in whole:
+                    spans.append(prefixed)
+            spans += include_tr_prefix(keyword_window(group, TR_IBAN_DIGITS, lower, KEYWORDS, KEYWORD_DISTANCE), lower)
 
-            spans += find_windows(group, TR_IBAN_DIGITS, MIN_REAL_DIGITS, is_valid_tr_iban)
-            spans += find_windows(real_only, TR_IBAN_DIGITS, MIN_REAL_DIGITS, is_valid_tr_iban)
-            spans += find_by_keyword(group, lower)
-
-        spans = include_tr_prefix(spans, lower)
         spans += find_foreign_ibans(lower)
 
         return apply_masks(text, spans, LABEL)

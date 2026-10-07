@@ -16,6 +16,8 @@ SHOULD_MASK = [
     ("DATABASE_URL=postgres://admin:S3cretPass!@db.example.com:5432/app", "S3cretPass!"),
     ("password: Ankara2026!", "Ankara2026!"),
     ("şifre=Gizli.123", "Gizli.123"),
+    ("şifrem: Kedi2026!", "Kedi2026!"),  # Turkish puts the owner on the word
+    ("Parolanız=Ankara06*", "Ankara06*"),
     ("Şifrem 123456 ama giremiyorum", "123456"),
     ("parolam de Kedi*99", "Kedi*99"),
     ("config: Zk8Qp2Lm7Vx4Rt9Nw3Bj6Hy1Cf5Gd0Ks8Ea", "Zk8Qp2Lm7Vx4Rt9Nw3Bj6Hy1Cf5Gd0Ks8Ea"),

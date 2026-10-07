@@ -1,6 +1,6 @@
 import re
 
-from sieve.masking.number_units import apply_masks, find_units, split_into_groups, to_lower
+from sieve.masking.number_units import apply_masks, find_units, keyword_window, split_into_groups, to_lower
 
 LABEL = "[VKN]"
 VKN_LENGTH = 10
@@ -18,12 +18,5 @@ class VKNMaskingLayer:
 
         spans = []
         for group in split_into_groups(find_units(lower)):
-            real_units = [u for u in group if u.real]
-            if len(real_units) != VKN_LENGTH:
-                continue
-
-            start = real_units[0].start
-            if KEYWORDS.search(lower[max(0, start - KEYWORD_DISTANCE):start]):
-                spans.append((start, real_units[-1].end))
-
+            spans += keyword_window(group, VKN_LENGTH, lower, KEYWORDS, KEYWORD_DISTANCE)
         return apply_masks(text, spans, LABEL)

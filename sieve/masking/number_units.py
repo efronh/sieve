@@ -27,7 +27,8 @@ UNIT = re.compile(
 )
 
 
-WORD = re.compile(r"\S+")
+# A word for look-alike letters ends at an apostrophe too, so the "i" in "462'dir" stays a letter.
+WORD = re.compile(r"[^\s'’]+")
 
 
 @dataclass
@@ -87,22 +88,42 @@ def split_into_groups(units):
     return groups
 
 
-def find_windows(group, length, min_real, is_valid):
-    spans = []
-    i = 0
+# A gap the writer left between two units: a space or a mark ("0599 326", "…5646&adim=2"). Letters alone, as in
+# "5f4e" in a hash, run on.
+GAP = re.compile(r"[\W_]")
 
-    while i + length <= len(group):
+
+# Start indexes of the windows of length units that begin and end at such gaps: whole pieces the writer typed
+# ("0599", "326", ...), never a stretch cut out of a longer run. Sliding through the group instead found a
+# checksum-valid run across the end of a phone number and the start of a card, which hid half of each and
+# left the card's expiry date and CVV in the clear.
+def aligned_windows(units, length, text):
+    edge = [True] + [GAP.search(text, a.end, b.start) is not None for a, b in zip(units, units[1:])] + [True]
+    return [i for i in range(len(units) - length + 1) if edge[i] and edge[i + length]]
+
+
+def find_windows(group, length, min_real, is_valid, text):
+    spans, taken = [], set()
+    for i in aligned_windows(group, length, text):
         window = group[i:i + length]
-        number = "".join(u.digit for u in window)
-        real_count = sum(u.real for u in window)
-
-        if real_count >= min_real and is_valid(number):
+        if (taken.isdisjoint(range(i, i + length)) and sum(u.real for u in window) >= min_real
+                and is_valid("".join(u.digit for u in window))):
             spans.append((window[0].start, window[-1].end))
-            i += length
-        else:
-            i += 1
-
+            taken.update(range(i, i + length))
     return spans
+
+
+# A group of exactly length real digits with a keyword in the distance characters before it, whose number fits
+# even if its checksum doesn't: "TC: 12345678901" is a TC number someone mistyped. Without a checksum to go on,
+# only a number on its own counts; one cut out of "TC +90 521 812 27 64" would take most of a phone number.
+def keyword_window(group, length, text, keywords, distance, fits=lambda number: True):
+    real = [u for u in group if u.real]
+    if len(real) != length:
+        return []
+    start = real[0].start
+    if keywords.search(text[max(0, start - distance):start]) and fits("".join(u.digit for u in real)):
+        return [(start, real[-1].end)]
+    return []
 
 
 def apply_masks(text, spans, label):

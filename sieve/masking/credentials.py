@@ -26,7 +26,9 @@ URL_PASSWORD = re.compile(r"\b[a-z][a-z0-9+.-]{0,31}://[^\s:/@]+:([^\s@/]+)@", r
 
 HAS_DIGIT_OR_SYMBOL = r"(?=[^\s\"',;]*[\d!@#$%^&*?.+\-_])"
 PASSWORD_WITH_COLON = re.compile(
-    r"\b(?:password|passwd|pwd|pass|parola|şifre|sifre|secret|api[_-]?key|token|pin)\b\s*[:=]\s*[\"']?"
+    # "şifrem:", "parolanız=": Turkish adds the owner to the word.
+    r"\b(?:password|passwd|pwd|pass|(?:parola|şifre|sifre)(?:m|n|niz|nız|miz|mız)?|secret|api[_-]?key|token"
+    r"|pin(?:im|in|iniz)?)\b\s*[:=]\s*[\"']?"
     rf"{HAS_DIGIT_OR_SYMBOL}([^\s\"',;]{{4,}})",
     re.IGNORECASE,
 )

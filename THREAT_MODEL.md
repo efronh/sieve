@@ -250,15 +250,34 @@ Masking and link cleaning always happen; the policy only decides whether the ans
 **Risk.** Customers' TC numbers, IBANs or cards reach the model provider, the logs, or the SIEM.
 
 **Controls.**
-- The masking layers in [`masking/`](sieve/masking) run on the whole message before the model sees it.
+- The masking layers in [`masking/`](sieve/masking) run on the whole message before the model sees it, and on documents in `DocumentGuard.wrap()`.
 - SIEM events carry no raw text, only a hash of the masked text and HMAC pseudonyms for user and session IDs; the excerpt is masked and off by default.
 - The traffic log stores masked text only.
 
-**Evidence.** Unit tests per masking layer. No labelled personal-data set.
+**Evidence.** A labelled set, [`corpus/pii/`](corpus/pii): 151 Turkish messages written with Claude after reading the masking code, so white-box. The test split has 113 personal-data values (TC numbers, IBANs, cards with expiry date and CVV, phone numbers, e-mail addresses, tax numbers, keys and passwords) in the shapes customers write them: grouped, dashed, spelled out, with look-alike letters, fullwidth or Arabic-Indic digits, in a URL, broken over a line, with a suffix. It also has 49 numbers that must stay: order and receipt numbers, amounts, dates, the bank's own phone numbers, a tracking number, a file hash. Every value is synthetic. `python -m scripts.evaluate_masking` sends each message through `mask()`, and through `DocumentGuard.wrap()` inside a support-ticket export. A value counts as masked only when one replaced piece holds all of it, under its own label.
+
+| | Personal data masked (test) | Other numbers left alone (test) | Dev values right |
+|---|---|---|---|
+| Messages | 108 of 113 (96%) | 49 of 49 | 27 of 27 (13 before the fixes below) |
+| Documents | 108 of 113 (96%; 0 before) | 49 of 49 | 27 of 27 (5 before) |
+
+The five misses are by design: an e-mail address with spaces around `@`, one with `at` and `dot` in words, a tax number with its keyword after it, a password with no digit or symbol, an old password with no keyword before it. `tests/test_masking_corpus.py` fails when a value masked, or a number left alone, in the committed baseline isn't any more.
+
+`--random 6000` packs 12,094 checksum-valid numbers in random shapes among other numbers and words: 99.1% are masked whole (83.5% before), 8 that were masked before aren't now, and 7.7% of 6,000 random reference numbers are masked by mistake (14.4% before). I used it while making the changes below, so it's a dev set, not a measurement.
+
+**Fixed.** Measuring found four problems:
+- `DocumentGuard.wrap()` didn't mask at all, so a retrieved page or a ticket reached the model with every TC number and card in it. It masks with the tenant's `[masking]` layers now (`keep_personal_data=True` turns it off).
+- Numbers were read as one run when fewer than four characters apart, and a window slid through the run. A checksum-valid window across the end of a phone number and the start of a card hid half of each and left the card's expiry date and CVV in the clear. A phone number right after a TC number wasn't masked at all, since it needed its digit group to itself. A TC- or IBAN-shaped stretch in the middle of a tracking number or a file hash was masked. Numbers are now read in the pieces the writer typed: a window starts and ends at a space or a mark. A TC number is looked for before a phone number, since it has a checksum and a phone number doesn't. Without a checksum to go on (a TR IBAN with neither "TR" nor a keyword, a mistyped TC number after "TC"), only a number with nothing else around it counts, and a TC number never starts with 0. The "i" in a suffix like "462'dir" no longer counts as a 1.
+- "şifrem: …" and "parolanız=…" weren't password keywords: Turkish puts the owner on the word.
+- A tax number starting with 5 was masked as a phone number. The tax-number layer runs first now.
+
+The 10 test records that showed these are dev now, and 5 written with the fix are dev too.
 
 **Residual risk.**
 - Names, addresses and free-text personal data (health, family) aren't masked.
-- **Documents passed through `DocumentGuard.wrap()` are cleaned but not masked**, so personal data in retrieved text reaches the model provider.
+- Numbers with only a space between them can still be misread: in the random test, 0.9% of valid numbers aren't masked whole, nearly all with other digits right next to them.
+- A random reference number is masked by mistake 7.7% of the time: a 16-digit one starting with 4 or 5 passes Luhn one time in ten.
+- The set is white-box and synthetic. Real customer messages haven't been measured.
 - Without `SIEVE_PSEUDONYM_KEY`, pseudonyms are keyed with the tenant name, which isn't secret.
 
 ### TH-09 Another customer's data in the answer
@@ -492,5 +511,7 @@ The corpus is mostly white-box, so detection is judged on [`holdout/`](holdout/R
 | Benign banking messages that share words with attacks | 15 | — | `BEN`: "önceki talimatımı unutun", "sistem mesajı", "rol yapma oyunu"; none is in the training data |
 | Output attacks written by me | 41 | 40 | `EXF-LINK`, `EXF-LEAK`, `OUT-ACTIVE`, carrier `model_answer`; after reading `output.py`, so white-box |
 | Benign answers with links, HTML or attack-like words | 10 | — | `BEN`, carrier `model_answer` |
+
+Personal data isn't in this corpus: the labelled set for masking is [`corpus/pii/`](corpus/pii) ([TH-08](#th-08-personal-data-leaving-in-prompts-or-logs)).
 
 Today there are 336 independent test groups: 187 for messages and documents, 44 for conversations, 53 for tools (43 single-call, 10 chains), and 52 for model answers. Every family has at least its minimum.

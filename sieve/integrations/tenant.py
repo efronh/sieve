@@ -200,8 +200,9 @@ class TenantGuardrail:
         # The same ML layer as for messages, so its shadow mode and "off" apply to documents and tool arguments too.
         ml = next((layer for layer in self.guard.check_layers if layer.name == MLInjectionLayer.name), None)
         self.tools = ToolGuard(policy.tools, policy.allowed_hosts, ml_layer=ml, use_ml=ml is not None)
-        self.documents = DocumentGuard(policy.allowed_hosts, ml_layer=ml, use_ml=ml is not None)
-        # Answers are masked with the same layers as messages, so the policy's [masking] applies to them too.
+        # Documents and answers are masked with the same layers as messages, so the policy's [masking] applies.
+        self.documents = DocumentGuard(policy.allowed_hosts, ml_layer=ml, use_ml=ml is not None,
+                                       masking_layers=self.guard.masking_layers)
         self.output = OutputGuard(system_prompt, policy.allowed_hosts, masking_layers=self.guard.masking_layers,
                                   canary=canary)
 

@@ -146,6 +146,20 @@ def test_wrap_marks_the_document(docs):
     assert docs.boundary in docs.instructions and docs.mark in docs.instructions
 
 
+def test_wrap_masks_personal_data_like_a_message(docs):
+    page = "Müşteri TC 10000001518, telefon 0599 326 27 05, kart 4111 1118 5491 4523."
+    body = docs.wrap(page).split("\n")[1].replace(docs.mark, " ")  # between the boundary lines
+    assert body == "Müşteri TC [TC_KIMLIK], telefon [TELEFON], kart [KART]."
+    assert "10000001518" in docs.wrap(page, keep_personal_data=True).replace(docs.mark, " ")
+
+
+def test_a_tenant_masks_documents_as_its_policy_says():
+    page = "Müşteri telefonu 0599 326 27 05, TC 10000001518"
+    tenant = TenantGuardrail(load_policy(overrides={"masking": {"phone_masking": False}}))
+    wrapped = tenant.documents.wrap(page).replace(tenant.documents.mark, " ")
+    assert "0599 326 27 05" in wrapped and "[TC_KIMLIK]" in wrapped
+
+
 def test_wrap_leaves_out_what_the_reader_cant_see(docs):
     page = f"<p>Kampanya başladı.</p><!-- {ATTACK} --><span style=\"display:none\">{ATTACK}</span>"
     assert "talimatları" not in docs.wrap(page)

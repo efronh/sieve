@@ -23,6 +23,8 @@ SHOULD_MASK = [
     ("[TELEFON]", "sıfır beş üç iki bir bir bir iki iki üç üç"),
     ("[VKN]", "Vergi numaram 1234567890"),
     ("[VKN]", "VKN: 123 456 78 90"),
+    ("[VKN]", "VKN: 547 428 4352"),  # starts with 5, so it used to be taken for a phone number
+    ("[TELEFON]", "Numara O599 154 38 29"),
     ("[KART]", "Kart: 4\u03321\u03321\u03321\u0332 1111 1111 1111"),
     ("[CVV]", "Kart 4111 1111 1111 1111 12/27 123"),
     ("[CVV]", "kart: 4111111111111111, 08/2029, 1234"),
@@ -65,6 +67,34 @@ def test_masks(label, text):
 def test_leaves_alone(text):
     result = mask(text)
     assert not any(label in result for label in LABELS), result
+
+
+# Numbers are read in the pieces they're typed in. A window across two of them used to hide half of each,
+# or none: the phone number after a TC needed its digit group to itself.
+NEXT_TO_EACH_OTHER = [
+    ("TC 10000001518 0599 326 27 05", ["[TC_KIMLIK]", "[TELEFON]"]),
+    ("Tel: 0599 312 34 56\n4111 1157 9906 5937 08/28 123", ["[TELEFON]", "[KART]", "[SKT]", "[CVV]"]),
+    ("10000004038 05993262705 numaralarım", ["[TC_KIMLIK]", "[TELEFON]"]),
+    ("Telefon ve kart: 0599 284 61 07 5555 5565 9085 3809", ["[TELEFON]", "[KART]"]),
+]
+
+
+@pytest.mark.parametrize("text, labels", NEXT_TO_EACH_OTHER)
+def test_numbers_next_to_each_other(text, labels):
+    result = mask(text)
+    assert re.findall(r"\[[A-Z_]+\]", result) == labels and not any(c.isdigit() for c in result), result
+
+
+def test_a_number_ends_where_a_mark_is():
+    result = mask("Link: https://ornekbank.com.tr/basvuru?tc=10000005646&adim=2")
+    assert "?tc=[TC_KIMLIK]&adim=2" in result, result
+
+
+# A run that only fits a checksum when cut out of a longer code isn't a number someone typed.
+@pytest.mark.parametrize("text", ["Kargo takip numarası 1Z999AA10123456784",
+                                  "SHA-256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"])
+def test_numbers_inside_longer_codes_stay(text):
+    assert mask(text) == text
 
 
 @pytest.mark.parametrize("text", SHOULD_NOT_MASK_AS_CARD_DETAILS)

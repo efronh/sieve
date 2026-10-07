@@ -17,16 +17,20 @@ Sonuç `allow` < `review` < `block` sırasında en kötüsü. Kontroller ilk 800
 
 | Etiket | Modül | Nasıl |
 |---|---|---|
-| `[GIZLI_ANAHTAR]`, `[SIFRE]` | `masking/credentials.py` | Bilinen anahtar önekleri (OpenAI, Anthropic, AWS, GitHub, Slack, Google, Stripe, JWT, özel anahtar), "şifre" kelimesinden sonra gelen değer, bağlantı dizesindeki parola. En son, başka bir şeye benzemeyen yüksek entropili diziler. |
+| `[GIZLI_ANAHTAR]`, `[SIFRE]` | `masking/credentials.py` | Bilinen anahtar önekleri (OpenAI, Anthropic, AWS, GitHub, Slack, Google, Stripe, JWT, özel anahtar), "şifre" kelimesinden ("şifrem:", "parolanız=" dahil) sonra gelen değer, bağlantı dizesindeki parola. En son, başka bir şeye benzemeyen yüksek entropili diziler. |
 | `[EPOSTA]` | `masking/email.py` | `(at)` / `[nokta]` gibi yazımlar dahil |
 | `[IBAN]` | `masking/iban.py` | mod 97; boşluklu, tireli, araya harf karışmış ya da yazıyla yazılmış; yabancı IBAN'lar da |
 | `[KART]` | `masking/card.py` | Luhn ve kart öneki (Visa, MC, Amex, Troy) |
 | `[SKT]`, `[CVV]` | `masking/card_security.py` | Son kullanma tarihi (`AA/YY`, `AA/YYYY`) ve 3-4 haneli CVV. Sadece "skt"/"son kullanma"/"cvv"/"güvenlik kodu" gibi bir kelimeden sonra ya da `[KART]`'ın hemen yanında (`[KART] 12/27 123`), çünkü `12/27` ve `123` tek başına sıradan sayılar. `24.09.2026` gibi tam tarihlere dokunmuyor. |
-| `[TELEFON]` | `masking/phone.py` | 5xx mobil her zaman; 2xx-4xx sabit hat sadece başında `0` / `+90` varsa; numara ayrı bir rakam grubu olmalı |
+| `[TELEFON]` | `masking/phone.py` | 5xx mobil her zaman; 2xx-4xx sabit hat sadece başında `0` / `+90` varsa |
 | `[TC_KIMLIK]` | `masking/tc.py` | TC checksum; rakama benzeyen harfler (`O`→0, `l`→1), yazıyla rakamlar |
-| `[VKN]` | `masking/vkn.py` | Sadece "vergi"/"VKN" kelimesinden sonra, çünkü checksum tek başına rastgele 10 haneli sayıların ~%10'unu tutuyor |
+| `[VKN]` | `masking/vkn.py` | Sadece "vergi"/"VKN" kelimesinden sonra ve tek başına duran 10 hane, çünkü checksum tek başına rastgele 10 haneli sayıların ~%10'unu tutuyor |
 
-Sıra önemli: gizli anahtarlar, e-posta, IBAN, kart, son kullanma tarihi ve CVV, telefon, TC, VKN, en son rastgele diziler. Uzun numaralar önce maskeleniyor ki TC checksum'ı bir kart ya da telefon numarasının parçasını yakalamasın.
+Sıra önemli: gizli anahtarlar, e-posta, IBAN, kart, son kullanma tarihi ve CVV, VKN, TC, telefon, en son rastgele diziler. Checksum'ı ya da anahtar kelimesi olan önce geliyor: 5 ile başlayan bir VKN ya da TC, telefonun 10 hanesine benziyor.
+
+Sayılar yazıldıkları parçalarla okunuyor: bir numara bir boşlukta ya da işarette (`-`, `.`, `/`, `'`) başlayıp bitiyor, araya sadece harf giren dizi (hash'teki `5f4e`) tek parça. Eskiden birbirine 3 karakterden yakın rakamlar tek dizi sayılıp içinde pencere kaydırılıyordu; telefonun sonu ile kartın başını kapsayan, Luhn'u tutan bir pencere ikisinin de yarısını açıkta bırakıyordu, TC'den hemen sonra gelen telefon hiç maskelenmiyordu. Checksum'sız eşleşmeler (TR'siz ve anahtar kelimesiz IBAN, "TC"den sonra checksum'ı tutmayan numara) sadece etrafında başka rakam yoksa sayılıyor.
+
+Ölçüm: `python -m scripts.evaluate_masking`, etiketli set [`corpus/pii/`](../corpus/pii) ([TH-08](../THREAT_MODEL.md#th-08-personal-data-leaving-in-prompts-or-logs)).
 
 İsim ve adresleri yakalamıyor, bunun için NER lazım.
 
@@ -135,7 +139,7 @@ user = user_message + "\n" + docs.wrap(page, source="web")
 | Tüm doküman | Ham metinde manipülasyon (tag karakterleri vb.), URL kontrolü. Kod kuralları dokümanlarda çalışmıyor: README'deki `pip install` ya da SQL örneği saldırı değil |
 | Uzunluk | 200.000 karakterin tamamı okunuyor (mesajlarda 8000); daha uzunu `input_length` ile review |
 
-`wrap()` spotlighting yapıyor ([Hines vd. 2024](https://arxiv.org/abs/2403.14720)): doküman `<<web 3f9a…>>` … `<</web 3f9a…>>` arasına giriyor ve kelimeler arasındaki boşluklar rastgele seçilen bir işaretle (`ˆ`, `¦`, `¤`, `‡`, `◊`) değişiyor. Okuyucunun göremediği kısımlar (HTML yorumları, `display:none` vb., `href` ve `src` dışındaki öznitelikler) varsayılan olarak modele hiç gitmiyor (`keep_hidden=True` ile kalıyor); bu, tespitten bağımsız olarak gizleme yolunu kapatıyor. Sınır her `DocumentGuard` için rastgele, dokümanın içinde geçerse siliniyor; yani doküman sahte bir kapanış etiketiyle "veri bitti, şimdi talimat" diyemiyor. `instructions` sistem promptuna eklenecek açıklama. Bunun modele etkisini ölçmedim (bir LLM gerektiriyor). Makale GPT-3.5 ve GPT-4 ile saldırı başarısının belirgin düştüğünü raporluyor; küçük modellerde işe yaramayabilir.
+`wrap()` spotlighting yapıyor ([Hines vd. 2024](https://arxiv.org/abs/2403.14720)): doküman `<<web 3f9a…>>` … `<</web 3f9a…>>` arasına giriyor ve kelimeler arasındaki boşluklar rastgele seçilen bir işaretle (`ˆ`, `¦`, `¤`, `‡`, `◊`) değişiyor. Okuyucunun göremediği kısımlar (HTML yorumları, `display:none` vb., `href` ve `src` dışındaki öznitelikler) varsayılan olarak modele hiç gitmiyor (`keep_hidden=True` ile kalıyor); bu, tespitten bağımsız olarak gizleme yolunu kapatıyor. Dokümandaki kişisel veri mesajdaki gibi maskeleniyor (`keep_personal_data=True` ile kalıyor); `TenantGuardrail` kiracının `[masking]` ayarını kullanıyor. Sınır her `DocumentGuard` için rastgele, dokümanın içinde geçerse siliniyor; yani doküman sahte bir kapanış etiketiyle "veri bitti, şimdi talimat" diyemiyor. `instructions` sistem promptuna eklenecek açıklama. Bunun modele etkisini ölçmedim (bir LLM gerektiriyor). Makale GPT-3.5 ve GPT-4 ile saldırı başarısının belirgin düştüğünü raporluyor; küçük modellerde işe yaramayabilir.
 
 ### Ölçüm
 
