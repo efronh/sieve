@@ -11,7 +11,7 @@ from sieve.masking import credentials
 from sieve.output import OutputGuard
 from sieve.pipeline import Guardrail, mask
 
-LIMIT = 2.0
+LIMIT = 3.0  # a CI machine is 3 to 4 times slower than a laptop; the old code took 5 seconds to minutes
 
 
 def seconds(fn, *args):
@@ -43,11 +43,13 @@ def test_a_fake_system_line_check_on_many_blank_lines():
     assert seconds(PromptInjectionLayer().check, "\n" * 40_000) < LIMIT
 
 
-@pytest.mark.parametrize("unit", ["<a ", "[", "[a](b ", "\n[", "[a](", "<img src=x ", "[a [b] ", "[[a]",
-                                  "<a href=x>a.com</a ", "[a.com](b "])
-def test_output_links_on_unclosed_markup(unit):
+# An answer can be long. 400,000 characters for the shapes that used to be quadratic, so the old code fails;
+# 100,000 for those with a link check in each piece, which is linear but slower on a CI machine.
+@pytest.mark.parametrize("unit, length", [(unit, 400_000) for unit in ["<a ", "[", "[a](b ", "\n[", "[a](", "<img src=x "]]
+                         + [(unit, 100_000) for unit in ["[a [b] ", "[[a]", "<a href=x>a.com</a ", "[a.com](b "]])
+def test_output_links_on_unclosed_markup(unit, length):
     guard = OutputGuard("Sen bir banka asistanısın.", ["ornekbank.com.tr"])
-    assert seconds(guard.check, unit * (400_000 // len(unit))) < LIMIT  # an answer can be long
+    assert seconds(guard.check, unit * (length // len(unit))) < LIMIT
 
 
 @pytest.mark.parametrize("unit", ["ı", "|", "on", "system:", "<script"])

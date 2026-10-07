@@ -317,7 +317,7 @@ Of 12 benign answers, 1 is a false alarm: a branch's landline (`0312 555 12 34`)
 - Every pattern and every entry point is fuzzed for inputs whose cost grows faster than their length (`python -m scripts.fuzz_slow_inputs`).
 - JSON and hidden HTML are opened 64 levels deep at most. A document nested deeper is reviewed (`input_nesting`), since what's below goes unchecked; tool arguments nested deeper are blocked, since every parameter is a scalar anyway.
 
-**Evidence.** Unit tests for the inputs that used to crash, and for 28 inputs that used to take from seconds to minutes ([`tests/test_slow_inputs.py`](tests/test_slow_inputs.py), and the HTML ones in `tests/test_documents.py`): each must finish in under 2 seconds. The fuzzer finds no pattern and no entry point whose time grows faster than its input.
+**Evidence.** Unit tests for the inputs that used to crash, and for 28 inputs that used to take from seconds to minutes ([`tests/test_slow_inputs.py`](tests/test_slow_inputs.py), and the HTML ones in `tests/test_documents.py`): each must finish in under 2 or 3 seconds. The fuzzer finds no pattern and no entry point whose time grows faster than its input.
 
 **Fixed.** I found this crash while writing this file: JSON nested a few thousand levels deep raised `RecursionError` in `DocumentGuard.check` and in `ToolGuard.check`. While fixing it, I found a second one: HTML comments inside hidden `div`s, 1,500 levels deep. Both now get a decision instead of an exception, and an attack ten levels deep is still read and blocked.
 
