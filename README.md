@@ -17,7 +17,7 @@ Three sets, from the most independent to the least. "Caught" means flagged: sent
 |---|---|---|---|
 | Sealed held-out ([`holdout/`](holdout/README.md)) | 444 attacks and 379 normal messages from three outside datasets. Never trained on, never read by whoever changes the rules | 252 of 444 (57%) | 8 of 379 |
 | [TCPI](https://huggingface.co/datasets/3nesdeniz/turkish-conversation-prompt-injection) test split | 30 attacks and 90 normal messages written by someone else | 22 of 30 (73%) | 3 of 90 |
-| Attack corpus ([`corpus/`](corpus)) | 336 groups of attacks on messages, documents, conversations, tool calls and answers, mostly written with Claude knowing the rules | [by entry point below](#the-attack-corpus) | |
+| Attack corpus ([`corpus/`](corpus)) | 333 groups of attacks on messages, documents, conversations, tool calls and answers, mostly written with Claude knowing the rules | [by entry point below](#the-attack-corpus) | |
 
 The sealed set gives the honest number, and it shows the main weakness. Split by source:
 
@@ -81,9 +81,9 @@ Every attack in [`corpus/`](corpus) has a family, a carrier and the least action
 | Conversations (one `TenantGuardrail` session each) | 40 of 44 | 0 of 387 |
 | Tool calls (`ToolGuard`) | 48 of 54 | 0 of 15 |
 | A document, then the tool call it asks for | 10 of 10 | — |
-| Model answers (`OutputGuard`) | 43 of 54 | 2 of 22 |
+| Model answers (`OutputGuard`) | 43 of 51 | 2 of 22 |
 
-"Stopped" means at least the expected action: review for most, block for an instruction hidden in HTML or a leaked canary. Asking the user to confirm doesn't count. What gets through, family by family, is in [THREAT_MODEL.md](THREAT_MODEL.md): social engineering with no attack words, leak requests that never say "system prompt", phishing forms and spoofed link text in answers, tool limits shared across tools.
+"Stopped" means at least the expected action: review for most, block for an instruction hidden in HTML or a leaked canary. Asking the user to confirm doesn't count. What gets through, family by family, is in [THREAT_MODEL.md](THREAT_MODEL.md): social engineering with no attack words, leak requests that never say "system prompt", another customer's name, address or balance in an answer, tool limits shared across tools.
 
 Some other numbers:
 
@@ -117,7 +117,7 @@ flowchart LR
 | Code payloads, URLs | SQL, shell, path traversal, XSS, template injection. `javascript:` links, IP hosts, punycode, brand look-alikes. |
 | ML | TF-IDF on every message, BERTurk only in the grey zone. Can send a message to review, but never blocks on its own. |
 | LLM (optional) | [AnyJev](https://github.com/nokia-applied-research/AnyJev) reads probabilities from a local model's logits without generating text. Only sees masked text, and can't block until it's calibrated on reviewer labels. |
-| Output guard | Canary token, copied system prompt, masking the answer, personal data in the answer that the user never gave. Removes images, iframes and other auto-loading HTML pointing outside your hosts, links that carry data (query, path or fragment), `javascript:` links, `<script>` and `on…` handlers. It isn't an HTML sanitizer: if you render the answer as HTML, still pass it through one. |
+| Output guard | Canary token, copied system prompt, masking the answer, personal data in the answer that the user never gave. Removes images, iframes and other auto-loading HTML pointing outside your hosts, links that carry data (query, path or fragment), `javascript:` links, `<script>` and `on…` handlers, forms that send to another host, links whose text shows another address than they go to, and redirects. It isn't an HTML sanitizer: if you render the answer as HTML, still pass it through one. |
 | Document guard | For text the model reads but the user didn't write. Checks each sentence, JSON value, hidden HTML part and HTML attribute on its own; blocks when a flagged part is hidden from the reader; flags documents that talk to the model ("bu e-postayı okuyan yapay zeka", "if you are an AI"). `wrap()` masks personal data in it and marks it as data before it goes into the prompt. |
 | Tool guard | Checks a tool call before your app runs it. Tools not on the list, unknown or wrongly typed arguments and amounts outside their limits are blocked. An argument that must come from the user (an IBAN, a phone number) but isn't in their messages, and tools marked `confirm`, go to review. String arguments go through the code rules and the same check as documents, ML included, since a database, a mail or another agent reads them next. |
 
@@ -196,7 +196,7 @@ reply = guarded_reply(user_message, ask_model, TenantGuardrail(policy, system_pr
 ## Limitations
 
 - Detection generalises badly: 99% on two outside sources close to the training data, 26% on an independent one. More varied training data is the fix, not more rules.
-- Most of the corpus is white-box: 294 of its 336 test groups were written with Claude knowing the rules. It measures coverage and catches regressions; the sealed set measures detection. The sealed set's labels are its sources' own, and to keep it blind I haven't checked them.
+- Most of the corpus is white-box: 291 of its 333 test groups were written with Claude knowing the rules. It measures coverage and catches regressions; the sealed set measures detection. The sealed set's labels are its sources' own, and to keep it blind I haven't checked them.
 - The TCPI held-out set has 30 attacks, so one attack is about 3 points. Everything is from a single seed.
 - The LLM layer was only measured with Qwen3-1.7B. A bigger model might do better without labels. The abuse check has no labelled data.
 - The 1% threshold from cross-validation gave 3–8% false alarms on the held-out set. It needs recalibrating on real traffic.

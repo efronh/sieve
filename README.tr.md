@@ -17,7 +17,7 @@ En bağımsızdan en aza üç set. "Yakalanan", işaretlenen demek: review'a gö
 |---|---|---|---|
 | Mühürlü held-out ([`holdout/`](holdout/README.md)) | Üç dış veri setinden 444 saldırı ve 379 normal mesaj. Hiç eğitilmedi, kuralları değiştiren kimse okumadı | 444'te 252 (%57) | 379'da 8 |
 | [TCPI](https://huggingface.co/datasets/3nesdeniz/turkish-conversation-prompt-injection) test bölümü | Başkasının yazdığı 30 saldırı ve 90 normal mesaj | 30'da 22 (%73) | 90'da 3 |
-| Saldırı korpusu ([`corpus/`](corpus)) | Mesaj, doküman, konuşma, tool çağrısı ve cevaplara karşı 336 saldırı grubu; çoğu kurallar bilinerek Claude ile yazıldı | [aşağıda giriş noktasına göre](#saldırı-korpusu) | |
+| Saldırı korpusu ([`corpus/`](corpus)) | Mesaj, doküman, konuşma, tool çağrısı ve cevaplara karşı 333 saldırı grubu; çoğu kurallar bilinerek Claude ile yazıldı | [aşağıda giriş noktasına göre](#saldırı-korpusu) | |
 
 Dürüst sayıyı mühürlü set veriyor ve asıl zayıflığı gösteriyor. Kaynağa göre:
 
@@ -81,9 +81,9 @@ ML'in mesaj olarak işaretlediği saldırılar (30'da 22), 1.000 karakterlik bir
 | Konuşmalar (her biri bir `TenantGuardrail` oturumu) | 44'te 40 | 387'de 0 |
 | Tool çağrıları (`ToolGuard`) | 54'te 48 | 15'te 0 |
 | Bir doküman, sonra istediği tool çağrısı | 10'da 10 | — |
-| Model cevapları (`OutputGuard`) | 54'te 43 | 22'de 2 |
+| Model cevapları (`OutputGuard`) | 51'de 43 | 22'de 2 |
 
-"Durdurulan", en az beklenen karar demek: çoğu için review, HTML'e gizlenmiş bir talimat ya da sızan canary için block. Kullanıcıdan onay istemek sayılmıyor. Ailelere göre neyin geçtiği [THREAT_MODEL.md](THREAT_MODEL.md)'de: saldırı kelimesi içermeyen sosyal mühendislik, "sistem promptu" demeyen sızdırma istekleri, cevaplarda oltalama formu ve sahte link metni, tool'lar arasında ortak olmayan limitler.
+"Durdurulan", en az beklenen karar demek: çoğu için review, HTML'e gizlenmiş bir talimat ya da sızan canary için block. Kullanıcıdan onay istemek sayılmıyor. Ailelere göre neyin geçtiği [THREAT_MODEL.md](THREAT_MODEL.md)'de: saldırı kelimesi içermeyen sosyal mühendislik, "sistem promptu" demeyen sızdırma istekleri, cevapta başka bir müşterinin adı, adresi ya da bakiyesi, tool'lar arasında ortak olmayan limitler.
 
 Diğer sonuçlar:
 
@@ -117,7 +117,7 @@ flowchart LR
 | Kod, URL | SQL, shell, path traversal, XSS, template injection. `javascript:` linkleri, IP adresli host, punycode, marka taklidi. |
 | ML | TF-IDF her mesajda, BERTurk sadece gri bölgede. Mesajı review'a gönderebiliyor, tek başına engellemiyor. |
 | LLM (opsiyonel) | [AnyJev](https://github.com/nokia-applied-research/AnyJev), yerel bir modelin logit'lerinden metin üretmeden olasılık okuyor. Sadece maskelenmiş metni görüyor; reviewer etiketleriyle kalibre edilene kadar engelleyemiyor. |
-| Çıkış kontrolü | Canary, sistem promptunun kopyalanması, cevabın maskelenmesi, cevapta kullanıcının vermediği kişisel veri. İzinli hostlarınız dışına giden resim, iframe ve kendiliğinden yüklenen diğer HTML'i, veri taşıyan linkleri (query, path ya da fragment), `javascript:` linklerini, `<script>` ve `on…` handler'larını kaldırıyor. Bir HTML sanitizer değil: Cevabı HTML olarak gösteriyorsanız yine bir sanitizer'dan geçirin. |
+| Çıkış kontrolü | Canary, sistem promptunun kopyalanması, cevabın maskelenmesi, cevapta kullanıcının vermediği kişisel veri. İzinli hostlarınız dışına giden resim, iframe ve kendiliğinden yüklenen diğer HTML'i, veri taşıyan linkleri (query, path ya da fragment), `javascript:` linklerini, `<script>` ve `on…` handler'larını, başka hosta gönderen formları, gittiği adresten başka bir adres gösteren linkleri ve yönlendirmeleri kaldırıyor. Bir HTML sanitizer değil: Cevabı HTML olarak gösteriyorsanız yine bir sanitizer'dan geçirin. |
 | Doküman kontrolü | Modelin okuduğu ama kullanıcının yazmadığı metinler için. Her cümleyi, JSON değerini, gizli HTML parçasını ve HTML özniteliğini ayrı kontrol ediyor; işaretlenen parça okuyucudan gizlenmişse dokümanı engelliyor; modele hitap eden dokümanları ("bu e-postayı okuyan yapay zeka", "if you are an AI") işaretliyor. `wrap()` dokümandaki kişisel veriyi maskeliyor ve onu prompta girmeden önce veri olarak işaretliyor. |
 | Tool kontrolü | Uygulamanız bir tool çağrısını çalıştırmadan önce bakıyor. Listede olmayan tool, bilinmeyen ya da yanlış tipte argüman ve limit dışı tutar engelleniyor. Kullanıcıdan gelmesi gereken (IBAN, telefon) ama mesajlarında olmayan bir argüman ve `confirm` işaretli tool'lar review'a gidiyor. String argümanlar kod kurallarından ve dokümanlarla aynı kontrolden (ML dahil) geçiyor, çünkü onları sonra bir veritabanı, bir e-posta ya da başka bir ajan okuyor. |
 
@@ -196,7 +196,7 @@ reply = guarded_reply(user_message, ask_model, TenantGuardrail(policy, system_pr
 ## Sınırlar
 
 - Tespit iyi genellemiyor: eğitim verisine yakın iki dış kaynakta %99, bağımsız birinde %26. Çözüm daha fazla kural değil, daha çeşitli eğitim verisi.
-- Korpusun çoğu white-box: 336 test grubunun 294'ü kurallar bilinerek Claude ile yazıldı. Kapsamı ölçüyor ve regresyonu yakalıyor; tespiti mühürlü set ölçüyor. Mühürlü setin etiketleri kaynaklarının kendi etiketleri; kör kalmak için kontrol etmedim.
+- Korpusun çoğu white-box: 333 test grubunun 291'i kurallar bilinerek Claude ile yazıldı. Kapsamı ölçüyor ve regresyonu yakalıyor; tespiti mühürlü set ölçüyor. Mühürlü setin etiketleri kaynaklarının kendi etiketleri; kör kalmak için kontrol etmedim.
 - TCPI test setinde 30 saldırı var, yani bir saldırı yaklaşık 3 puan. Her şey tek seed ile.
 - LLM katmanını sadece Qwen3-1.7B ile ölçtüm. Daha büyük bir model etiketsiz de daha iyi olabilir. Hakaret kontrolünün etiketli verisi yok.
 - Çapraz doğrulamadaki %1 eşik test setinde %3-8 yanlış alarm verdi. Gerçek trafikte yeniden ayarlanması gerekir.

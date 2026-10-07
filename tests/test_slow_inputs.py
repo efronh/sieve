@@ -43,7 +43,8 @@ def test_a_fake_system_line_check_on_many_blank_lines():
     assert seconds(PromptInjectionLayer().check, "\n" * 40_000) < LIMIT
 
 
-@pytest.mark.parametrize("unit", ["<a ", "[", "[a](b ", "\n[", "[a](", "<img src=x "])
+@pytest.mark.parametrize("unit", ["<a ", "[", "[a](b ", "\n[", "[a](", "<img src=x ", "[a [b] ", "[[a]",
+                                  "<a href=x>a.com</a ", "[a.com](b "])
 def test_output_links_on_unclosed_markup(unit):
     guard = OutputGuard("Sen bir banka asistanısın.", ["ornekbank.com.tr"])
     assert seconds(guard.check, unit * (400_000 // len(unit))) < LIMIT  # an answer can be long

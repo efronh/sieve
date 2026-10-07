@@ -21,14 +21,23 @@ LEAK_BLOCK_SHINGLES = 3
 MIN_DATA_LENGTH = 16
 
 LINK_TARGET = r"\(\s*<?((?:[^()\s>]|\([^()\s]*\))+)>?[^)]*\)"
-# A label stops at the next "[": the link that matched before still matches from its last "[", and a run of
-# "[" no longer rescans the rest of the answer from each one. Neither pattern ever matched nested brackets.
-MD_IMAGE = re.compile(r"!\[([^\[\]]*)\]" + LINK_TARGET)
-MD_LINK = re.compile(r"(?<!!)\[([^\[\]]*)\]" + LINK_TARGET)
+# A label may hold one level of brackets, as Markdown allows: "![a [b] c](url)" is an image, and it went
+# through as plain text. Possessive, so a run of "[" doesn't rescan the rest of the answer from each one.
+LABEL = r"\[((?:[^\[\]]|\[[^\[\]]*+\])*+)\]"
+MD_IMAGE = re.compile(r"!" + LABEL + LINK_TARGET)
+MD_LINK = re.compile(r"(?<!!)" + LABEL + LINK_TARGET)
 # A reference starts on its own line (blank lines before it no longer count as part of it, so they stay when
 # it's removed), and its label is at most 999 characters, as in CommonMark.
 MD_REFERENCE = re.compile(r"^[^\S\n]*\[[^\]]{1,999}\]:\s*(\S+).*$", re.MULTILINE)
 HTML_TAG = re.compile(r"<[a-zA-Z][^>]*>")
+# An <a> with plain text in it, for comparing the address it shows with the one it goes to.
+HTML_LINK = re.compile(r"<a\b[^<>]*>(?P<text>[^<]*)</a\s*>", re.IGNORECASE)
+# What reads as an address in a link's text: a scheme, "www." or a common top-level domain. "today.xml" and
+# "rapor.pdf" don't.
+SHOWN_ADDRESS = re.compile(r"(?<![\w.-])(?:https?://)?[\w-]++(?:\.[\w-]++)+", re.IGNORECASE)
+TOP_LEVEL = {"com", "net", "org", "tr", "info", "biz", "io", "co", "app", "xyz", "online", "site", "shop", "link", "me",
+             "gov", "edu"}
+REFRESH_URL = re.compile(r"url\s*=\s*['\"]?([^'\"\s;]+)", re.IGNORECASE)
 HTML_SCRIPT = re.compile(r"<script\b.*?(?:</script\s*>|$)", re.IGNORECASE | re.DOTALL)
 # Attributes the browser fetches on its own, without a click (<link href> too, see loaded_urls).
 LOADING_ATTRS = {"src", "srcset", "data", "poster", "background"}
@@ -65,6 +74,23 @@ def host_of(url):
 
 def is_dangerous(url):
     return bool(DANGEROUS_SCHEME.search(URL_IGNORED_CHARS.sub("", url)))
+
+
+def shown_hosts(text):
+    hosts = []
+    for m in SHOWN_ADDRESS.finditer(text):
+        token = m.group(0).lower()
+        host = token.split("://", 1)[-1]
+        if "://" in token or host.startswith("www.") or host.rsplit(".", 1)[-1] in TOP_LEVEL:
+            hosts.append(host.removeprefix("www."))
+    return hosts
+
+
+# "[https://www.ornekbank.com.tr/giris](https://ornekbank-giris.net/login)": the text shows one address and the
+# link goes to another. A subdomain of the address shown is the same site.
+def misleading(text, url):
+    target = host_of(url).removeprefix("www.")
+    return bool(target) and any(target != h and not target.endswith("." + h) for h in shown_hosts(text))
 
 
 # The fragment never reaches the server, but the page it opens can read it and send it on.
@@ -213,7 +239,17 @@ class OutputGuard:
             findings.append(("dangerous_html", REVIEW))
             return ""
 
-        # Only what can run code or send data is touched; rendering HTML safely is still the app's sanitizer's job.
+        # The text is left; the address it pretends to be is where a click on it would go anyway.
+        def html_link(m):
+            tag, attrs = read_tag(m.group(0))
+            href = dict(attrs).get("href", "")
+            if tag == "a" and href and not is_dangerous(href) and not self.is_allowed(href) and misleading(m.group("text"), href):
+                findings.append(("misleading_link", REVIEW))
+                return m.group("text")
+            return m.group(0)
+
+        # Only what can run code, send data or take the user elsewhere is touched; rendering HTML safely is still
+        # the app's sanitizer's job.
         def html_tag(m):
             tag, attrs = read_tag(m.group(0))
             if tag is None:
@@ -221,6 +257,19 @@ class OutputGuard:
             urls = [value for name, value in attrs if name in CLICK_ATTRS or name in LOADING_ATTRS]
             if any(name.startswith("on") for name, _ in attrs) or any(is_dangerous(u) for u in loaded_urls(tag, attrs) + urls):
                 findings.append(("dangerous_html", REVIEW))
+                return ""
+            values = dict(attrs)
+            # A form whose answers go somewhere else: "Kartınızı doğrulayın" with a card and a password field.
+            # Without it, the fields send nothing anywhere.
+            sends_to = [v for name, v in attrs if name in ("action", "formaction")]
+            if any(host_of(u) and not self.is_allowed(u) for u in sends_to):
+                findings.append(("external_form", REVIEW))
+                return ""
+            # A page that moves on by itself, or one that makes every relative link on the page go somewhere else.
+            refresh = REFRESH_URL.search(values.get("content", "")) if values.get("http-equiv", "").lower() == "refresh" else None
+            goes_to = [refresh.group(1)] if tag == "meta" and refresh else [values.get("href", "")] if tag == "base" else []
+            if any(u and (is_dangerous(u) or not self.is_allowed(u)) for u in goes_to):
+                findings.append(("redirect", REVIEW))
                 return ""
             blocked = [u for u in loaded_urls(tag, attrs) if not self.is_allowed(u)]
             if blocked:
@@ -242,6 +291,9 @@ class OutputGuard:
             if not self.is_allowed(url) and carries_data(url):
                 findings.append(("link_with_data", REVIEW))
                 return label
+            if not self.is_allowed(url) and misleading(label, url):
+                findings.append(("misleading_link", REVIEW))
+                return label
             return m.group(0)
 
         def reference(m):
@@ -253,6 +305,7 @@ class OutputGuard:
 
         answer = before_last(MD_IMAGE, md_image, answer, ")")
         answer = HTML_SCRIPT.sub(script, answer)
+        answer = before_last(HTML_LINK, html_link, answer, ">")
         answer = before_last(HTML_TAG, html_tag, answer, ">")
         answer = before_last(MD_LINK, md_link, answer, ")")
         answer = MD_REFERENCE.sub(reference, answer)

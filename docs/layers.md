@@ -64,6 +64,7 @@ if r.action != "block":
 | Canary | Sistem promptuna gizlenen rastgele kod cevapta geçiyorsa (büyük harf, boşluklu, ters, base64/hex dahil) | block, cevap `SAFE_REPLY` ile değişiyor |
 | Prompt kopyası | Cevap sistem promptundan 5 kelimelik parçaları aynen tekrarlıyorsa: 1 parça review, 3 ve üstü block | review / block |
 | Markdown sızdırma | İzinli olmayan hostlardaki resimler kaldırılıyor; veri taşıyan resim/link/referanslar ve `javascript:` linkleri temizleniyor. Veri taşıyan: 16 karakterden uzun bir değer, `[IBAN]` gibi bir yer tutucu ya da maskeleme katmanlarının yolda, query'de (anahtar ve değer birlikte, yani `cvv=123`) veya alt alan adında bulduğu kişisel veri (11 haneli TC, telefon) | review |
+| Başka yere götüren içerik | İzinli olmayan hosta gönderen form (`action`, butonda `formaction`) etiketini kaybediyor, alanları hiçbir yere gitmiyor. Metni adres gibi okunan (şema, `www.` ya da bilinen bir TLD) ve izinli olmayan başka bir hosta giden link metnine dönüşüyor; metindeki adres zaten tıklanınca gidilecek yer. Dışarıya giden `<meta http-equiv="refresh">` ve `<base href>` kaldırılıyor. Link ve resim metninde bir seviye köşeli parantez okunuyor (`![a [b] c](…)`) | review |
 | Cevap maskeleme | Girişteki bütün maskeleme cevaba da uygulanıyor | allow (metin maskeli) |
 | Yeni kişisel veri | `user_data` verildiyse: cevaptaki TC, IBAN, telefon, kart vb. bu metinlerde yoksa başka bir müşterinin verisi olabilir. Numaralar rakamlarıyla karşılaştırılıyor (`0532…`, `+90 532…` ve `sıfır beş üç…` aynı numara). | review |
 

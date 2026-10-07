@@ -294,13 +294,13 @@ Of 12 benign answers, 1 is a false alarm: a branch's landline (`0312 555 12 34`)
 
 ### TH-10 Active content in the answer
 
-**Attack.** The answer carries `<script>`, an `onerror=` handler, or a `javascript:` link, aimed at the app's UI.
+**Attack.** The answer carries `<script>`, an `onerror=` handler, or a `javascript:` link, aimed at the app's UI; or something that takes the user elsewhere: a form that posts their card to another host, a link whose text shows the bank's address, a redirect.
 
-**Controls.** `OutputGuard` removes scripts, event handlers and `javascript:`/`vbscript:`/`data:` URLs, after decoding entities and ignoring the control characters browsers skip. Each one goes to review. On input, [`checks/code_payloads.py`](sieve/checks/code_payloads.py) catches SQL, shell, path traversal, XSS and template payloads in messages and tool arguments.
+**Controls.** `OutputGuard` removes scripts, event handlers and `javascript:`/`vbscript:`/`data:` URLs, after decoding entities and ignoring the control characters browsers skip. A form that sends to a host outside the allowed ones (`action`, or `formaction` on a button) loses its tag, so its fields send nothing. A link whose text reads as an address (a scheme, `www.` or a common top-level domain) and goes to another host outside the allowed ones becomes its text, which is where a click would have gone anyway. A `<meta http-equiv="refresh">` or `<base href>` pointing outside is removed. Link and image text may hold one level of brackets, as Markdown allows. Each of these goes to review. On input, [`checks/code_payloads.py`](sieve/checks/code_payloads.py) catches SQL, shell, path traversal, XSS and template payloads in messages and tool arguments.
 
-**Evidence.** The OUT-ACTIVE family of the corpus: 13 answers, 10 reviewed with the active part removed. They cover a script tag, `onerror` and `onload` handlers, `javascript:`, `vbscript:` and `data:` links, `javascript:` hidden in entities or split by a tab, and an `iframe` and an `object` loading `javascript:`. What passes: a phishing form that posts to another host, a link whose text shows the bank's address but points elsewhere, and a `<meta http-equiv="refresh">`.
+**Evidence.** The OUT-ACTIVE family of the corpus: 10 test answers, all reviewed with the active part removed. They cover a script tag, `onerror` and `onload` handlers, `javascript:`, `vbscript:` and `data:` links, `javascript:` hidden in entities or split by a tab, and an `iframe` and an `object` loading `javascript:`. The three that passed (a phishing form posting to another host, a link whose text showed the bank's address, a meta refresh) are dev now, since the checks for them were written after them. Seven more written with the checks are dev and reviewed: a button's `formaction`, an HTML link showing the bank's address, a host that starts with it (`ornekbank.com.tr.hesap-dogrula.net`), a `<base>`, a meta refresh in capitals, a `javascript:` link and an image whose text has brackets. Six benign answers written with them pass: a form to the bank's own address, link text that is the link's own address, a file name, or the site the link is on, a charset meta tag, bracketed link text.
 
-**Residual risk.** Not a sanitizer: CSS, SVG, iframes from allowed hosts and renderer quirks are the app's job. Forms, meta refresh and link text that doesn't match the link aren't checked. An image or link whose text has brackets in it (`![a [b] c](…)`) isn't recognised: one carrying data is still flagged as a plain URL, but an outside image without data stays in the answer.
+**Residual risk.** Not a sanitizer: CSS, SVG, iframes from allowed hosts and renderer quirks are the app's job. A misleading link is caught only when its text reads as an address: "Örnek Bank giriş" pointing elsewhere passes, as does a look-alike domain shown as itself (`ornekbank-giris.net` in the text and the link). A form with no `action` posts to the app's own page and isn't touched, and a form posting to an allowed host can still ask for a card number. Two levels of brackets in link text aren't read.
 
 ### TH-11 Resource exhaustion
 
@@ -509,9 +509,9 @@ The corpus is mostly white-box, so detection is judged on [`holdout/`](holdout/R
 | Benign model answers | 12 | — | `BEN`, carrier `model_answer`: the user's own data in another format, the bank's phone numbers, numbers that only look like data |
 | Prompt-injection attacks written with Claude | 69 | 69 | `PI-OVR`, `PI-ROLE`, `PI-AUTH`, `PI-SOC`, `PI-ACT`, `PI-LEAK`, to 15 groups each; written knowing the rules, so white-box. None is a near copy of the training data |
 | Benign banking messages that share words with attacks | 15 | — | `BEN`: "önceki talimatımı unutun", "sistem mesajı", "rol yapma oyunu"; none is in the training data |
-| Output attacks written by me | 41 | 40 | `EXF-LINK`, `EXF-LEAK`, `OUT-ACTIVE`, carrier `model_answer`; after reading `output.py`, so white-box |
-| Benign answers with links, HTML or attack-like words | 10 | — | `BEN`, carrier `model_answer` |
+| Output attacks written by me | 48 | 37 | `EXF-LINK`, `EXF-LEAK`, `OUT-ACTIVE`, carrier `model_answer`; after reading `output.py`, so white-box. 10 are dev: 3 showed that forms, misleading links and redirects weren't checked, 7 were written with those checks |
+| Benign answers with links, HTML or attack-like words | 16 | — | `BEN`, carrier `model_answer`; 6 written with the form, link and redirect checks are dev |
 
 Personal data isn't in this corpus: the labelled set for masking is [`corpus/pii/`](corpus/pii) ([TH-08](#th-08-personal-data-leaving-in-prompts-or-logs)).
 
-Today there are 336 independent test groups: 187 for messages and documents, 44 for conversations, 53 for tools (43 single-call, 10 chains), and 52 for model answers. Every family has at least its minimum.
+Today there are 333 independent test groups: 187 for messages and documents, 44 for conversations, 53 for tools (43 single-call, 10 chains), and 49 for model answers. Every family has at least its minimum.

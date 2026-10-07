@@ -91,6 +91,9 @@ RULES = {
     "output_links.dangerous_html": Rule(OUT, 7, "Script, event handler or dangerous link in answer HTML"),
     "output_links.embed_with_data": Rule(SID, 8, "Embedded content URL carrying data"),
     "output_links.external_embed": Rule(None, 2, "External embedded content removed"),
+    "output_links.external_form": Rule(OUT, 8, "Form in the answer that sends to an outside address"),
+    "output_links.misleading_link": Rule(OUT, 8, "Link text shows another address than the link goes to"),
+    "output_links.redirect": Rule(OUT, 8, "Redirect or base address in the answer"),
     "output_masking.personal_data_masked": Rule(SID, 3, "Personal data masked in the answer"),
     "output_masking.new_personal_data": Rule(SID, 7, "Answer has personal data the user didn't give"),
 
