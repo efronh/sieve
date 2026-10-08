@@ -17,6 +17,7 @@ from sieve.output import OUTPUT_CHECKS, SAFE_REPLY, OutputGuard, OutputResult
 from sieve.paths import POLICIES
 from sieve.pipeline import LAYERS, Guardrail, GuardrailResult, default_check_layers, mask
 from sieve.rules import RULES, rule_ids
+from sieve.timing import add, since
 from sieve.tools import CHECK as TOOL_CHECK
 from sieve.tools import ToolGuard, ToolResult, spec_problems
 
@@ -316,15 +317,17 @@ class TenantGuardrail:
     def run_output(self, answer, user_data=None, session_id=None, user_id=None):
         start = time.perf_counter()
         result = self.output.check(answer, user_data)
+        timings, policy_start = dict(result.timings), time.perf_counter()
         found = [f for f in result.findings if self.policy.layers.get(f.check) != "off"]
         findings, action, would_action = self.decide(found)
+        timings["policy"] = since(policy_start)
         text = SAFE_REPLY if action == BLOCK or result.answer == SAFE_REPLY else result.answer
 
         if would_action != ALLOW or self.policy.log_allowed:
             logged = GuardrailResult(result.answer, action, findings)
             emit(to_event(logged, would_action, self.policy, original=answer, session_id=session_id, user_id=user_id,
-                          direction="output", latency_ms=(time.perf_counter() - start) * 1000))
-        return OutputResult(text, action, findings, answer=result.answer)
+                          direction="output", latency_ms=since(start), timings=timings))
+        return OutputResult(text, action, findings, answer=result.answer, timings=timings)
 
     def check(self, text, session_id=None, user_id=None, direction="input"):
         try:
@@ -338,48 +341,60 @@ class TenantGuardrail:
         # Totals (max_total, max_calls) count per user, like the session limits.
         who = user_id if user_id is not None else session_id
         result = self.tools.check(name, args, user_data, user_id=who)
+        timings, policy_start = dict(result.timings), time.perf_counter()
         found = [f for f in result.findings if self.policy.layers.get(f.check) != "off"]
         findings, action, would_action = self.decide(found)
+        timings["policy"] = since(policy_start)
 
         if would_action != ALLOW or self.policy.log_allowed:
             call = f"{name} {json.dumps(args, ensure_ascii=False, sort_keys=True, default=str)}"
             logged = GuardrailResult(mask(call, self.guard.masking_layers), action, findings)
             emit(to_event(logged, would_action, self.policy, original=call, session_id=session_id, user_id=user_id,
-                          direction="tool", latency_ms=(time.perf_counter() - start) * 1000))
-        return ToolResult(action, findings, result.reasons)
+                          direction="tool", latency_ms=since(start), timings=timings))
+        return ToolResult(action, findings, result.reasons, timings)
 
     # A document the model will read (retrieved page, e-mail, tool result); see documents.py.
     def run_document(self, text, session_id=None, user_id=None):
         start = time.perf_counter()
         result = self.documents.check(text)
+        timings, policy_start = dict(result.timings), time.perf_counter()
         found = [f for f in result.findings if self.policy.layers.get(f.check) != "off"]
         findings, action, would_action = self.decide(found)
+        timings["policy"] = since(policy_start)
 
         if would_action != ALLOW or self.policy.log_allowed:
             logged = GuardrailResult(mask(text, self.guard.masking_layers), action, findings)
             emit(to_event(logged, would_action, self.policy, original=text, session_id=session_id, user_id=user_id,
-                          direction="document", latency_ms=(time.perf_counter() - start) * 1000))
-        return DocumentResult(action, findings, result.flagged_parts)
+                          direction="document", latency_ms=since(start), timings=timings))
+        return DocumentResult(action, findings, result.flagged_parts, timings)
 
     def run(self, text, session_id=None, user_id=None, direction="input"):
         start = time.perf_counter()
         who = user_id if user_id is not None else session_id
         track = self.session_on and direction == "input" and who is not None
 
-        session_findings = []
+        session_findings, session_timing = [], {}
+        session_start = time.perf_counter()
         if track:
             names = self.rate.hit(who, len(text))
             if self.limiter.is_limited(who):
                 names.append("repeat_offender")
             if names:
                 session_findings.append(Finding("session", 1.0, BLOCK, names))
+        add(session_timing, "session", session_start)
 
         result = self.guard.check(text)
+        timings = dict(result.timings)
+        session_start = time.perf_counter()
         if track and session_id is not None:
             session_findings += self.split_attack(session_id, result)
+        add(session_timing, "session", session_start)
 
+        policy_start = time.perf_counter()
         findings, action, would_action = self.decide(list(result.findings) + session_findings)
+        timings["policy"] = since(policy_start)
 
+        session_start = time.perf_counter()
         if track:
             # Monitor mode still counts what would have been flagged; session findings themselves don't.
             self.limiter.record(who, worst_action([f for f in findings if f.check not in SESSION_CHECKS]))
@@ -387,10 +402,13 @@ class TenantGuardrail:
                 # A reported split counts as seen, so the next messages don't report the same pair again.
                 reported = {m for f in session_findings if f.check == "session_split" for m in f.matches}
                 self.conversation.add(session_id, result.text, self.local_rules(result.findings) | reported)
+        add(session_timing, "session", session_start)
+        if track:
+            timings.update(session_timing)
 
-        result = GuardrailResult(result.text, action, findings)
+        result = GuardrailResult(result.text, action, findings, timings=timings)
 
         if would_action != ALLOW or self.policy.log_allowed:
             emit(to_event(result, would_action, self.policy, original=text, session_id=session_id, user_id=user_id,
-                          direction=direction, latency_ms=(time.perf_counter() - start) * 1000))
+                          direction=direction, latency_ms=since(start), timings=timings))
         return result

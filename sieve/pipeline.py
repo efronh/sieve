@@ -1,6 +1,7 @@
 import copy
 import hashlib
 import re
+import time
 import unicodedata
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -19,6 +20,7 @@ from sieve.masking.phone import PhoneMaskingLayer
 from sieve.masking.tc import TCMaskingLayer
 from sieve.masking.vkn import VKNMaskingLayer
 from sieve.ml.injection import MLInjectionLayer, warn_without_ml
+from sieve.timing import add, since
 
 INVISIBLE_CHARS = re.compile(
     r"[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff\u00ad\ufe00-\ufe0f\U000e0100-\U000e01ef]"
@@ -109,6 +111,7 @@ class GuardrailResult:
     action: str
     findings: list = field(default_factory=list)
     llm_called: bool = False
+    timings: dict = field(default_factory=dict)  # ms per stage: masking, each check layer by name, llm
 
 
 def head_and_tail(text, limit=LLM_MAX_CHARS):
@@ -142,10 +145,13 @@ class Guardrail:
         self.cache = OrderedDict()
 
     def check(self, text):
+        start = time.perf_counter()
         key = hashlib.sha256(text.encode("utf-8")).hexdigest()
         if key in self.cache:
             self.cache.move_to_end(key)
-            return copy.deepcopy(self.cache[key])  # a copy, so a caller editing findings can't change the cache
+            result = copy.deepcopy(self.cache[key])  # a copy, so a caller editing findings can't change the cache
+            result.timings = {"cache": since(start)}
+            return result
 
         result = self.run(text)
         if self.cache_size and not failed(result.findings):  # a failed check may work on the next try
@@ -155,12 +161,15 @@ class Guardrail:
         return result
 
     def run(self, text):
+        timings = {}
+        start = time.perf_counter()
         try:
             cleaned = clean(text)
             masked = mask(cleaned, self.masking_layers)
         except Exception as e:
             # Without masked text there's nothing safe to pass on to the model.
-            return GuardrailResult("", BLOCK, [error_finding("masking", e)])
+            return GuardrailResult("", BLOCK, [error_finding("masking", e)], timings={"masking": since(start)})
+        timings["masking"] = since(start)
 
         findings = []
         if len(cleaned) > self.max_check_chars:
@@ -170,12 +179,15 @@ class Guardrail:
         # One layer failing doesn't stop the others, so the event still shows what they found.
         for layer in self.check_layers:
             source = text if getattr(layer, "needs_raw_text", False) else cleaned
+            start = time.perf_counter()
             try:
                 findings += layer.check(source[:self.max_check_chars])
             except Exception as e:
                 findings.append(error_finding(layer.name, e))
+            add(timings, layer.name, start)
         llm_called = False
         if self.llm_layer is not None and worst_action(findings) != BLOCK:
+            start = time.perf_counter()
             try:
                 skip = set() if needs_llm(findings, self.llm_min_ml) else set(getattr(self.llm_layer, "gated_checks", ()))
                 llm_findings = self.llm_layer.check(head_and_tail(masked, self.llm_max_chars), skip=skip)
@@ -183,8 +195,9 @@ class Guardrail:
                 findings += llm_findings
             except Exception as e:
                 findings.append(error_finding("llm", e))
+            timings["llm"] = since(start)
 
-        return GuardrailResult(masked, worst_action(findings), findings, llm_called)
+        return GuardrailResult(masked, worst_action(findings), findings, llm_called, timings)
 
 
 if __name__ == "__main__":

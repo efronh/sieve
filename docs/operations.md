@@ -45,7 +45,7 @@ Her giriş noktası (mesaj, doküman, tool çağrısı, model cevabı) aynı sı
 
 Kural ID'leri `rules.py`'de, `<katman>.<eşleşme>` biçiminde (ör. `prompt_injection_rules.ignore_instructions`). Her birinin bir OWASP LLM Top 10 (2025) kodu ve 1-10 arası bir önem derecesi var. SIEM kuralları bunlara bağlı olacağı için ID'ler değiştirilmiyor. Katalogda olmayan bir ID üretilirse `tests/test_rules.py` hata veriyor.
 
-Olaylara ham metin hiç yazılmıyor. `message_hash` maskelenmiş metnin hash'i, yani aynı saldırı her kiracıda aynı hash'i veriyor. Oturum ve kullanıcı ID'leri anahtarlı hash; üretimde `SIEVE_PSEUDONYM_KEY` ayarlanmalı. `log_excerpt = true` ise maskelenmiş metnin ilk 200 karakteri ekleniyor. Varsayılan olarak sadece işaretlenen kararlar gönderiliyor (`log_allowed = false`).
+Olaylara ham metin hiç yazılmıyor. `message_hash` maskelenmiş metnin hash'i, yani aynı saldırı her kiracıda aynı hash'i veriyor. Oturum ve kullanıcı ID'leri anahtarlı hash; üretimde `SIEVE_PSEUDONYM_KEY` ayarlanmalı. `log_excerpt = true` ise maskelenmiş metnin ilk 200 karakteri ekleniyor. Varsayılan olarak sadece işaretlenen kararlar gönderiliyor (`log_allowed = false`). `latency_ms` kararın toplam süresi, `timings_ms` aşama başına: `masking`, her katman adıyla, `session`, `policy` (dokümanda `split`, tool çağrısında `spec` ve `document`). Aynı süreler sonucun `timings` alanında da var.
 
 ## Oturum katmanı
 
@@ -62,7 +62,7 @@ Olaylara ham metin hiç yazılmıyor. `message_hash` maskelenmiş metnin hash'i,
 - Gölge katmanlardan ve kapalı kurallardan gelen bulgular işaretli sayılmıyor.
 - Bölünmüş saldırılarda iki yarısı tek başına geçen 32 saldırının 29'u yakalandı. 429 sentetik normal sohbette 2 yanlış alarm çıktı (mesaj sınırında yan yana gelen kelimeler). Bu yüzden sadece review'a atıyor.
 - Durum bellekte, en fazla 50.000 anahtar tutuluyor (en eskisi atılıyor). Birden fazla süreç varsa her biri ayrı sayıyor.
-- Mesaj başına süre oturumsuz ~0.8 ms, oturumla ~1.3 ms (son mesajlar birleştirilip kurallar bir kez daha çalıştırılıyor).
+- Normal bir müşteri mesajı varsayılan politikayla median 1.3 ms sürüyor; bunun 0.7 ms'si oturum kontrolleri (son mesajlar birleştirilip kurallar bir kez daha çalıştırılıyor). `python -m scripts.benchmark_latency`.
 
 ## Gerçek trafikten veri toplama
 

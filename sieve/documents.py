@@ -8,6 +8,7 @@ import html
 import json
 import re
 import secrets
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 
@@ -18,6 +19,7 @@ from sieve.checks.tampering import TamperingLayer
 from sieve.checks.urls import URLCheckLayer
 from sieve.ml.injection import MLInjectionLayer, warn_without_ml
 from sieve.pipeline import LAYERS, clean, mask
+from sieve.timing import add
 
 MAX_DOCUMENT_CHARS = 200_000
 # JSON or hidden HTML nested deeper than this isn't opened further: thousands of levels crashed the parser
@@ -67,6 +69,7 @@ class DocumentResult:
     action: str
     findings: list = field(default_factory=list)
     flagged_parts: list = field(default_factory=list)  # masked, first EXCERPT_CHARS characters, for the reviewer
+    timings: dict = field(default_factory=dict)  # ms per stage: tampering, url_check, split, each part layer summed
 
 
 # (every string in a JSON value or tool arguments, in order; whether some were deeper than max_depth),
@@ -235,11 +238,15 @@ class DocumentGuard:
         marked = SPACES.sub(self.mark, text)
         return f"<<{source} {self.boundary}>>\n{marked}\n<</{source} {self.boundary}>>"
 
-    def check_part(self, part):
+    def check_part(self, part, timings=None):
+        timings = {} if timings is None else timings
         cleaned = clean(part)
-        findings = [f for layer in self.part_layers for f in layer.check(cleaned)]
-        if self.ml_layer is not None and len(cleaned) >= MIN_ML_CHARS:
-            findings += self.ml_layer.check(cleaned)
+        findings = []
+        for layer in self.part_layers + ([self.ml_layer] if self.ml_layer is not None and len(cleaned) >= MIN_ML_CHARS
+                                         else []):
+            start = time.perf_counter()
+            findings += layer.check(cleaned)
+            add(timings, layer.name, start)
         return findings
 
     # A check that fails blocks the document: leave it out of the prompt.
@@ -250,22 +257,28 @@ class DocumentGuard:
             return DocumentResult(BLOCK, [error_finding("document", e)])
 
     def run(self, text):
-        findings = []
+        findings, timings = [], {}
         if len(text) > MAX_DOCUMENT_CHARS:
             findings.append(Finding("input_length", 1.0, REVIEW, [f"{len(text)} chars"]))
             text = text[:MAX_DOCUMENT_CHARS]
 
+        start = time.perf_counter()
         findings += self.tampering.check(text)
+        add(timings, self.tampering.name, start)
+        start = time.perf_counter()
         findings += self.urls.check(clean(text))
+        add(timings, self.urls.name, start)
 
+        start = time.perf_counter()
         parts, too_deep = split_parts(text)
+        add(timings, "split", start)
         if too_deep:
             findings.append(Finding("input_nesting", 1.0, REVIEW, [f"more than {MAX_NESTING} levels"]))
 
         flagged_parts = []
         hidden_flagged = False
         for part, hidden in parts:
-            part_findings = self.check_part(part)
+            part_findings = self.check_part(part, timings)
             if worst_action(part_findings) != ALLOW:
                 flagged_parts.append(mask(part, self.masking_layers)[:EXCERPT_CHARS])
                 hidden_flagged = hidden_flagged or hidden
@@ -276,4 +289,4 @@ class DocumentGuard:
             findings.append(Finding(IndirectInjectionLayer.name, 1.0, BLOCK, ["hidden_instruction"]))
 
         findings = merge(findings)
-        return DocumentResult(worst_action(findings), findings, flagged_parts)
+        return DocumentResult(worst_action(findings), findings, flagged_parts, timings)

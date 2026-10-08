@@ -13,6 +13,7 @@ from sieve.checks.code_payloads import CodePayloadLayer
 from sieve.documents import MAX_NESTING, DocumentGuard, strings_in
 from sieve.output import PLAIN_URL, carries_data, data_key, host_of, mask_and_collect, same_data
 from sieve.pipeline import LAYERS, clean
+from sieve.timing import add
 
 SPACES = re.compile(r"\s+")
 # line: a string without line breaks, for a subject, a name or an ID. A line break there starts a new mail
@@ -36,6 +37,7 @@ class ToolResult:
     action: str
     findings: list = field(default_factory=list)
     reasons: list = field(default_factory=list)  # one line per problem, e.g. to tell the model why a call was refused
+    timings: dict = field(default_factory=dict)  # ms per stage: spec, code_payloads, document (summed over arguments)
 
 
 def is_number(value):
@@ -202,6 +204,7 @@ class ToolGuard:
             return ToolResult(BLOCK, [error_finding("tool_call", e)], [f"the check failed: {type(e).__name__}"])
 
     def run(self, name, args, user_data=None, user_id=None):
+        timings, start = {}, time.perf_counter()
         spec = self.tools.get(name)
         if spec is None:
             return ToolResult(BLOCK, [Finding(CHECK, 1.0, BLOCK, ["unknown_tool"])], [f"unknown tool {name!r}"])
@@ -221,10 +224,15 @@ class ToolGuard:
         if problems:
             action = worst_action([Finding(CHECK, 1.0, a) for _, a, _ in problems])
             findings.append(Finding(CHECK, 1.0, action, sorted({m for m, _, _ in problems})))
+        add(timings, "spec", start)
 
         for text in texts:
+            start = time.perf_counter()
             findings += [f for f in self.code.check(clean(text)) if f.matches]
+            add(timings, self.code.name, start)
+            start = time.perf_counter()
             findings += self.documents.check(text).findings
+            add(timings, "document", start)
 
         reasons = [reason for _, _, reason in problems]
         reasons += [f"{f.check}: {', '.join(f.matches) or f'{f.probability:.2f}'}" for f in findings
@@ -235,4 +243,4 @@ class ToolGuard:
         if key and action != BLOCK:
             self.usage.record(key, {k: max(args[k], 0) for k in spec.get("max_total", {})
                                     if has_type(args.get(k), "number")})
-        return ToolResult(action, findings, reasons)
+        return ToolResult(action, findings, reasons, timings)

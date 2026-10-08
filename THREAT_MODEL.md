@@ -315,6 +315,7 @@ Of 12 benign answers, 1 is a false alarm: a branch's landline (`0312 555 12 34`)
 - Session state is capped at 50,000 keys.
 - HTML is read in linear time: nothing inside a tag is scanned past the next `<`, and closing tags are looked up, not searched for.
 - Every pattern and every entry point is fuzzed for inputs whose cost grows faster than their length (`python -m scripts.fuzz_slow_inputs`).
+- Every result and SIEM event carries the time each stage took (`timings`, `timings_ms`); `python -m scripts.benchmark_latency` measures them on normal traffic and the corpus.
 - JSON and hidden HTML are opened 64 levels deep at most. A document nested deeper is reviewed (`input_nesting`), since what's below goes unchecked; tool arguments nested deeper are blocked, since every parameter is a scalar anyway.
 
 **Evidence.** Unit tests for the inputs that used to crash, and for 28 inputs that used to take from seconds to minutes ([`tests/test_slow_inputs.py`](tests/test_slow_inputs.py), and the HTML ones in `tests/test_documents.py`): each must finish in under 2 or 3 seconds. The fuzzer finds no pattern and no entry point whose time grows faster than its input.
@@ -327,7 +328,7 @@ Fuzzing every pattern then found more, and the worst wasn't a pattern. Masking r
 
 **Residual risk.**
 - Masking reads the whole message, with no size cap before it. It's linear, but a long run of digits costs about 13 µs a character, since every window is tried as a number: 200 KB of digits takes about 3 seconds.
-- A 200,000-character document is a few hundred ML calls.
+- A document is one ML call per sentence: 158,000 characters of support tickets were 3,771 parts and took 8.3 seconds in the default setup.
 - The fuzzer only tries runs of repeated pieces. A pattern that's slow on some other shape would pass it.
 - Rate limits apply only when the app passes a session or user ID, and only within one process.
 

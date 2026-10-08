@@ -75,7 +75,7 @@ def to_rule_records(findings):
 
 
 def to_event(result, would_action, policy, *, original, session_id=None, user_id=None,
-             direction="input", latency_ms=None):
+             direction="input", latency_ms=None, timings=None):
     return {
         "schema": SCHEMA_VERSION,
         "product": PRODUCT,
@@ -91,6 +91,9 @@ def to_event(result, would_action, policy, *, original, session_id=None, user_id
         "action": result.action,
         "would_action": would_action,
         "latency_ms": None if latency_ms is None else round(latency_ms, 2),
+        # Each stage of the check: masking, every layer by name, session, policy. Where the time went when
+        # latency_ms is high.
+        "timings_ms": {stage: round(ms, 3) for stage, ms in (timings or {}).items()} or None,
         "masked": masked_counts(original, result.text),
         "scores": {f.check: round(float(f.probability), 4) for f in result.findings},
         "rules": to_rule_records(result.findings),
