@@ -52,7 +52,7 @@ Tablo dedektörleri tek başına ölçüyor. `Guardrail()`'in varsayılan ayarla
 | Sadece kurallar (ML gölge modda, şimdiye kadarki varsayılan) | 30'da 0 | 30'da 0 | 90'da 0 |
 | Kurallar + ML (şu anki varsayılan) | 30'da 22 | 30'da 0 | 90'da 3 |
 
-ML katmanı mesajı sadece review'a gönderiyor, tek başına engellemiyor. Yani pratikte `review` sonucuna birinin (ya da sizin politikanızın) karar vermesi gerekiyor. Kurallar tek başına sadece açık, kelimesi kelimesine saldırıları engelliyor.
+ML katmanı mesajı sadece review'a gönderiyor, tek başına engellemiyor. Yani pratikte `review` sonucuna birinin (ya da sizin politikanızın) karar vermesi gerekiyor. Kurallar tek başına sadece açık, kelimesi kelimesine saldırıları engelliyor. Kontroller raporluyor, karar kiracı politikasının: skor üreten katman başına threshold (`[thresholds]`), kural başına karar (`[actions]`), katman başına shadow ya da off ([docs/operations.md](docs/operations.md)).
 
 LLM katmanı prompt injection için değmedi. Etiket olmadan 1.7B'lik model İngilizce dedektörden çok az iyi. Eğitilmiş başlıkla %80'e çıkıyor ama fine-tuned BERTurk onu on kat daha hızlı geçiyor. AnyJev'in varsayılanı Qwen3-8B'yi deneyemedim, 16 GB belleğe sığmıyor.
 
@@ -168,7 +168,7 @@ Tespit bir oran, yukarıda ölçüldü. Bunlar ise her seferinde geçerli ve tes
 - **Model sadece giriş kontrolünden sonra çağrılıyor.** `guarded_reply`, giriş engellendiyse ya da kontrolü hata verdiyse modeli çağırmıyor, cevabı da sadece `OutputGuard`'dan sonra gösteriyor.
 - **Tool çağrıları modele değil spec'e uyuyor.** Listede olmayan bir tool, bilinmeyen ya da yanlış tipte bir argüman, ya da `min`, `max`, `max_total` dışındaki bir tutar, model ne söylenmiş olursa olsun engelleniyor.
 - **Loglarda ham metin yok.** SIEM olaylarında maskelenmiş metnin hash'i, kullanıcı ve oturum için anahtarlı takma adlar ve bir hatanın tipi var; hata mesajı yok.
-- **Yapılandırma hataları yüklemede ortaya çıkıyor.** Yanlış yazılmış bir kural ID'si, katman ya da tool limiti hata veriyor; ML katmanını isteyen bir politika, katman yoksa başlamıyor.
+- **Yapılandırma hataları yüklemede ortaya çıkıyor.** Yanlış yazılmış bir kural ID'si, katman ya da tool limiti hata veriyor; ML katmanını isteyen bir politika, katman yoksa başlamıyor. Bir kuralı `allow` yapan ya da bir katmanın hiç engellememesine izin veren politika yükleniyor, ama uyarı veriyor.
 
 Bir saldırının yakalanacağını, `review`'a göre davranılacağını (o uygulamanızın işi) ya da bir kontrolün ne kadar süreceğini garanti etmiyor.
 
@@ -210,7 +210,6 @@ reply = guarded_reply(user_message, ask_model, TenantGuardrail(policy, system_pr
 
 - Mühürlü sete kuralları okumadan yazdığım kendi saldırılarım (`holdout/user_attacks.txt`).
 - Daha iyi genelleme: daha çeşitli Türkçe eğitim verisi (mühürlü set asla değil), sonucu mühürlü sette ölçmek.
-- Tespiti her yerde karardan ayırmak: politika skor üreten katmanların threshold'larını belirliyor, ama tool spec'i, çıkış kontrolleri ve oturum limitleri hâlâ kural başına sabit karar veriyor.
 - İsim ve adres (NER), cevaplarda zararlı içerik kontrolü.
 - Bir HTTP API ve Docker imajı.
 - CI'da sadece TF-IDF değil, BERTurk aşamasıyla da bir çalışma.

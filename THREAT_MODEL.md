@@ -362,7 +362,7 @@ Fuzzing every pattern then found more, and the worst wasn't a pattern. Masking r
 
 **Controls.** `load_policy` rejects unknown keys, layers, modes, rule IDs and malformed tool specs. Disabling only some of the rules in a finding keeps the finding. Monitor and shadow modes still log what would have happened (`would_action`).
 
-**Residual risk.** `mode = "monitor"` or `shadow` layers left on in production allow everything; the only trace is the events. `[thresholds]` can also loosen a layer (a higher `review_at`, `block_at = "never"`); that's a decision the policy file holds, and every event carries the policy version, but nothing warns about it. Whoever can edit `policies/` can turn Sieve off: policy files are trusted input.
+**Residual risk.** `mode = "monitor"` or `shadow` layers left on in production allow everything; the only trace is the events. `[thresholds]` and `[actions]` can also loosen a layer or a rule (a higher `review_at`, `block_at = "never"`, a rule set to `"allow"`). That's a decision the policy file holds: every event carries the policy version, and loading a policy that sets a rule to `allow` or a layer to never block logs a warning, but nothing stops it. Whoever can edit `policies/` can turn Sieve off: policy files are trusted input.
 
 ### TH-15 Guard failure
 

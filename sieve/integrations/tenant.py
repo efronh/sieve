@@ -25,7 +25,7 @@ POLICY_DIR = POLICIES
 MODES = ("enforce", "monitor")
 LAYER_MODES = ("enforce", "shadow", "off")
 KEYS = {"version", "mode", "on_error", "max_check_chars", "log_excerpt", "log_allowed", "disabled_rules", "masking",
-        "layers", "thresholds", "session", "url_check", "tools"}
+        "layers", "thresholds", "actions", "session", "url_check", "tools"}
 # Layers that report a score: a policy can set where review and block start ([thresholds.<layer>]), and the
 # decision is made again from the score. The other checks (tool specs, answers, sessions) decide by rule.
 SCORED_LAYERS = ("tampering", "prompt_injection_rules", "code_payloads", "url_check", "indirect_injection",
@@ -53,6 +53,7 @@ class Policy:
     masking: dict
     layers: dict
     thresholds: dict
+    actions: dict
     session: dict
     allowed_hosts: tuple
     tools: dict
@@ -90,6 +91,7 @@ def validate(data, source):
 
     problems += [f"unknown rule {r!r}" for r in data["disabled_rules"] if r not in RULES]
     problems += threshold_problems(data.get("thresholds", {}))
+    problems += action_problems(data.get("actions", {}))
     problems += [f"unknown session key {k!r}" for k in data.get("session", {}) if k not in SESSION_KEYS]
     problems += [p for name, spec in data.get("tools", {}).items() for p in spec_problems(name, spec)]
     if problems:
@@ -98,6 +100,14 @@ def validate(data, source):
 
 def is_share(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool) and 0 < value <= 1
+
+
+def action_problems(actions):
+    problems = [f"[actions]: unknown rule {r!r}" for r in actions if r not in RULES]
+    problems += [f"[actions] {r!r} must be one of {tuple(ACTION_ORDER)}" for r, a in actions.items() if a not in ACTION_ORDER]
+    if ERROR_CHECK in actions:
+        problems.append(f"[actions]: {ERROR_CHECK} can't be set; set on_error instead")
+    return problems
 
 
 # Both ends have to be written: a layer's own defaults differ, and half a pair would be easy to misread.
@@ -123,6 +133,13 @@ def load_policy(tenant="default", directory=POLICY_DIR, overrides=None):
     if overrides:
         data = merge(data, overrides)
     validate(data, f"policy {tenant!r}")
+    # Loosening is the policy's call, but it shouldn't go unnoticed: a rule that no longer counts, a layer
+    # that can no longer block.
+    loosened = sorted(f"{rule} = allow" for rule, action in data.get("actions", {}).items() if action == ALLOW)
+    loosened += sorted(f"{layer} never blocks" for layer, limits in data.get("thresholds", {}).items()
+                       if limits.get("block_at") == NEVER)
+    if loosened:
+        logger.warning("policy %r loosens: %s", tenant, "; ".join(loosened))
 
     return Policy(
         tenant=tenant,
@@ -136,6 +153,7 @@ def load_policy(tenant="default", directory=POLICY_DIR, overrides=None):
         masking=data["masking"],
         layers=data["layers"],
         thresholds=data.get("thresholds", {}),
+        actions=data.get("actions", {}),
         session=data.get("session", {}),
         allowed_hosts=tuple(data.get("url_check", {}).get("allowed_hosts", [])),
         tools=data.get("tools", {}),
@@ -213,7 +231,7 @@ class TenantGuardrail:
 
     # How a finding becomes a decision; docs/operations.md, "Karar nasıl veriliyor".
     def apply_policy(self, finding):
-        finding = self.apply_thresholds(finding)
+        finding = self.apply_actions(self.apply_thresholds(finding))
         if finding.action == ALLOW:
             return finding
         if finding.check == ERROR_CHECK:
@@ -233,6 +251,23 @@ class TenantGuardrail:
             return finding
         block_at = float("inf") if limits["block_at"] == NEVER else limits["block_at"]
         action = action_for(finding.probability, limits["review_at"], block_at)
+        return Finding(finding.check, finding.probability, action, finding.matches, finding.level, finding.shadow,
+                       finding.would_action, finding.suppressed)
+
+    # The policy's own action for a rule: the check reports what fired, the policy decides what it means. A
+    # finding whose rules all have one gets the worst of them. One whose rules only some have can only go up:
+    # the others' own actions aren't known any more (fail closed). A finding that fired nothing, like a quiet
+    # ML score, has nothing to decide, so "prompt_injection_ml = block" doesn't block every message.
+    def apply_actions(self, finding):
+        if not self.policy.actions or not fired(finding):
+            return finding
+        rules = [rule_id for rule_id, _ in rule_ids(finding)]
+        chosen = [self.policy.actions[r] for r in rules if r in self.policy.actions]
+        if not chosen:
+            return finding
+        action = max(chosen if len(chosen) == len(rules) else chosen + [finding.action], key=ACTION_ORDER.get)
+        if action == ALLOW and finding.action != ALLOW:
+            return as_allowed(finding, suppressed=True)
         return Finding(finding.check, finding.probability, action, finding.matches, finding.level, finding.shadow,
                        finding.would_action, finding.suppressed)
 

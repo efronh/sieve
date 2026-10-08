@@ -52,7 +52,7 @@ The table measures the detectors on their own. What `Guardrail()` does with its 
 | Rules only (ML in shadow mode, the default until now) | 0 of 30 | 0 of 30 | 0 of 90 |
 | Rules + ML (current default) | 22 of 30 | 0 of 30 | 3 of 90 |
 
-The ML layer only sends messages to review and never blocks on its own, so in practice someone (or your own policy) has to act on `review`. The rules alone block only the obvious, literal attacks.
+The ML layer only sends messages to review and never blocks on its own, so in practice someone (or your own policy) has to act on `review`. The rules alone block only the obvious, literal attacks. The checks report and a tenant policy decides: thresholds per scored layer (`[thresholds]`), an action per rule (`[actions]`), shadow or off per layer ([docs/operations.md](docs/operations.md)).
 
 The LLM layer wasn't worth it for prompt injection. Without labels a 1.7B model does barely better than the English detector. With a trained head it gets to 80%, but fine-tuned BERTurk beats it at a tenth of the latency. I couldn't test Qwen3-8B (AnyJev's default) because it doesn't fit in 16 GB.
 
@@ -168,7 +168,7 @@ Detection is a rate, measured above. These hold every time, and tests check them
 - **The model is only asked after the input check.** `guarded_reply` doesn't call the model when the input was blocked or its check failed, and shows the answer only after `OutputGuard`.
 - **Tool calls follow the spec, not the model.** A tool not on the list, an unknown or wrongly typed argument, or an amount outside `min`, `max` or `max_total` is blocked, whatever the model was told.
 - **No raw text in the logs.** SIEM events carry a hash of the masked text, keyed pseudonyms for the user and session, and an exception's type, never its message.
-- **Configuration errors fail at load.** A misspelled rule ID, layer or tool limit is an error, and a policy that wants the ML layer won't start without it.
+- **Configuration errors fail at load.** A misspelled rule ID, layer or tool limit is an error, and a policy that wants the ML layer won't start without it. A policy that sets a rule to `allow` or lets a layer never block loads, with a warning.
 
 It doesn't guarantee that an attack is caught, that `review` is acted on (that's your app's job), or how long a check takes.
 
@@ -210,7 +210,6 @@ reply = guarded_reply(user_message, ask_model, TenantGuardrail(policy, system_pr
 
 - Attacks of my own in the sealed set (`holdout/user_attacks.txt`), written without reading the rules.
 - Better generalisation: more varied Turkish training data (never the sealed set), measured on the sealed set.
-- Detection apart from enforcement everywhere: the policy sets thresholds for the scored layers, but tool specs, output checks and session limits still have a fixed action per rule.
 - Names and addresses (NER), and a check for harmful content in answers.
 - An HTTP API and a Docker image.
 - A CI run with the BERTurk stage, not only TF-IDF.

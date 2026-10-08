@@ -37,6 +37,12 @@ indirect_injection = "enforce"  # document rules, via TenantGuardrail.check_docu
 # review_at = 0.5
 # block_at = 0.95        # or "never"; ML alone never blocks without this
 
+# The action for a rule ID from rules.py, for rules without a score: tool specs, output checks,
+# session limits, document rules. "allow" suppresses the rule, and loading such a policy logs a warning.
+# [actions]
+# "tool_call.not_from_user" = "block"
+# "output_links.external_image" = "review"
+
 [session]                # per user (or session when there's no user ID); needs session_id / user_id in check()
 max_requests_per_minute = 30
 max_chars_per_window = 50000
