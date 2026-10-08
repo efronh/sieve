@@ -12,7 +12,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from sieve.actions import ALLOW, BLOCK, REVIEW, Finding, error_finding, worst_action
+from sieve.actions import ALLOW, BLOCK, ERROR_CHECK, REVIEW, Finding, error_finding, worst_action
 from sieve.checks.indirect import IndirectInjectionLayer
 from sieve.checks.prompt_injection import PromptInjectionLayer
 from sieve.checks.tampering import TamperingLayer
@@ -197,7 +197,9 @@ def merge(findings):
     for f in findings:
         if not f.matches and f.action == ALLOW:
             continue
-        seen = by_check.setdefault(f.check, Finding(f.check, 0.0, ALLOW, []))
+        # Each failed layer stays a finding of its own: on_error reads which layer it was.
+        key = (f.check, f.matches[0]) if f.check == ERROR_CHECK and f.matches else f.check
+        seen = by_check.setdefault(key, Finding(f.check, 0.0, ALLOW, []))
         seen.probability = max(seen.probability, f.probability)
         seen.action = worst_action([seen, f])
         seen.matches = sorted(set(seen.matches) | set(f.matches))
@@ -242,15 +244,25 @@ class DocumentGuard:
         marked = SPACES.sub(self.mark, "\n".join(text.splitlines()))  # "\r\n", " "… are line breaks too
         return f"<<{source} {self.boundary}>>\n{marked}\n<</{source} {self.boundary}>>"
 
+    # One layer failing doesn't stop the others, as in Guardrail: with on_error = "review" a hidden instruction
+    # still blocks. The error names the layer, so one the policy has in shadow or off doesn't decide.
+    @staticmethod
+    def run_layer(layer, text, timings):
+        start = time.perf_counter()
+        try:
+            return layer.check(text)
+        except Exception as e:
+            return [error_finding(layer.name, e)]
+        finally:
+            add(timings, layer.name, start)
+
     def check_part(self, part, timings=None):
         timings = {} if timings is None else timings
         cleaned = clean(part)
         findings = []
         for layer in self.part_layers + ([self.ml_layer] if self.ml_layer is not None and len(cleaned) >= MIN_ML_CHARS
                                          else []):
-            start = time.perf_counter()
-            findings += layer.check(cleaned)
-            add(timings, layer.name, start)
+            findings += self.run_layer(layer, cleaned, timings)
         return findings
 
     # A check that fails blocks the document: leave it out of the prompt.
@@ -266,12 +278,8 @@ class DocumentGuard:
             findings.append(Finding("input_length", 1.0, REVIEW, [f"{len(text)} chars"]))
             text = text[:MAX_DOCUMENT_CHARS]
 
-        start = time.perf_counter()
-        findings += self.tampering.check(text)
-        add(timings, self.tampering.name, start)
-        start = time.perf_counter()
-        findings += self.urls.check(clean(text))
-        add(timings, self.urls.name, start)
+        findings += self.run_layer(self.tampering, text, timings)
+        findings += self.run_layer(self.urls, clean(text), timings)
 
         start = time.perf_counter()
         parts, too_deep = split_parts(text)
@@ -285,7 +293,9 @@ class DocumentGuard:
             part_findings = self.check_part(part, timings)
             if worst_action(part_findings) != ALLOW:
                 flagged_parts.append(mask(part, self.masking_layers)[:EXCERPT_CHARS])
-                hidden_flagged = hidden_flagged or hidden
+                # A check that failed on hidden text is for on_error, not a sign of an instruction in it.
+                checked = [f for f in part_findings if f.check != ERROR_CHECK]
+                hidden_flagged = hidden_flagged or (hidden and worst_action(checked) != ALLOW)
             findings += part_findings
 
         # Nobody hides a harmless sentence where the reader can't see it but the model can.

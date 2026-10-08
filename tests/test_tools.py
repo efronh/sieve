@@ -40,6 +40,7 @@ CALLS = [
     ("sayfa_getir", {"url": f"https://www.ornekbank.com.tr/kampanya?id={DATA}"}, "allow", None),
     ("sayfa_getir", {"url": "https://evil.example/c?t=10000000146"}, "review", "url_with_data"),
     ("sayfa_getir", {"url": "https://example.com/haber/2026/10/05/ekonomi"}, "allow", None),
+    ("sayfa_getir", {"url": "https://[2001:db8::1]/c?t=10000000146"}, "review", "url_with_data"),
     ("para_transferi", {"iban": IBAN, "tutar": float("nan")}, "block", "bad_arguments"),
     ("para_transferi", {"iban": IBAN, "tutar": float("inf")}, "block", "bad_arguments"),
     ("para_transferi", None, "block", "bad_arguments"),

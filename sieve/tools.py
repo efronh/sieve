@@ -226,9 +226,14 @@ class ToolGuard:
             findings.append(Finding(CHECK, 1.0, action, sorted({m for m, _, _ in problems})))
         add(timings, "spec", start)
 
+        # The code rules failing on one argument leave the spec's findings and the document check: with
+        # on_error = "review", a transfer over its limit is still blocked.
         for text in texts:
             start = time.perf_counter()
-            findings += [f for f in self.code.check(clean(text)) if f.matches]
+            try:
+                findings += [f for f in self.code.check(clean(text)) if f.matches]
+            except Exception as e:
+                findings.append(error_finding(self.code.name, e))
             add(timings, self.code.name, start)
             start = time.perf_counter()
             findings += self.documents.check(text).findings

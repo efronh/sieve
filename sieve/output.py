@@ -44,7 +44,9 @@ HTML_SCRIPT = re.compile(r"<script\b.*?(?:</script\s*>|$)", re.IGNORECASE | re.D
 # Attributes the browser fetches on its own, without a click (<link href> too, see loaded_urls).
 LOADING_ATTRS = {"src", "srcset", "data", "poster", "background"}
 CLICK_ATTRS = {"href", "action", "formaction", "xlink:href"}
-PLAIN_URL = re.compile(r"\bhttps?://[^\s<>\"')\]]+", re.IGNORECASE)
+# A "]" ends a URL, except the one closing a bracketed host: "https://[2001:db8::1]/?tc=..." is read whole.
+PLAIN_URL = re.compile(r"\bhttps?://(?:(?:[^\s<>\"'()\[\]/?#@]*@)?\[[^\s<>\"'()\[\]/?#]*\][^\s<>\"')\]]*|[^\s<>\"')\]]+)",
+                       re.IGNORECASE)
 DANGEROUS_SCHEME = re.compile(r"^(?:javascript|vbscript|data):", re.IGNORECASE)
 # Browsers drop tabs, newlines and leading control characters in URLs: "java\tscript:" still runs.
 URL_IGNORED_CHARS = re.compile(r"[\x00-\x20]")

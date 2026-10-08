@@ -291,23 +291,27 @@ class TenantGuardrail:
         return {rule_id for f in findings if fired(f) and not f.shadow and not (flagged_only and f.action == ALLOW)
                 for rule_id, _ in rule_ids(f) if self.enforced_rule(rule_id, f.check)}
 
-    # Rules that fire on the last few messages joined but on none of them alone.
+    # Rules that fire on the last few messages joined but on none of them alone. A layer that fails on the joined
+    # text is a layer_error like any other, for on_error to decide; the other layers still run.
     def split_attack(self, session, result):
         history = self.conversation.history(session)
         if self.context_messages < 2 or not history:
             return []
 
         joined = "\n".join([text for text, _ in history] + [result.text])[-self.guard.max_check_chars:]
-        joined_findings = []
+        joined_findings, errors = [], []
         for layer in self.guard.check_layers:
-            joined_findings += layer.check(joined)
+            try:
+                joined_findings += layer.check(joined)
+            except Exception as e:
+                errors.append(error_finding(layer.name, e))
 
         seen = set().union(*(rules for _, rules in history)) | self.local_rules(result.findings)
         new = sorted(self.local_rules(joined_findings, flagged_only=True) - seen)
         if not new:
-            return []
+            return errors
         # Joining messages can pair words that were never meant together, so review, never block.
-        return [Finding("session_split", 1.0, REVIEW, new)]
+        return errors + [Finding("session_split", 1.0, REVIEW, new)]
 
     # Findings after shadow modes and exceptions, the action, and the action ignoring shadow/exceptions/monitor mode.
     def decide(self, findings):
