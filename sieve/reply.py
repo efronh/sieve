@@ -37,7 +37,9 @@ def guarded_reply(message, ask_model, guard, output_guard=None, user_data=None, 
         system_prompt = guard.system_prompt
 
         def check_answer(answer, user_data):
-            return guard.check_output(answer, user_data, **check_args)
+            # The input check's request ID, so the SIEM joins the message's event and the answer's.
+            request = {"request_id": checked.request_id} if getattr(checked, "request_id", None) else {}
+            return guard.check_output(answer, user_data, **{**request, **check_args})
     else:
         system_prompt, check_answer = output_guard.system_prompt, output_guard.check
 

@@ -4,6 +4,7 @@ import json
 import logging
 import time
 import tomllib
+import uuid
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,7 +12,7 @@ from pathlib import Path
 from sieve.actions import ACTION_ORDER, ALLOW, BLOCK, ERROR_CHECK, REVIEW, Finding, action_for, error_finding, worst_action
 from sieve.checks.indirect import IndirectInjectionLayer
 from sieve.documents import DocumentGuard, DocumentResult
-from sieve.integrations.siem import emit, fired, to_event
+from sieve.integrations.siem import count_decision, emit, fired, to_event
 from sieve.integrations.throttle import MAX_KEYS, ConversationWindow, RateLimiter, SessionLimiter, bounded_get
 from sieve.ml.injection import MLInjectionLayer, unavailable_reason
 from sieve.output import OUTPUT_CHECKS, SAFE_REPLY, OutputGuard, OutputResult
@@ -342,39 +343,40 @@ class TenantGuardrail:
         return findings, action, would_action
 
     # When the policy code itself raises, the policy can't be trusted: always block, whatever on_error says.
-    def failed(self, error, direction, session_id, user_id):
+    def failed(self, error, direction, session_id, user_id, request_id=None):
         logger.warning("sieve: %s check failed with %s", direction, type(error).__name__)
-        result = GuardrailResult("", BLOCK, [error_finding("policy", error)])
+        result = GuardrailResult("", BLOCK, [error_finding("policy", error)], request_id=request_id)
         try:
             emit(to_event(result, BLOCK, self.policy, original="", session_id=session_id, user_id=user_id,
-                          direction=direction))
+                          direction=direction, request_id=request_id, checked=count_decision()))
         except Exception:
             pass  # the event may be what failed; the decision stands
         return result
 
-    def check_tool(self, name, args, user_data=None, session_id=None, user_id=None):
+    # request_id: the input check's (result.request_id), so the SIEM can join a request's events.
+    def check_tool(self, name, args, user_data=None, session_id=None, user_id=None, request_id=None):
         try:
-            return self.run_tool(name, args, user_data, session_id, user_id)
+            return self.run_tool(name, args, user_data, session_id, user_id, request_id)
         except Exception as e:
-            failure = self.failed(e, "tool", session_id, user_id)
+            failure = self.failed(e, "tool", session_id, user_id, request_id)
             return ToolResult(BLOCK, failure.findings, [f"the check failed: {type(e).__name__}"])
 
-    def check_document(self, text, session_id=None, user_id=None):
+    def check_document(self, text, session_id=None, user_id=None, request_id=None):
         try:
-            return self.run_document(text, session_id, user_id)
+            return self.run_document(text, session_id, user_id, request_id)
         except Exception as e:
-            return DocumentResult(BLOCK, self.failed(e, "document", session_id, user_id).findings)
+            return DocumentResult(BLOCK, self.failed(e, "document", session_id, user_id, request_id).findings)
 
     # The model's answer, checked by OutputGuard and then the policy, like a message. Masking and link
     # cleaning always apply; the policy decides whether the answer is shown, reviewed or replaced. An
     # answer whose check failed is never shown, whatever on_error says: there's no checked text to show.
-    def check_output(self, answer, user_data=None, session_id=None, user_id=None):
+    def check_output(self, answer, user_data=None, session_id=None, user_id=None, request_id=None):
         try:
-            return self.run_output(answer, user_data, session_id, user_id)
+            return self.run_output(answer, user_data, session_id, user_id, request_id)
         except Exception as e:
-            return OutputResult(SAFE_REPLY, BLOCK, self.failed(e, "output", session_id, user_id).findings)
+            return OutputResult(SAFE_REPLY, BLOCK, self.failed(e, "output", session_id, user_id, request_id).findings)
 
-    def run_output(self, answer, user_data=None, session_id=None, user_id=None):
+    def run_output(self, answer, user_data=None, session_id=None, user_id=None, request_id=None):
         start = time.perf_counter()
         result = self.output.check(answer, user_data)
         timings, policy_start = dict(result.timings), time.perf_counter()
@@ -386,20 +388,26 @@ class TenantGuardrail:
         if vault is not None and text != SAFE_REPLY:
             text = vault.reveal(text)  # the user's own values, to the user; a document's stay labels
 
+        checked = count_decision()
         if would_action != ALLOW or self.policy.log_allowed:
             logged = GuardrailResult(result.answer, action, findings)
             emit(to_event(logged, would_action, self.policy, original=answer, session_id=session_id, user_id=user_id,
-                          direction="output", latency_ms=since(start), timings=timings))
+                          direction="output", latency_ms=since(start), timings=timings,
+                          request_id=request_id, checked=checked))
         return OutputResult(text, action, findings, answer=result.answer, timings=timings)
 
-    def check(self, text, session_id=None, user_id=None, direction="input"):
+    # A message starts a request: without a request_id from the app, it gets one (result.request_id) to pass on to the
+    # document, tool and answer checks of the same request.
+    def check(self, text, session_id=None, user_id=None, direction="input", request_id=None):
+        if request_id is None and direction == "input":
+            request_id = uuid.uuid4().hex
         try:
-            return self.run(text, session_id, user_id, direction)
+            return self.run(text, session_id, user_id, direction, request_id)
         except Exception as e:
-            return self.failed(e, direction, session_id, user_id)
+            return self.failed(e, direction, session_id, user_id, request_id)
 
     # A tool call the model wants to make; see tools.py. Logged with direction "tool", arguments masked.
-    def run_tool(self, name, args, user_data=None, session_id=None, user_id=None):
+    def run_tool(self, name, args, user_data=None, session_id=None, user_id=None, request_id=None):
         start = time.perf_counter()
         # Totals (max_total, max_calls) count per user, like the session limits.
         who = user_id if user_id is not None else session_id
@@ -415,15 +423,17 @@ class TenantGuardrail:
         findings, action, would_action = self.decide(found)
         timings["policy"] = since(policy_start)
 
+        checked = count_decision()
         if would_action != ALLOW or self.policy.log_allowed:
             call = f"{name} {json.dumps(args, ensure_ascii=False, sort_keys=True, default=str)}"
             logged = GuardrailResult(mask(call, self.guard.masking_layers), action, findings)
             emit(to_event(logged, would_action, self.policy, original=call, session_id=session_id, user_id=user_id,
-                          direction="tool", latency_ms=since(start), timings=timings))
+                          direction="tool", latency_ms=since(start), timings=timings,
+                          request_id=request_id, checked=checked))
         return ToolResult(action, findings, result.reasons, timings, result.args)
 
     # A document the model will read (retrieved page, e-mail, tool result); see documents.py.
-    def run_document(self, text, session_id=None, user_id=None):
+    def run_document(self, text, session_id=None, user_id=None, request_id=None):
         start = time.perf_counter()
         result = self.documents.check(text)
         timings, policy_start = dict(result.timings), time.perf_counter()
@@ -431,13 +441,15 @@ class TenantGuardrail:
         findings, action, would_action = self.decide(found)
         timings["policy"] = since(policy_start)
 
+        checked = count_decision()
         if would_action != ALLOW or self.policy.log_allowed:
             logged = GuardrailResult(mask(text, self.guard.masking_layers), action, findings)
             emit(to_event(logged, would_action, self.policy, original=text, session_id=session_id, user_id=user_id,
-                          direction="document", latency_ms=since(start), timings=timings))
+                          direction="document", latency_ms=since(start), timings=timings,
+                          request_id=request_id, checked=checked))
         return DocumentResult(action, findings, result.flagged_parts, timings)
 
-    def run(self, text, session_id=None, user_id=None, direction="input"):
+    def run(self, text, session_id=None, user_id=None, direction="input", request_id=None):
         start = time.perf_counter()
         who = user_id if user_id is not None else session_id
         track = self.session_on and direction == "input" and who is not None
@@ -477,11 +489,13 @@ class TenantGuardrail:
         if track:
             timings.update(session_timing)
 
-        result = GuardrailResult(result.text, action, findings, timings=timings)
+        result = GuardrailResult(result.text, action, findings, timings=timings, request_id=request_id)
 
+        checked = count_decision()
         if would_action != ALLOW or self.policy.log_allowed:
             emit(to_event(result, would_action, self.policy, original=text, session_id=session_id, user_id=user_id,
-                          direction=direction, latency_ms=since(start), timings=timings))
+                          direction=direction, latency_ms=since(start), timings=timings,
+                          request_id=request_id, checked=checked))
         # The model gets lettered labels; the event and the session's history keep plain ones, so a message's hash is
         # the same in every session. The values behind the letters stay in the vault.
         vault = self.vault(session_id) if direction == "input" else None

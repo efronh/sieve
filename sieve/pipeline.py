@@ -5,6 +5,7 @@ import time
 import unicodedata
 from collections import OrderedDict
 from dataclasses import dataclass, field
+from typing import Optional
 
 from sieve.actions import BLOCK, REVIEW, Finding, error_finding, failed, worst_action
 from sieve.checks.code_payloads import CodePayloadLayer
@@ -112,6 +113,7 @@ class GuardrailResult:
     findings: list = field(default_factory=list)
     llm_called: bool = False
     timings: dict = field(default_factory=dict)  # ms per stage: masking, each check layer by name, llm
+    request_id: Optional[str] = None  # TenantGuardrail: the ID joining this request's SIEM events
 
 
 def head_and_tail(text, limit=LLM_MAX_CHARS):
