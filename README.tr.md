@@ -223,6 +223,7 @@ sieve/
   tools.py           ToolGuard
   documents.py       DocumentGuard
   reply.py           guarded_reply: giriş kontrolü → model → OutputGuard, hata olursa kapalı
+  timing.py          aşama başına ms, sonuçlar ve SIEM olayları için
   masking/           tc, iban, card, card_security, phone, email, vkn, credentials
   checks/            prompt_injection, tampering, code_payloads, urls, indirect
   ml/                TF-IDF → BERTurk kademesi, augmentation

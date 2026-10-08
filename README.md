@@ -223,6 +223,7 @@ sieve/
   tools.py           ToolGuard
   documents.py       DocumentGuard
   reply.py           guarded_reply: input check → model → OutputGuard, failing closed
+  timing.py          ms per stage, for results and SIEM events
   masking/           tc, iban, card, card_security, phone, email, vkn, credentials
   checks/            prompt_injection, tampering, code_payloads, urls, indirect
   ml/                TF-IDF → BERTurk cascade, augmentation

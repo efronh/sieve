@@ -134,3 +134,10 @@ def test_a_fixed_canary_is_used_and_still_caught():
 def test_new_personal_data_needs_user_data(guard):
     result = guard.check("Kayıtlı TC: 12345678950.")
     assert result.action == "allow" and "12345678950" not in result.text
+
+
+# Cleaning alone changes a no-break space; that isn't personal data being masked.
+def test_masked_personal_data_means_a_value_was_masked(guard):
+    assert not guard.check("Merhaba\u00a0dünya, nasıl yardımcı olabilirim?").findings
+    matches = [m for f in guard.check("Numaranız 0532 111 22 33 olarak kayıtlı.").findings for m in f.matches]
+    assert "personal_data_masked" in matches

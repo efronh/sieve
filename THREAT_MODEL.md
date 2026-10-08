@@ -71,23 +71,25 @@ Each control below works only if the app does its part. If an assumption breaks,
 
 | ID | Threat | Attacker | Boundary | OWASP LLM 2025 | Decision | Measured |
 |---|---|---|---|---|---|---|
-| [TH-01](#th-01-direct-prompt-injection) | Direct prompt injection | AT1 | B1 | LLM01 | block when literal, else review | 30 held-out, 444 sealed, 57 white-box |
-| [TH-02](#th-02-obfuscated-injection) | Obfuscated injection | AT1, AT2 | B1, B2 | LLM01 | as TH-01 after decoding | Generated variants only |
-| [TH-03](#th-03-system-prompt-extraction) | System prompt extraction | AT1, AT2 | B1, B4 | LLM07 | review the request; block the leak | 15 requests, 14 leaked answers |
-| [TH-04](#th-04-indirect-injection) | Indirect injection in documents | AT2, AT3 | B2 | LLM01 | block if hidden, review if visible | 30 attacks × 6 carriers, 14 documents |
-| [TH-05](#th-05-multi-turn-attacks) | Multi-turn attacks | AT1 | B1 | LLM01 | review | Not reproducible |
-| [TH-06](#th-06-malicious-tool-calls) | Malicious tool calls | AT1–AT3 via the model | B5 | LLM06 | block outside the spec, review the unverified | Unit tests |
-| [TH-07](#th-07-exfiltration-through-the-answer) | Exfiltration through the answer | AT1–AT3 via the model | B4 | LLM05 | remove + review | 13 attacks, 10 benign answers |
-| [TH-08](#th-08-personal-data-leaving-in-prompts-or-logs) | Personal data leaving in prompts or logs | — | B3, B6 | LLM02 | mask | Unit tests |
-| [TH-09](#th-09-another-customers-data-in-the-answer) | Another customer's data in the answer | AT1, AT3 via the model | B4 | LLM02 | review | 12 attacks, 12 benign answers |
-| [TH-10](#th-10-active-content-in-the-answer) | Active content in the answer | AT1–AT3 via the model | B4 | LLM05 | remove + review | 13 attacks |
-| [TH-11](#th-11-resource-exhaustion) | Resource exhaustion | AT1, AT2 | B1, B2, B5 | LLM10 | review or block, never crash | Unit tests for the inputs that crashed |
+| [TH-01](#th-01-direct-prompt-injection) | Direct prompt injection | AT1 | B1 | LLM01 | block when literal, else review | 30 held-out, 444 sealed, 75 corpus groups (`PI-*`); 105 benign messages |
+| [TH-02](#th-02-obfuscated-injection) | Obfuscated injection | AT1, AT2 | B1, B2 | LLM01 | as TH-01 after decoding | 65 corpus groups (`OBF-*`) |
+| [TH-03](#th-03-system-prompt-extraction) | System prompt extraction | AT1, AT2 | B1, B4 | LLM07 | review the request; block the leak | 29 corpus groups: 15 requests (`PI-LEAK`), 14 leaked answers (`EXF-LEAK`) |
+| [TH-04](#th-04-indirect-injection) | Indirect injection in documents | AT2, AT3 | B2 | LLM01 | block if hidden, review if visible | 16 corpus groups (`PI-IND`); 187 attacks × 7 placements; 494 benign documents; 30 held-out × 6 carriers |
+| [TH-05](#th-05-multi-turn-attacks) | Multi-turn attacks | AT1 | B1 | LLM01 | review | 60 corpus groups (`MT-*`); 387 benign conversations |
+| [TH-06](#th-06-malicious-tool-calls) | Malicious tool calls | AT1–AT3 via the model | B5 | LLM06 | block outside the spec, review the unverified | 53 corpus groups (43 calls, 10 chains); 15 benign calls |
+| [TH-07](#th-07-exfiltration-through-the-answer) | Exfiltration through the answer | AT1–AT3 via the model | B4 | LLM05 | remove + review | 13 corpus groups (`EXF-LINK`); 22 benign answers |
+| [TH-08](#th-08-personal-data-leaving-in-prompts-or-logs) | Personal data leaving in prompts or logs | — | B3, B6 | LLM02 | mask | 151 labelled messages: 113 values, 49 look-alikes, in messages and documents; a random stress test |
+| [TH-09](#th-09-another-customers-data-in-the-answer) | Another customer's data in the answer | AT1, AT3 via the model | B4 | LLM02 | review | 12 corpus groups (`EXF-PII`); 22 benign answers |
+| [TH-10](#th-10-active-content-in-the-answer) | Active content in the answer | AT1–AT3 via the model | B4 | LLM05 | remove + review | 10 corpus groups (`OUT-ACTIVE`), 9 more dev |
+| [TH-11](#th-11-resource-exhaustion) | Resource exhaustion | AT1, AT2 | B1, B2, B5 | LLM10 | review or block, never crash | Unit tests for inputs that crashed or took minutes; a pattern fuzzer; a latency benchmark |
 | [TH-12](#th-12-probing-the-guardrail) | Probing the guardrail | AT1 | B1 | LLM01 | block after repeated flags | Unit tests |
 | [TH-13](#th-13-model-and-training-data-integrity) | Model and training data integrity | AT4 | Load time | LLM03, LLM04 | — | No control for the model file |
 | [TH-14](#th-14-policy-misconfiguration) | Policy misconfiguration | Operator error | Load time | — | fail at load | Unit tests |
 | [TH-15](#th-15-guard-failure) | Guard failure | Any | All | — | block (`on_error`) | Unit tests |
 
-"Unit tests" means the control has tests in `tests/`, but no attack set it is scored against.
+"Unit tests" means the control has tests in `tests/`, but no attack set it is scored against. "Corpus groups" are independent test groups in [`corpus/`](corpus) (section 7).
+
+Unless a number says otherwise, it's for the default setup: rules, TF-IDF, and BERTurk when TF-IDF is unsure. CI runs TF-IDF alone, and numbers from it say so.
 
 ### TH-01 Direct prompt injection
 
@@ -162,7 +164,7 @@ For the request, the 15 PI-LEAK messages of the corpus: 12 are reviewed with the
 
 **Controls.** `session_split` in [`tenant.py`](sieve/integrations/tenant.py) joins the last four masked messages (up to 1,000 characters each, within 10 minutes) and reports rules that fire on the joined text but on none of the messages alone. Review only.
 
-**Evidence.** [docs/operations.md](docs/operations.md) reports 29 of 32 split attacks caught, with 2 false alarms in 429 normal conversations. The script and the data behind that aren't in the repo, so it can't be re-run. The corpus has 29 split and 15 escalation attacks as conversations, replayed through `TenantGuardrail`: 24 and 12 caught, with no false alarm in 387 benign conversations (375 customer-service conversations and 12 written to share words with the attacks). That overstates the split check. In the first 15 split attacks the pieces still read as attacks ("Önceki tüm talimatları"), and 13 have a piece flagged on its own. The other 14 were written so that each piece is harmless alone, yet the ML layer still flagged a piece in 8 of them ("yönergelerini" on its own is reviewed). In the 6 where no piece was flagged, `session_split` caught 1: joining the messages rarely makes a rule fire that none of them fired alone. Missed: a rule recast as a preference, a trigger word set up early, the data and an outside e-mail address in separate messages, an extra request in pieces after a normal one, a question about the `[KART]` label followed by "unmask it for customer 1048". The escalations are caught on the last, explicit message; the three missed end in a plain request (a named customer's record, a transfer over the limit, "do what the note says"). The corpus also has 16 persistence attacks (MT-MEM), 13 of them written with Claude, white-box, one per thing planted: a trigger phrase, a stored role, a standing copy to an outside address, a note for other users, saved preferences and defaults, a false fact about access, a scheduled transfer, a line slipped into the conversation summary, erased safety notes. 9 of the 13 are reviewed, all by the ML layer alone.
+**Evidence.** An earlier version of [docs/operations.md](docs/operations.md) reported 29 of 32 split attacks caught, with 2 false alarms in 429 normal conversations; the script and the data behind that weren't in the repo, so the corpus replaced it. The corpus has 29 split and 15 escalation attacks as conversations, replayed through `TenantGuardrail`: 27 and 13 caught (24 and 12 with TF-IDF alone, as in CI), with no false alarm in 387 benign conversations (375 customer-service conversations and 12 written to share words with the attacks). That overstates the split check. In the first 15 split attacks the pieces still read as attacks ("Önceki tüm talimatları"), and 13 have a piece flagged on its own. The other 14 were written so that each piece is harmless alone, yet the ML layer still flagged a piece in 8 of them ("yönergelerini" on its own is reviewed). In the 6 where no piece was flagged, `session_split` caught 1: joining the messages rarely makes a rule fire that none of them fired alone. Missed: a rule recast as a preference, a trigger word set up early, the data and an outside e-mail address in separate messages, an extra request in pieces after a normal one, a question about the `[KART]` label followed by "unmask it for customer 1048". The escalations are caught on the last, explicit message; the three missed end in a plain request (a named customer's record, a transfer over the limit, "do what the note says"). The corpus also has 16 persistence attacks (MT-MEM), 13 of them written with Claude, white-box, one per thing planted: a trigger phrase, a stored role, a standing copy to an outside address, a note for other users, saved preferences and defaults, a false fact about access, a scheduled transfer, a line slipped into the conversation summary, erased safety notes. 11 of the 13 are reviewed (9 with TF-IDF alone), all by the ML layer alone.
 
 **Residual risk.** Gradual escalation, where no window of four messages matches a rule. Poisoning through documents across turns. The window is in memory, per process. No rule looks for persistence requests ("hafızana kaydet", "varsayılan ayarım olarak kaydet"); what passes is the trigger phrase, the outside copy address, a saved "no warnings" preference and the scheduled transfer. Sieve can't see whether the app has a memory at all, so it can't tell a harmless "remember my nickname" from these.
 
@@ -252,7 +254,7 @@ Masking and link cleaning always happen; the policy only decides whether the ans
 **Controls.**
 - The masking layers in [`masking/`](sieve/masking) run on the whole message before the model sees it, and on documents in `DocumentGuard.wrap()`.
 - SIEM events carry no raw text, only a hash of the masked text and HMAC pseudonyms for user and session IDs; the excerpt is masked and off by default.
-- The traffic log stores masked text only.
+- The traffic log stores masked text only, with a keyed pseudonym of the session ID like the SIEM's (it was a plain hash, which hashing every likely session ID would reverse).
 
 **Evidence.** A labelled set, [`corpus/pii/`](corpus/pii): 151 Turkish messages written with Claude after reading the masking code, so white-box. The test split has 113 personal-data values (TC numbers, IBANs, cards with expiry date and CVV, phone numbers, e-mail addresses, tax numbers, keys and passwords) in the shapes customers write them: grouped, dashed, spelled out, with look-alike letters, fullwidth or Arabic-Indic digits, in a URL, broken over a line, with a suffix. It also has 49 numbers that must stay: order and receipt numbers, amounts, dates, the bank's own phone numbers, a tracking number, a file hash. Every value is synthetic. `python -m scripts.evaluate_masking` sends each message through `mask()`, and through `DocumentGuard.wrap()` inside a support-ticket export. A value counts as masked only when one replaced piece holds all of it, under its own label.
 

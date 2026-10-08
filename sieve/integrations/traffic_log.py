@@ -3,6 +3,7 @@ import json
 import time
 from pathlib import Path
 
+from sieve.integrations.siem import pseudonym
 from sieve.paths import LOGS
 from sieve.pipeline import Guardrail
 
@@ -13,15 +14,13 @@ def message_id(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
-def pseudonym(session_id):
-    return hashlib.sha256(f"guardrail:{session_id}".encode("utf-8")).hexdigest()[:12]
-
-
 def to_record(result, session_id):
     return {
         "id": message_id(result.text),
         "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "session": pseudonym(session_id),
+        # Keyed like the SIEM's (SIEVE_PSEUDONYM_KEY): a plain hash of a phone number or a customer number
+        # used as the session ID can be reversed by hashing every candidate.
+        "session": pseudonym(session_id, "traffic_log"),
         "text": result.text,
         "action": result.action,
         "findings": [
@@ -37,7 +36,7 @@ def to_record(result, session_id):
     }
 
 
-# Only the masked text and a hashed session id are written to disk.
+# Only the masked text and a keyed pseudonym of the session ID are written to disk.
 class LoggingGuardrail(Guardrail):
     def __init__(self, log_path=LOG_PATH, **kwargs):
         super().__init__(**kwargs)

@@ -351,7 +351,8 @@ class OutputGuard:
 
         layers = LAYERS if self.masking_layers is None else self.masking_layers
         masked, values = mask_and_collect(answer, layers)
-        if masked != answer:
+        # What masking replaced, not whether the text changed: cleaning alone (a no-break space) changes it.
+        if values:
             findings.append(Finding("output_masking", 0.0, ALLOW, ["personal_data_masked"]))
         if values and user_data is not None:
             if isinstance(user_data, str):

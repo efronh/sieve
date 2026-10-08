@@ -51,3 +51,14 @@ def test_log_select_label_cycle(tmp_path):
 
     select_for_labeling.main(log, queue, [train, holdout])
     assert len(read_csv(queue)) == 1, "labeled messages are not queued again"
+
+
+def test_the_session_is_a_keyed_pseudonym(tmp_path, monkeypatch):
+    def logged_session(key):
+        monkeypatch.setenv("SIEVE_PSEUDONYM_KEY", key)
+        log = tmp_path / f"{key}.jsonl"
+        LoggingGuardrail(log_path=log, cache_size=0).check("Merhaba", session_id="05321112233")
+        return json.loads(log.read_text(encoding="utf-8"))["session"]
+
+    # A plain hash of a phone number used as the session ID could be reversed by hashing every number.
+    assert logged_session("anahtar-1") != logged_session("anahtar-2")
