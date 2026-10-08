@@ -19,6 +19,8 @@ vkn_masking = true
 tc_masking = true
 phone_masking = true
 random_token_masking = true
+lettered_labels = false  # [IBAN_A], [IBAN_B] per session instead of [IBAN]: the model can tell values apart and a
+                         # tool call can use the user's own (docs/layers.md, "Harfli etiketler")
 
 [layers]                 # enforce | shadow (log only) | off
 tampering = "enforce"

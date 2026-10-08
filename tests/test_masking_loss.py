@@ -39,4 +39,4 @@ def test_merged_values_count_different_values_under_one_label():
         ["Numaram 0532 111 22 33.", "Yani +90 532 111 2233."],          # one number written twice
         ["Merhaba."],
     ]})
-    assert rows["x"] == {"conversations": 3, "with_mask": 2, "merged": 1}
+    assert rows["x"] == {"conversations": 3, "with_mask": 2, "merged": 1, "merged_lettered": 0}

@@ -4,6 +4,7 @@ import json
 import logging
 import time
 import tomllib
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from sieve.actions import ACTION_ORDER, ALLOW, BLOCK, ERROR_CHECK, REVIEW, Findi
 from sieve.checks.indirect import IndirectInjectionLayer
 from sieve.documents import DocumentGuard, DocumentResult
 from sieve.integrations.siem import emit, fired, to_event
-from sieve.integrations.throttle import ConversationWindow, RateLimiter, SessionLimiter
+from sieve.integrations.throttle import MAX_KEYS, ConversationWindow, RateLimiter, SessionLimiter, bounded_get
 from sieve.ml.injection import MLInjectionLayer, unavailable_reason
 from sieve.output import OUTPUT_CHECKS, SAFE_REPLY, OutputGuard, OutputResult
 from sieve.paths import POLICIES
@@ -20,6 +21,7 @@ from sieve.rules import RULES, rule_ids
 from sieve.timing import add, since
 from sieve.tools import CHECK as TOOL_CHECK
 from sieve.tools import ToolGuard, ToolResult, spec_problems
+from sieve.vault import Vault
 
 POLICY_DIR = POLICIES
 MODES = ("enforce", "monitor")
@@ -36,6 +38,10 @@ ON_ERROR = ("block", "review", "allow")
 SESSION_KEYS = {"max_requests_per_minute", "max_chars_per_window", "max_flagged", "cooldown_seconds",
                 "window_seconds", "context_messages"}
 SESSION_CHECKS = {"session", "session_split"}  # both follow the "session" layer mode
+# [masking] lettered_labels = true: [IBAN_A], [IBAN_B] per session instead of [IBAN] (vault.py)
+LETTERED = "lettered_labels"
+# What a lettered label in a tool argument means when it can't be used as it stands.
+LABEL_ACTIONS = {"unknown_label": BLOCK, "document_value": REVIEW}
 
 logger = logging.getLogger("sieve")
 
@@ -81,8 +87,9 @@ def validate(data, source):
     if ERROR_CHECK in data["disabled_rules"]:
         problems.append(f"{ERROR_CHECK} can't be disabled; set on_error instead")
 
-    masking_names = {layer.name for layer in LAYERS}
+    masking_names = {layer.name for layer in LAYERS} | {LETTERED}
     problems += [f"unknown masking layer {k!r}" for k in data["masking"] if k not in masking_names]
+    problems += [f"[masking] {k!r} must be true or false" for k, v in data["masking"].items() if not isinstance(v, bool)]
 
     check_names = {layer.name for layer in default_check_layers()} | {"prompt_injection_ml", "session", TOOL_CHECK,
                                                                       IndirectInjectionLayer.name, *OUTPUT_CHECKS}
@@ -224,10 +231,24 @@ class TenantGuardrail:
                                        masking_layers=self.guard.masking_layers)
         self.output = OutputGuard(system_prompt, policy.allowed_hosts, masking_layers=self.guard.masking_layers,
                                   canary=canary)
+        # With lettered labels, one vault per session: the values behind the labels, in this process's memory only.
+        self.lettered = policy.masking.get(LETTERED, False)
+        self.vaults = OrderedDict()
 
     @property
     def system_prompt(self):
         return self.output.system_prompt
+
+    # The session's vault, if the policy wants lettered labels; a label can only be turned back within its session.
+    def vault(self, session_id):
+        if not self.lettered or session_id is None:
+            return None
+        return bounded_get(self.vaults, session_id, Vault, MAX_KEYS)
+
+    # A document as the model should get it (DocumentGuard.wrap), masked with the policy's layers; with lettered
+    # labels, its values join the session's vault as a document's.
+    def wrap(self, text, session_id=None, **wrap_args):
+        return self.documents.wrap(text, vault=self.vault(session_id), **wrap_args)
 
     # How a finding becomes a decision; docs/operations.md, "Karar nasıl veriliyor".
     def apply_policy(self, finding):
@@ -361,6 +382,9 @@ class TenantGuardrail:
         findings, action, would_action = self.decide(found)
         timings["policy"] = since(policy_start)
         text = SAFE_REPLY if action == BLOCK or result.answer == SAFE_REPLY else result.answer
+        vault = self.vault(session_id)
+        if vault is not None and text != SAFE_REPLY:
+            text = vault.reveal(text)  # the user's own values, to the user; a document's stay labels
 
         if would_action != ALLOW or self.policy.log_allowed:
             logged = GuardrailResult(result.answer, action, findings)
@@ -379,9 +403,15 @@ class TenantGuardrail:
         start = time.perf_counter()
         # Totals (max_total, max_calls) count per user, like the session limits.
         who = user_id if user_id is not None else session_id
+        label_findings, vault = [], self.vault(session_id)
+        if vault is not None:
+            args, problems = vault.resolve(args)
+            if problems:
+                action = max((LABEL_ACTIONS[p] for p in problems), key=ACTION_ORDER.get)
+                label_findings.append(Finding(TOOL_CHECK, 1.0, action, sorted(problems)))
         result = self.tools.check(name, args, user_data, user_id=who)
         timings, policy_start = dict(result.timings), time.perf_counter()
-        found = [f for f in result.findings if self.policy.layers.get(f.check) != "off"]
+        found = [f for f in label_findings + result.findings if self.policy.layers.get(f.check) != "off"]
         findings, action, would_action = self.decide(found)
         timings["policy"] = since(policy_start)
 
@@ -390,7 +420,7 @@ class TenantGuardrail:
             logged = GuardrailResult(mask(call, self.guard.masking_layers), action, findings)
             emit(to_event(logged, would_action, self.policy, original=call, session_id=session_id, user_id=user_id,
                           direction="tool", latency_ms=since(start), timings=timings))
-        return ToolResult(action, findings, result.reasons, timings)
+        return ToolResult(action, findings, result.reasons, timings, result.args)
 
     # A document the model will read (retrieved page, e-mail, tool result); see documents.py.
     def run_document(self, text, session_id=None, user_id=None):
@@ -452,4 +482,11 @@ class TenantGuardrail:
         if would_action != ALLOW or self.policy.log_allowed:
             emit(to_event(result, would_action, self.policy, original=text, session_id=session_id, user_id=user_id,
                           direction=direction, latency_ms=since(start), timings=timings))
+        # The model gets lettered labels; the event and the session's history keep plain ones, so a message's hash is
+        # the same in every session. The values behind the letters stay in the vault.
+        vault = self.vault(session_id) if direction == "input" else None
+        if vault is not None and action != BLOCK:
+            lettering = time.perf_counter()
+            result.text = vault.mask(text, layers=self.guard.masking_layers)
+            timings["labels"] = since(lettering)
         return result

@@ -233,11 +233,16 @@ class DocumentGuard:
     # The document as the model should get it: inside a boundary it can't guess, with a mark between words, and
     # with personal data masked like a message's unless keep_personal_data. Text the reader can't see (HTML
     # comments, display:none, attributes other than links) is left out unless keep_hidden.
-    def wrap(self, text, source="belge", keep_hidden=False, keep_personal_data=False):
+    # vault (TenantGuardrail with lettered labels): its letters for the document's values, which it marks as a
+    # document's, so a tool call can't use them without review.
+    def wrap(self, text, source="belge", keep_hidden=False, keep_personal_data=False, vault=None):
         source = re.sub(r"\W", "", source) or "belge"
         if not keep_hidden:
             text = START_TAG.sub(links_only, without_hidden(text, " ")[1])
-        text = clean(text) if keep_personal_data else mask(text, self.masking_layers)
+        if keep_personal_data:
+            text = clean(text)
+        else:
+            text = mask(text, self.masking_layers) if vault is None else vault.mask(text, "document", self.masking_layers)
         # A space, not nothing, where the boundary was: removing it joined the halves around it ("3f9a" + boundary
         # + "c2e1…") into another one, and the document could close its own block.
         text = text.replace(self.boundary, " ").replace(self.mark, " ")

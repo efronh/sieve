@@ -7,6 +7,7 @@ import re
 import time
 from collections import OrderedDict, deque
 from dataclasses import dataclass, field
+from typing import Optional
 
 from sieve.actions import ALLOW, BLOCK, REVIEW, Finding, error_finding, worst_action
 from sieve.checks.code_payloads import CodePayloadLayer
@@ -38,6 +39,9 @@ class ToolResult:
     findings: list = field(default_factory=list)
     reasons: list = field(default_factory=list)  # one line per problem, e.g. to tell the model why a call was refused
     timings: dict = field(default_factory=dict)  # ms per stage: spec, code_payloads, document (summed over arguments)
+    # The arguments that were checked, to run the call with: with lettered labels (TenantGuardrail), the values the
+    # labels stood for, not the labels the model wrote. None when the call was refused before its arguments were read.
+    args: Optional[dict] = None
 
 
 def is_number(value):
@@ -248,4 +252,4 @@ class ToolGuard:
         if key and action != BLOCK:
             self.usage.record(key, {k: max(args[k], 0) for k in spec.get("max_total", {})
                                     if has_type(args.get(k), "number")})
-        return ToolResult(action, findings, reasons, timings)
+        return ToolResult(action, findings, reasons, timings, args)

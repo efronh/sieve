@@ -50,8 +50,10 @@ PLAIN_URL = re.compile(r"\bhttps?://(?:(?:[^\s<>\"'()\[\]/?#@]*@)?\[[^\s<>\"'()\
 DANGEROUS_SCHEME = re.compile(r"^(?:javascript|vbscript|data):", re.IGNORECASE)
 # Browsers drop tabs, newlines and leading control characters in URLs: "java\tscript:" still runs.
 URL_IGNORED_CHARS = re.compile(r"[\x00-\x20]")
-MASK_LABEL = re.compile(r"\[(?:" + "|".join(LABEL_NAMES) + r")\]")
+# Plain or lettered ([IBAN], [IBAN_A]): a lettered label in a link is the value it stands for once the app shows it.
+MASK_LABEL = re.compile(r"\[(?:" + "|".join(LABEL_NAMES) + r")(?:_[A-Z]+)?\]")
 PLACEHOLDER = re.compile(MASK_LABEL.pattern + r"|%5B[A-Z_]+%5D")
+NOT_SPACE = re.compile(r"\S*")
 # Phone numbers come as 0532..., +90 532... or 532...: long numbers match on their last digits.
 MIN_NUMBER_KEY = 7
 PHONE_DIGITS = 10  # a Turkish number without its prefixes
@@ -315,8 +317,11 @@ class OutputGuard:
         answer = before_last(MD_LINK, md_link, answer, ")")
         answer = MD_REFERENCE.sub(reference, answer)
 
-        for url in PLAIN_URL.findall(answer):
-            if not self.is_allowed(url) and carries_data(url):
+        for m in PLAIN_URL.finditer(answer):
+            # A "]" ends the URL read here, but a renderer links "?i=[IBAN_A]" whole, and a lettered label in it is
+            # the value once the app shows it.
+            url, rest = m.group(), NOT_SPACE.match(answer, m.end()).group()
+            if not self.is_allowed(url) and (carries_data(url) or MASK_LABEL.search(url + rest)):
                 findings.append(("url_with_data", REVIEW))
 
         return answer, findings

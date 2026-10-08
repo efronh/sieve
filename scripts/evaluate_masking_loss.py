@@ -7,6 +7,8 @@
 #                  can't tell apart ("from [IBAN] to [IBAN]");
 #   needed values: tool-call arguments the user typed (or a document held), which the model never saw because
 #                  masking took them, so it couldn't have written the call.
+# Merged and needed values are counted for plain labels ([IBAN]) and for lettered ones ([IBAN_A], vault.py), which a
+# tenant policy turns on with [masking] lettered_labels = true.
 # What the answer loses, a model's view of it, needs an LLM and isn't measured here.
 #   python -m scripts.evaluate_masking_loss          # the report, and results/masking_loss.json
 # tests/test_masking_loss.py fails when a piece masked in benign text has no verdict, or a wrong one the test doesn't know.
@@ -23,6 +25,7 @@ from sieve.masking.number_units import REPLACED
 from sieve.paths import DATA, RESULTS, ROOT
 from sieve.pipeline import LAYERS, clean, mask
 from sieve.tools import given_by_user
+from sieve.vault import DOCUMENT, USER, Vault
 
 REVIEW = PII_CORPUS / "review" / "benign_masks.jsonl"
 RESULTS_PATH = RESULTS / "masking_loss.json"
@@ -114,28 +117,48 @@ def wrong_masks(texts, review):
 
 
 # Conversations (or messages) where one label stands for more than one value.
+# A vault that remembers every value it gave each label, to count the labels that stand for more than one.
+class RecordingVault(Vault):
+    def __init__(self):
+        super().__init__()
+        self.seen = defaultdict(set)
+
+    def label_for(self, kind, value, source):
+        label = super().label_for(kind, value, source)
+        self.seen[label].add(value_key(f"[{kind}]", value))
+        return label
+
+
 def merged_values(conversations):
     rows, examples = {}, []
     for source, items in conversations.items():
-        with_mask = merged = 0
+        with_mask = merged = merged_lettered = 0
         for texts in items:
-            values = defaultdict(set)
+            values, vault = defaultdict(set), RecordingVault()
             for text in texts:
                 for label, value in masked_pieces(text)[1]:
                     values[label].add(value_key(label, value))
+                vault.mask(text)
             with_mask += bool(values)
+            merged_lettered += any(len(keys) > 1 for keys in vault.seen.values())
             labels = sorted(label for label, keys in values.items() if len(keys) > 1)
             if labels:
                 merged += 1
                 if len(examples) < EXAMPLES * len(conversations):
                     examples.append({"source": source, "labels": labels, "text": " / ".join(texts)[:160]})
-        rows[source] = {"conversations": len(items), "with_mask": with_mask, "merged": merged}
+        rows[source] = {"conversations": len(items), "with_mask": with_mask, "merged": merged,
+                        "merged_lettered": merged_lettered}
     return rows, examples
 
 
-def model_view_of_document(documents, text):
-    lines = documents.wrap(text).split("\n")[1:-1]
+def model_view_of_document(documents, text, vault=None):
+    lines = documents.wrap(text, vault=vault).split("\n")[1:-1]
     return "\n".join(lines).replace(documents.mark, " ")
+
+
+# With lettered labels, a value the model didn't see can still be named: by a label the vault turns back into it.
+def named_by_a_label(vault, value, source):
+    return any(source in entry["sources"] and given_by_user(value, [entry["value"]]) for entry in vault.entries.values())
 
 
 # For every string argument of every corpus tool call: did the user (or the document read before the call) give
@@ -154,7 +177,12 @@ def needed_values():
         user_seen = [mask(t) for t in user]
         document = r.get("text") if r["carrier"] == "tool_chain" else None
         document_seen = [model_view_of_document(documents, document)] if document else []
-        call_needs = call_hidden = False
+        vault = Vault()
+        for text in user:
+            vault.mask(text, USER)
+        if document:
+            model_view_of_document(documents, document, vault)
+        call_needs = call_hidden = call_hidden_lettered = False
         for call in r["calls"]:
             rows[kind]["calls"] += 1
             args = call["args"] if isinstance(call["args"], dict) else {}  # TOOL-SCHEMA sends some that aren't
@@ -170,6 +198,11 @@ def needed_values():
                     continue
                 rows[kind][f"from_{source}"] += 1
                 call_needs = True
+                if not seen and not named_by_a_label(vault, value, USER if source == "user" else DOCUMENT):
+                    rows[kind][f"from_{source}_hidden_lettered"] += 1
+                    call_hidden_lettered = True
+                elif not seen and source == "document":
+                    rows[kind]["from_document_review_lettered"] += 1  # named by a document's label: review
                 if not seen:
                     rows[kind][f"from_{source}_hidden"] += 1
                     call_hidden = True
@@ -178,6 +211,7 @@ def needed_values():
         rows[kind]["records"] += 1
         rows[kind]["records_needing_a_value"] += call_needs
         rows[kind]["records_with_a_hidden_value"] += call_hidden
+        rows[kind]["records_with_a_hidden_value_lettered"] += call_hidden_lettered
     return {kind: dict(counts) for kind, counts in rows.items()}, examples
 
 
@@ -208,9 +242,9 @@ def report(results, wrong):
         print(f"    not reviewed: {label} {value!r}")
 
     print("\nMerged values: one label for two different values, in a message or a conversation")
-    print(f"  {'source':22} {'units':>6} {'masked':>7} {'merged':>7}")
+    print(f"  {'source':22} {'units':>6} {'masked':>7} {'merged':>7} {'lettered':>9}")
     for source, r in results["merged_values"]["by_source"].items():
-        print(f"  {source:22} {r['conversations']:6} {r['with_mask']:7} {r['merged']:7}")
+        print(f"  {source:22} {r['conversations']:6} {r['with_mask']:7} {r['merged']:7} {r['merged_lettered']:9}")
     for e in results["merged_values"]["examples"]:
         print(f"    {e['source']}: {', '.join(e['labels'])} in {e['text'][:110]!r}")
 
@@ -221,6 +255,10 @@ def report(results, wrong):
               f"from a document {r.get('from_document', 0)} ({r.get('from_document_hidden', 0)} hidden); "
               f"records needing a given value {r.get('records_needing_a_value', 0)}, "
               f"with one hidden {r.get('records_with_a_hidden_value', 0)}")
+        print(f"    lettered: from the user {r.get('from_user_hidden_lettered', 0)} hidden, from a document "
+              f"{r.get('from_document_hidden_lettered', 0)} hidden and {r.get('from_document_review_lettered', 0)} named "
+              f"by its label (review: tool_call.document_value); records with one hidden "
+              f"{r.get('records_with_a_hidden_value_lettered', 0)}")
     for e in results["needed_values"]["examples"]:
         print(f"    {e['id']} ({e['kind']}): {e['tool']}.{e['arg']} = {e['value']!r}")
 

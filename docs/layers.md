@@ -30,7 +30,17 @@ Sıra önemli: gizli anahtarlar, e-posta, IBAN, kart, son kullanma tarihi ve CVV
 
 Sayılar yazıldıkları parçalarla okunuyor: bir numara bir boşlukta ya da işarette (`-`, `.`, `/`, `'`) başlayıp bitiyor, araya sadece harf giren dizi (hash'teki `5f4e`) tek parça. Eskiden birbirine 3 karakterden yakın rakamlar tek dizi sayılıp içinde pencere kaydırılıyordu; telefonun sonu ile kartın başını kapsayan, Luhn'u tutan bir pencere ikisinin de yarısını açıkta bırakıyordu, TC'den hemen sonra gelen telefon hiç maskelenmiyordu. Checksum'sız eşleşmeler (TR'siz ve anahtar kelimesiz IBAN, "TC"den sonra checksum'ı tutmayan numara) sadece etrafında başka rakam yoksa sayılıyor.
 
-Ölçüm: `python -m scripts.evaluate_masking`, etiketli set [`corpus/pii/`](../corpus/pii) ([TH-08](../THREAT_MODEL.md#th-08-personal-data-leaving-in-prompts-or-logs)).
+Ölçüm: `python -m scripts.evaluate_masking`, etiketli set [`corpus/pii/`](../corpus/pii) ([TH-08](../THREAT_MODEL.md#th-08-personal-data-leaving-in-prompts-or-logs)). Maskelemenin götürmemesi gerekenler (yanlış maske, aynı etikette birleşen değerler, bir tool çağrısının ihtiyaç duyduğu ama modelin hiç görmediği değerler): `python -m scripts.evaluate_masking_loss`.
+
+### Harfli etiketler: `vault.py`
+
+Düz etiket bir türün bütün değerlerinin yerine geçiyor: "eski e-postam X, yenisi Y" modele iki `[EPOSTA]` olarak gidiyor, model kullanıcının yazdığı IBAN'a para gönderemiyor. Kiracı politikasında `[masking] lettered_labels = true` etiketleri oturum başına harfliyor: `[IBAN_A]`, `[IBAN_B]`. Aynı değer (boşluklu, tireli, `+90`'lı yazılışı da) konuşma boyunca aynı etiketi alıyor. Etiketlerin arkasındaki değerler oturumun kasasında; kasa sadece süreçte bellekte, olaya, loga ve modele gitmiyor.
+
+- Rakam değil harf: etiketin kelimesinde bir rakam olsaydı, içindeki benzer harfler (`TELEFON`'daki `l`, `o`) de rakam sayılırdı ve cevap tekrar maskelenirken yanındaki numarayla birleşebilirdi.
+- Metinde zaten bulunan bir etiket (`[IBAN_A]` yazan kullanıcı ya da doküman) `(IBAN_A)` oluyor: modelin gördüğü her etiket kasanın.
+- Tool çağrısında etiket değerine çevriliyor (`ToolResult.args`). Değer sadece bir dokümandan geldiyse `tool_call.document_value` (review): bir e-postadaki "şu IBAN'a gönder" talimatının istediği tam olarak bu. Kasada karşılığı olmayan bir etiket `tool_call.unknown_label` (block); başka bir oturumun etiketi de böyle.
+- Cevapta kullanıcının kendi değerleri gösterilecek metinde geri açılıyor, dokümanınkiler etiket kalıyor. Sadece kendi başına duran bir etiket açılıyor: bir URL'nin, linkin, HTML etiketinin ya da alan adının içindeki (`https://x.example/?i=[IBAN_A]`, `[TELEFON_A].x.example`) açılsaydı değer bir tıklamayla ya da DNS sorgusuyla dışarı giderdi. `OutputGuard` böyle bir URL'yi `url_with_data` olarak işaretliyor.
+- Bedeli: kullanıcının kendi metnindeki bir değer (yapıştırılmış bir dolandırıcılık SMS'indeki IBAN) artık bir tool çağrısına girebiliyor. Düz etiketlerle model onu hiç göremiyordu. Bunu `from_user` de durdurmuyor, çünkü değer kullanıcının metninde geçiyor.
 
 İsim ve adresleri yakalamıyor, bunun için NER lazım.
 

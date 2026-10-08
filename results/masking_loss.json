@@ -116,22 +116,26 @@
    "customer_service": {
     "conversations": 634,
     "with_mask": 96,
-    "merged": 4
+    "merged": 4,
+    "merged_lettered": 0
    },
    "corpus_conversations": {
     "conversations": 12,
     "with_mask": 0,
-    "merged": 0
+    "merged": 0,
+    "merged_lettered": 0
    },
    "corpus_tool_requests": {
     "conversations": 17,
     "with_mask": 8,
-    "merged": 0
+    "merged": 0,
+    "merged_lettered": 0
    },
    "pii_messages": {
     "conversations": 151,
     "with_mask": 106,
-    "merged": 3
+    "merged": 3,
+    "merged_lettered": 0
    }
   },
   "examples": [
@@ -195,7 +199,8 @@
     "from_user_hidden": 9,
     "records": 17,
     "records_needing_a_value": 11,
-    "records_with_a_hidden_value": 8
+    "records_with_a_hidden_value": 8,
+    "records_with_a_hidden_value_lettered": 0
    },
    "attack": {
     "calls": 117,
@@ -203,9 +208,11 @@
     "records": 78,
     "records_needing_a_value": 38,
     "records_with_a_hidden_value": 35,
+    "records_with_a_hidden_value_lettered": 0,
     "from_user": 39,
     "from_user_hidden": 34,
     "from_document": 9,
+    "from_document_review_lettered": 7,
     "from_document_hidden": 7
    }
   },

@@ -15,7 +15,7 @@ BRACKETED_HOST = r"(?:https?|ftp)://(?:[^\s<>\"'()\[\]/?#@]*@)?\[[^\s<>\"'()\[\]
 URL = re.compile(r"\b(?:" + BRACKETED_HOST + r"|(?:https?|ftp)://[^\s<>\"')\]]+|www\.[^\s<>\"')\]]+)", re.IGNORECASE)
 DANGEROUS_SCHEME = re.compile(r"\b(?:javascript|vbscript)\s*:|\bdata:(?:text/html|[^;,\s]*;base64)", re.IGNORECASE)
 PUNYCODE = re.compile(r"(?:^|\.)xn--", re.IGNORECASE)
-MASK_LABEL = re.compile(r"\[(" + "|".join(LABEL_NAMES) + r")\]")
+MASK_LABEL = re.compile(r"\[(" + "|".join(LABEL_NAMES) + r")(?:_[A-Z]+)?\]")  # plain or lettered (vault.py)
 
 TRUSTED_BRANDS = ["google", "microsoft", "apple", "paypal", "turkiye", "edevlet", "garanti", "ziraat", "akbank", "isbank"]
 # Official sites whose name contains a brand but isn't the bare brand.

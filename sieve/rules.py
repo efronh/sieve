@@ -114,6 +114,9 @@ RULES = {
     "tool_call.url_with_data": Rule(SID, 7, "URL carrying data in a tool argument"),
     "tool_call.spreadsheet_formula": Rule(OUT, 6, "Spreadsheet formula in a tool argument"),
     "tool_call.needs_confirmation": Rule(AGENCY, 2, "Tool call needs the user's confirmation"),
+    # integrations/tenant.py, with lettered labels (vault.py)
+    "tool_call.unknown_label": Rule(AGENCY, 7, "Tool argument names a label nothing in the conversation stands for"),
+    "tool_call.document_value": Rule(AGENCY, 7, "Tool argument value only a document gave"),
 }
 
 # Layers whose match text is a detail ("12000 chars"), not a rule name.
