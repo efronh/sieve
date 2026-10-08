@@ -440,6 +440,8 @@ Fuzzing every pattern then found more, and the worst wasn't a pattern. Masking r
 
 **Fixed.** A layer that raised used to reach the app as an exception, and nothing said whether that meant block. Unit tests now inject a failure into each check and count the model calls ([`tests/test_fail_closed.py`](tests/test_fail_closed.py)).
 
+**Fixed.** Failing closed makes every exception a block, so an input that makes a check raise is a false block anyone can cause. `http://[ornekbank` was one: `urlsplit` raises on a host it can't read, and the URL check didn't catch it. A typo blocked the message, and an outside author could get a whole document or tool argument dropped. In a session it was worse: the split check reads the masked history, where `http://ayse.kaya@ornekmail.com` is `http://[EPOSTA]`, and its error blocked whatever `on_error` said. A valid IPv6 host failed too, because the URL pattern stopped at its `]`. Now an unreadable host is read without its brackets and after NFKC, so the other URL rules still see it, and it's scored like a raw IP (`url_check.malformed_host`, review). A mask label in a URL is read as the word it is. `https://[2001:db8::1]/` is read whole and flagged as an IP. [`scripts/fuzz_slow_inputs.py`](scripts/fuzz_slow_inputs.py) now also reports any input that makes a check raise.
+
 **Residual risk.**
 - **Nothing bounds how long a check takes.** Sieve runs locally and synchronously, so a timeout is the caller's to set (TH-11).
 - **An app that calls the model on its own loses the guarantee** if it doesn't keep the order `guarded_reply` keeps.

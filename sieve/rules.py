@@ -72,6 +72,7 @@ RULES = {
     "url_check.punycode_host": Rule(None, 5, "Punycode host"),
     "url_check.many_subdomains": Rule(None, 3, "Many subdomains"),
     "url_check.brand_lookalike": Rule(None, 5, "Brand lookalike domain"),
+    "url_check.malformed_host": Rule(None, 5, "Malformed URL host"),
 
     # ml/injection.py, llm/layer.py: one score each, no match names
     "prompt_injection_ml": Rule(PI, 5, "ML prompt injection score"),

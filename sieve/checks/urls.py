@@ -1,16 +1,21 @@
 import ipaddress
 import re
+import unicodedata
 from urllib.parse import urlsplit
 
 from sieve.actions import Finding, action_for
+from sieve.masking import LABEL_NAMES
 
 REVIEW_AT = 0.5
 BLOCK_AT = 0.9
 MAX_SUBDOMAINS = 4
 
-URL = re.compile(r"\b(?:https?|ftp)://[^\s<>\"')\]]+|\bwww\.[^\s<>\"')\]]+", re.IGNORECASE)
+# A "]" ends a URL ("[link http://a.example]"), except the one closing a bracketed host: "https://[2001:db8::1]/".
+BRACKETED_HOST = r"(?:https?|ftp)://(?:[^\s<>\"'()\[\]/?#@]*@)?\[[^\s<>\"'()\[\]/?#]*\][^\s<>\"')\]]*"
+URL = re.compile(r"\b(?:" + BRACKETED_HOST + r"|(?:https?|ftp)://[^\s<>\"')\]]+|www\.[^\s<>\"')\]]+)", re.IGNORECASE)
 DANGEROUS_SCHEME = re.compile(r"\b(?:javascript|vbscript)\s*:|\bdata:(?:text/html|[^;,\s]*;base64)", re.IGNORECASE)
 PUNYCODE = re.compile(r"(?:^|\.)xn--", re.IGNORECASE)
+MASK_LABEL = re.compile(r"\[(" + "|".join(LABEL_NAMES) + r")\]")
 
 TRUSTED_BRANDS = ["google", "microsoft", "apple", "paypal", "turkiye", "edevlet", "garanti", "ziraat", "akbank", "isbank"]
 # Official sites whose name contains a brand but isn't the bare brand.
@@ -20,11 +25,17 @@ SECOND_LEVEL = {"com", "net", "org", "gov", "edu", "ac", "co", "bel", "k12", "ge
 LOOKALIKE_DIGITS = str.maketrans("0135", "oles")
 
 
+# (parts, host, malformed). urlsplit raises on a host it can't read: "http://[ornekbank" (no "]"), "http://[ornekbank]"
+# (no IP address in the brackets), or a full-width "／" or "＠" in it. Such a host is read without its brackets and
+# after NFKC, so the other checks still see it, and it's malformed.
 def host_of(url):
     if not url.lower().startswith(("http", "ftp")):
         url = "http://" + url
-    parts = urlsplit(url)
-    return parts, (parts.hostname or "")
+    try:
+        parts, malformed = urlsplit(url), False
+    except ValueError:
+        parts, malformed = urlsplit(unicodedata.normalize("NFKC", url).replace("[", "").replace("]", "")), True
+    return parts, (parts.hostname or ""), malformed
 
 
 def is_ip(host):
@@ -66,8 +77,11 @@ def brand_lookalike(host):
 
 def check_url(url):
     matches = []
-    parts, host = host_of(url)
+    parts, host, malformed = host_of(url)
 
+    # Scored like a raw IP: browsers refuse such a host, but a more lenient parser may read it as something else.
+    if malformed:
+        matches.append(("malformed_host", 0.5))
     if parts.username or "@" in parts.netloc:
         matches.append(("credentials_in_url", 0.6))
     if is_ip(host):
@@ -93,9 +107,11 @@ class URLCheckLayer:
         if DANGEROUS_SCHEME.search(text):
             matches.append(("dangerous_scheme", 0.9))
 
-        for url in URL.findall(text):
-            _, host = host_of(url)
-            if host.lower() in self.allowed_hosts:
+        # A session's history is checked masked: "http://[EPOSTA]" is the address masking replaced, not a malformed
+        # host, and the address itself was checked when its message came in.
+        for url in URL.findall(MASK_LABEL.sub(r"\1", text)):
+            _, host, malformed = host_of(url)
+            if host.lower() in self.allowed_hosts and not malformed:
                 continue
             matches += check_url(url)
 

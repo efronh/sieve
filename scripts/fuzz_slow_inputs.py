@@ -1,4 +1,6 @@
 # Looks for inputs that make Sieve slow: a pattern or a loop that rescans the text from every start (TH-11).
+# Also for inputs that make a check raise, which a slow-input run wouldn't see: the check fails closed and the
+# input is blocked at once, with a layer_error finding ("http://[ornekbank" did that).
 #   python -m scripts.fuzz_slow_inputs               # every pattern, then every entry point (a few minutes)
 #   python -m scripts.fuzz_slow_inputs --patterns    # only the patterns
 #
@@ -18,6 +20,7 @@ import time
 
 import sieve
 from scripts.replay import tool_guard
+from sieve.actions import ERROR_CHECK
 from sieve.documents import DocumentGuard
 from sieve.ml.injection import MLInjectionLayer
 from sieve.output import OutputGuard
@@ -33,6 +36,7 @@ PIECES = list("ışİüйé\u200b\u00a0^`") + [
     "<a ", "[a](b ", "[a](", "{{a", "{{ ", "a://", "://", "wget ", "curl ", "a'--", "' ;", "'\n", "\n# ", "\n  ", "## ",
     "<!-", "a=\"", "[[a", "](", "a@b", "a@a.", "1.1", "1-1", "1 1", "aa ", "a-a", "..a", "%2e", "../", "&&a", "$(a",
     "on=", "TR1", "+90", "0 5", "1111", "a:a@", "http", "www.", "a.com", "?a=", "&a=", "#a", "\\x", "\\u0", "o1", "ıl",
+    "http://[", "http://[a]", "http://[::1]", "www.[", "http://a\uff20", "[EPOSTA]",
 ]
 # Entry point -> length of its longer inputs. A message is checked up to 8,000 characters but masked whole.
 LENGTHS = {"message": 8_000, "masking": 200_000, "document": 50_000, "tool argument": 50_000, "answer": 100_000}
@@ -138,6 +142,21 @@ def entry_points():
     }, [guard, documents, tools, output]
 
 
+# Each piece alone, in a sentence and as a short run: an error doesn't need a long input.
+def check_errors(checks):
+    reported = []
+    for name, check in checks.items():
+        failed = []
+        for piece in SPECIAL + PIECES:
+            for text in (piece, f"Merhaba {piece} dünya", repeated(piece, 200)):
+                findings = getattr(check(text), "findings", [])  # masking returns only the text
+                failed += [f"{text[:40]!r}: {m}" for f in findings if f.check == ERROR_CHECK for m in f.matches]
+        print(f"  {name:14} {len(failed)} failed" + "".join(f"\n    {f}" for f in failed[:10]))
+        if failed:
+            reported.append(name)
+    return reported
+
+
 def check_entry_points(checks):
     reported = []
     for name, check in checks.items():
@@ -166,6 +185,8 @@ def main():
     reported = check_patterns(guards)
     print(f"  {len(reported)} reported")
     if not args.patterns:
+        print("\nentry points that raise:")
+        reported += check_errors(checks)
         print("\nentry points (half the length, then the full length):")
         reported += check_entry_points(checks)
     sys.exit(1 if reported else 0)

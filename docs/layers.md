@@ -9,7 +9,7 @@ Bunların hepsi yerelde çalışıyor, model gerektirmiyor. Çalışma sırası 
 | Manipülasyon | `checks/tampering.py` | Ham metinde tag karakteri, yön değiştirme, ANSI, çok sayıda görünmez karakter, kelime içinde karışık alfabe. Emojileri birleştiren U+200D ve ❤️'deki U+FE0F sayılmıyor. |
 | Injection kuralları | `checks/prompt_injection.py` | Önce metni düzeltiyor (leetspeak, Kiril harf, boşluklu ya da uzatılmış harf), sonra gizli parçaları çözüyor (iç içe base64, base32, hex, URL, HTML, Mors, ROT13; ters metni sadece bir ipucu kelimesi varsa), en son kalıplara bakıyor |
 | Kod | `checks/code_payloads.py` | SQL (tautoloji, UNION, stacked, time-delay, satır sonu yorumu), shell, path traversal, XSS, template/JNDI. Çözülmüş metne de bakıyor. |
-| URL | `checks/urls.py` | `javascript:`/`data:`, IP host, punycode, URL'de kullanıcı bilgisi, marka taklidi (`com.tr` gibi iki parçalı uzantılar ve tek harf farkları dahil) |
+| URL | `checks/urls.py` | `javascript:`/`data:`, IP host, punycode, bozuk host (`http://[ornekbank`), URL'de kullanıcı bilgisi, marka taklidi (`com.tr` gibi iki parçalı uzantılar ve tek harf farkları dahil) |
 
 Sonuç `allow` < `review` < `block` sırasında en kötüsü. Kontroller ilk 8000 karakteri (`MAX_CHECK_CHARS`) okuyor; daha uzun bir mesaj `input_length` bulgusuyla en az review alıyor. Maskeleme ise metnin tamamına uygulanıyor.
 
