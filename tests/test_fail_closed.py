@@ -184,6 +184,15 @@ def test_a_layer_failing_on_the_session_history_is_a_layer_error(siem_events, on
     assert SECRET not in str(siem_events)
 
 
+# With on_error = "review", a check failing on the history would otherwise count every later message as
+# flagged, and pause the session (a block) for messages nothing was found in.
+def test_a_layer_failing_on_the_session_history_doesnt_pause_the_session():
+    guard = TenantGuardrail(load_policy(overrides={"on_error": "review", "session": {"max_flagged": 2}}),
+                            guardrail=Guardrail(check_layers=[FailsOnHistory()]))
+    texts = ["Merhaba", "Kartım kayboldu", "Yeni kart ne zaman gelir?", "Teşekkürler"]
+    assert [guard.check(t, session_id="s1").action for t in texts] == ["allow", "review", "review", "review"]
+
+
 def test_a_shadow_layer_failing_on_the_session_history_doesnt_block():
     guard = TenantGuardrail(load_policy(overrides={"layers": {"url_check": "shadow"}}),
                             guardrail=Guardrail(check_layers=[FailsOnHistory()]))

@@ -435,8 +435,10 @@ class TenantGuardrail:
 
         session_start = time.perf_counter()
         if track:
-            # Monitor mode still counts what would have been flagged; session findings themselves don't.
-            self.limiter.record(who, worst_action([f for f in findings if f.check not in SESSION_CHECKS]))
+            # Monitor mode still counts what would have been flagged. Only this message's own findings count (decide
+            # keeps the order, so they come first): not the session's, and not a check failing on the history,
+            # which says nothing about this message.
+            self.limiter.record(who, worst_action(findings[:len(result.findings)]))
             if session_id is not None and self.context_messages >= 2:
                 # A reported split counts as seen, so the next messages don't report the same pair again.
                 reported = {m for f in session_findings if f.check == "session_split" for m in f.matches}
