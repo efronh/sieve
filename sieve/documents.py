@@ -61,7 +61,9 @@ SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 # Datamarking (Hines et al. 2024, arXiv:2403.14720): a mark between the words of the document, so
 # the model can tell its text from instructions. One mark per guard, picked at random.
 MARKS = "ˆ¦¤‡◊"
-SPACES = re.compile(r"[ \t]+")
+# Every space but a line break, and the blank letters (Hangul fillers, braille blank) that read as one: with
+# only " " and tab, "talimatları unut" or "\v" between words reached the model without a mark.
+SPACES = re.compile(r"(?:[^\S\n]|[ᅟᅠㅤﾠ⠀᠎])+")
 
 
 @dataclass
@@ -234,8 +236,10 @@ class DocumentGuard:
         if not keep_hidden:
             text = START_TAG.sub(links_only, without_hidden(text, " ")[1])
         text = clean(text) if keep_personal_data else mask(text, self.masking_layers)
-        text = text.replace(self.boundary, "").replace(self.mark, " ")
-        marked = SPACES.sub(self.mark, text)
+        # A space, not nothing, where the boundary was: removing it joined the halves around it ("3f9a" + boundary
+        # + "c2e1…") into another one, and the document could close its own block.
+        text = text.replace(self.boundary, " ").replace(self.mark, " ")
+        marked = SPACES.sub(self.mark, "\n".join(text.splitlines()))  # "\r\n", " "… are line breaks too
         return f"<<{source} {self.boundary}>>\n{marked}\n<</{source} {self.boundary}>>"
 
     def check_part(self, part, timings=None):

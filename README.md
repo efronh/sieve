@@ -168,6 +168,7 @@ Detection is a rate, measured above. These hold every time, and tests check them
 - **The model is only asked after the input check.** `guarded_reply` doesn't call the model when the input was blocked or its check failed, and shows the answer only after `OutputGuard`.
 - **Tool calls follow the spec, not the model.** A tool not on the list, an unknown or wrongly typed argument, or an amount outside `min`, `max` or `max_total` is blocked, whatever the model was told.
 - **No raw text in the logs.** SIEM events carry a hash of the masked text, keyed pseudonyms for the user and session, and an exception's type, never its message.
+- **What a check finds stays out of the prompt.** The model gets the masked message under the same system prompt every time, never a score, a rule or a decision; a blocked user gets one fixed message. Checks open no file, socket or process while they run (BERTurk, when installed, loads on first use). ([Who sees what](THREAT_MODEL.md#who-sees-what))
 - **Configuration errors fail at load.** A misspelled rule ID, layer or tool limit is an error, and a policy that wants the ML layer won't start without it. A policy that sets a rule to `allow` or lets a layer never block loads, with a warning.
 
 It doesn't guarantee that an attack is caught, that `review` is acted on (that's your app's job), or how long a check takes.

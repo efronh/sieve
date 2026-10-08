@@ -168,6 +168,7 @@ Tespit bir oran, yukarıda ölçüldü. Bunlar ise her seferinde geçerli ve tes
 - **Model sadece giriş kontrolünden sonra çağrılıyor.** `guarded_reply`, giriş engellendiyse ya da kontrolü hata verdiyse modeli çağırmıyor, cevabı da sadece `OutputGuard`'dan sonra gösteriyor.
 - **Tool çağrıları modele değil spec'e uyuyor.** Listede olmayan bir tool, bilinmeyen ya da yanlış tipte bir argüman, ya da `min`, `max`, `max_total` dışındaki bir tutar, model ne söylenmiş olursa olsun engelleniyor.
 - **Loglarda ham metin yok.** SIEM olaylarında maskelenmiş metnin hash'i, kullanıcı ve oturum için anahtarlı takma adlar ve bir hatanın tipi var; hata mesajı yok.
+- **Kontrolün bulduğu prompta girmiyor.** Model maskelenmiş mesajı her seferinde aynı system prompt ile alıyor; skor, kural ya da karar almıyor. Engellenen kullanıcı tek bir sabit mesaj görüyor. Kontroller çalışırken dosya, soket ya da süreç açmıyor (BERTurk kuruluysa ilk kullanımda yükleniyor). ([Kim neyi görüyor](THREAT_MODEL.md#who-sees-what))
 - **Yapılandırma hataları yüklemede ortaya çıkıyor.** Yanlış yazılmış bir kural ID'si, katman ya da tool limiti hata veriyor; ML katmanını isteyen bir politika, katman yoksa başlamıyor. Bir kuralı `allow` yapan ya da bir katmanın hiç engellememesine izin veren politika yükleniyor, ama uyarı veriyor.
 
 Bir saldırının yakalanacağını, `review`'a göre davranılacağını (o uygulamanızın işi) ya da bir kontrolün ne kadar süreceğini garanti etmiyor.

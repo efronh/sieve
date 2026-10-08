@@ -29,6 +29,40 @@ The starting assumption: **the model is not a security boundary.** Anything an a
 | B5 | LLM → tool | A tool call | [`ToolGuard.check`](sieve/tools.py), `TenantGuardrail.check_tool` | Allowlist, types, limits, "did the user give this value", confirmation, rules on string arguments |
 | B6 | Sieve → logs | Decision events | [`siem.py`](sieve/integrations/siem.py), [`traffic_log.py`](sieve/integrations/traffic_log.py) | No raw text: masked-text hash, keyed pseudonyms, optional masked excerpt |
 
+### Who sees what
+
+Every component, what it reads, what it keeps, and what it passes on. Sieve runs in one process, so "isolated" doesn't mean a sandbox here: a check holds the raw message in memory while it runs. It means that what a check reads leaves it only through its result, and a result names rules, not text.
+
+| Component | Reads | Keeps | Passes on |
+|---|---|---|---|
+| Masking ([`masking/`](sieve/masking)) | A message, a document, an answer, a tool call for its event | — | Masked text, to everything below |
+| Rule and ML checks (`Guardrail`'s layers, `DocumentGuard.check`, `ToolGuard`'s argument checks) | The cleaned text, unmasked: masking replaces the `user:password@` of a URL the URL check looks for, and the ML model was trained on unmasked text. `tampering` reads the raw text, since cleaning removes what it looks for. | — (the ML model is read at start) | Findings: check, score, rule names, counts |
+| LLM check (optional, [`llm/layer.py`](sieve/llm/layer.py); may be a paid API) | Masked text, its start and end | Texts and verdicts given to `feedback()`, which `save()` writes to disk | Findings |
+| `OutputGuard` | The answer, the system prompt, `user_data` (the user's own messages, to tell new personal data) | Canary, the prompt's 5-word phrases | The answer masked, with links that load or carry data removed; findings |
+| `ToolGuard` | Tool name, arguments, `user_data`, user ID | Per-user amounts and call times, by user ID | Action and findings; `reasons` for the app, which name the tool and the argument |
+| Session limits (`TenantGuardrail`) | User and session ID, message length, masked text | Request counts by user ID; the last 1,000 characters of a session's last 3 masked messages, and the rules each fired | Session findings |
+| Result cache (`Guardrail`) | — | 2,048 results by the message's SHA-256: masked text and findings | The cached result |
+| SIEM events (B6) | The result; the original only to count what was masked | — | Hash of the masked text, keyed pseudonyms, rule records, counts; a masked excerpt if the policy asks |
+| Traffic log | The result | — | Masked text, keyed session pseudonym, findings, to a local file |
+| The LLM (B3) | System prompt: the operator's, a canary sentence, and the document note with `wrap()`'s boundary and mark. The masked message. Documents through `wrap()`. | — | An answer and tool calls, which come back through B4 and B5 |
+| The user | — | — | Sees the answer after `OutputGuard`, or a fixed message when blocked |
+
+**What the model sees of Sieve.** Three values, on purpose: the canary, which `OutputGuard` looks for in the answer, and `wrap()`'s boundary and mark, which tell the model where a document starts and ends. The model can repeat any of them, so none is relied on as a secret. A leaked canary is what gets the answer blocked; a leaked boundary is no use to a document, since `wrap()` takes it out (TH-04). Nothing that depends on the request gets in: no score, no rule, no decision. The prompt is what a guard with no checks at all would give, under the same system prompt for every request, so a model that repeats its context can't tell anyone which rule fired. The user sees the answer or one fixed message (`BLOCKED_MESSAGE`, `SAFE_REPLY`): the decision, not its reason (TH-12).
+
+**Tests.** [`tests/test_isolation.py`](tests/test_isolation.py) sends the whole corpus through every entry point, the way an app calls them (messages and answers through `guarded_reply`):
+- a Python audit hook sees no file, socket or subprocess opened while the checks run (TF-IDF alone, as in CI);
+- a word added to every input never shows up in a finding, a `reason`, or an event without an excerpt;
+- every prompt equals what a guard without checks gives, and every call gets the same system prompt;
+- a blocked user always gets the same text.
+
+With the labelled personal-data set, no value the masking catches in a message reaches an event, in any of the four directions, in JSON or CEF, even with excerpts on, nor session memory or the cache. Each of these checks failed when the matching leak was put into the code: a check opening a file, a finding quoting its text, an excerpt logged against the policy, the decision added to the prompt, the rule named in the blocked message, a document event with the raw text, the raw message in session memory or in the cache.
+
+**Not isolated.**
+- Every component shares the process. A dependency with a bug or a backdoor sees everything (TH-13); no check runs in its own process or sandbox.
+- With the cascade on, the first unsure message loads BERTurk inside a check, from the Hugging Face cache or the network (TH-13).
+- Request counts and tool totals are kept by the user ID as the app passes it, in memory.
+- The app gets findings, `reasons` and flagged document parts. What it may do with them is in section 4.
+
 ## 2. Assets
 
 | ID | Asset | Why it matters |
@@ -60,6 +94,7 @@ Each control below works only if the app does its part. If an assumption breaks,
 
 - Every boundary goes through Sieve: `check` on every user message, `check_document` on every retrieved text **and tool result**, `OutputGuard.check` on every answer, `check_tool` before every tool call. Sieve can't see a boundary it isn't called at. [all]
 - The app sends `result.text` (masked) to the model, not the original message. [TH-08]
+- Findings, rule IDs and `ToolResult.reasons` stay in the app and its logs. The user gets `reply.text` or the app's own fixed message, and the model gets nothing about a decision. Shown to the user, or fed back to the model after a refused tool call, a reason says which rule to get around. [TH-06, TH-12]
 - The app acts on `review`: holds the message, asks a person, or removes capabilities for that turn. The ML layer never blocks on its own, so if `review` is ignored, most of the detection in TH-01 and TH-04 does nothing. [TH-01, TH-02, TH-04, TH-05]
 - `user_data` is passed to `OutputGuard.check` and `ToolGuard.check`. Without it, "new personal data" is off and `from_user` arguments go to review. [TH-06, TH-09]
 - Confirmation for `confirm = true` tools is real UI confirmation, outside the model. [TH-06]
@@ -78,11 +113,11 @@ Each control below works only if the app does its part. If an assumption breaks,
 | [TH-05](#th-05-multi-turn-attacks) | Multi-turn attacks | AT1 | B1 | LLM01 | review | 60 corpus groups (`MT-*`); 387 benign conversations |
 | [TH-06](#th-06-malicious-tool-calls) | Malicious tool calls | AT1–AT3 via the model | B5 | LLM06 | block outside the spec, review the unverified | 53 corpus groups (43 calls, 10 chains); 15 benign calls |
 | [TH-07](#th-07-exfiltration-through-the-answer) | Exfiltration through the answer | AT1–AT3 via the model | B4 | LLM05 | remove + review | 13 corpus groups (`EXF-LINK`); 22 benign answers |
-| [TH-08](#th-08-personal-data-leaving-in-prompts-or-logs) | Personal data leaving in prompts or logs | — | B3, B6 | LLM02 | mask | 151 labelled messages: 113 values, 49 look-alikes, in messages and documents; a random stress test |
+| [TH-08](#th-08-personal-data-leaving-in-prompts-or-logs) | Personal data leaving in prompts or logs | — | B3, B6 | LLM02 | mask | 151 labelled messages: 113 values, 49 look-alikes, in messages and documents; a random stress test; every caught value against events, session memory and cache |
 | [TH-09](#th-09-another-customers-data-in-the-answer) | Another customer's data in the answer | AT1, AT3 via the model | B4 | LLM02 | review | 12 corpus groups (`EXF-PII`); 22 benign answers |
 | [TH-10](#th-10-active-content-in-the-answer) | Active content in the answer | AT1–AT3 via the model | B4 | LLM05 | remove + review | 10 corpus groups (`OUT-ACTIVE`), 9 more dev |
 | [TH-11](#th-11-resource-exhaustion) | Resource exhaustion | AT1, AT2 | B1, B2, B5 | LLM10 | review or block, never crash | Unit tests for inputs that crashed or took minutes; a pattern fuzzer; a latency benchmark |
-| [TH-12](#th-12-probing-the-guardrail) | Probing the guardrail | AT1 | B1 | LLM01 | block after repeated flags | Unit tests |
+| [TH-12](#th-12-probing-the-guardrail) | Probing the guardrail | AT1 | B1 | LLM01 | block after repeated flags | Unit tests; the corpus, for what a blocked user and the model get |
 | [TH-13](#th-13-model-and-training-data-integrity) | Model and training data integrity | AT4 | Load time | LLM03, LLM04 | — | No control for the model file |
 | [TH-14](#th-14-policy-misconfiguration) | Policy misconfiguration | Operator error | Load time | — | fail at load | Unit tests |
 | [TH-15](#th-15-guard-failure) | Guard failure | Any | All | — | block (`on_error`) | Unit tests |
@@ -155,6 +190,8 @@ For the request, the 15 PI-LEAK messages of the corpus: 12 are reviewed with the
 **Evidence.** The 30 held-out attacks, each hidden in support-ticket exports in six ways: 137 of 180 flagged, 66 blocked (every caught attack in a hidden carrier). No false alarms on 316 ticket exports; 9 of 20 hand-written look-alike documents flagged (`python -m scripts.evaluate_documents`). The corpus also has 14 documents written as attacks with Claude, white-box, each a different carrier or approach. 7 are flagged, and they are the 7 that address the reader ("bu tabloyu okuyan asistan", "kodu inceleyen yapay zeka"), in an e-mail header, a Markdown image title, a search result, a ticket note, a code comment, a database row and a signature. The 7 that pass don't, or not in words the rules know: a policy article that says agents may reset passwords without verification, a note in a loan application, a fake "Kullanıcı:" turn, a phishing link for the summary, "özeti yazan model" adding a tracking image, a conditional instruction for the next turn, and an instruction in a `<meta>` description. Those are the numbers with TF-IDF alone, as in CI; with BERTurk, 3 more are reviewed (the policy article, the conditional instruction, the tracking image). The `<meta>` one showed that attributes weren't read, and is dev now.
 
 **Fixed.** HTML attributes weren't read: cutting the document dropped every tag with its attributes, while `wrap()` passed them to the model. Attribute values of two words or more are now read as hidden text, whatever the attribute's name: the model reading the HTML gets them all, and a sentence in `class` is as hidden as one in `alt`. `value` and `placeholder`, which the page shows, are read as visible text. `wrap()` keeps only `href` and `src`. The replay now also puts every message attack in an attribute (`html_attribute`: `alt`, `title`, a meta description, `aria-label` or `data-*`, by group): 125 of 174 test placements are blocked, as many as in a comment or `display:none`, against 1 before. 158 ticket exports with each ticket's first message as its row's `title` give no false alarm. An AltaySec example (dev) that hides its instruction in `<metadata subject=…>` went from review to block.
+
+**Fixed.** The boundary a document "can't close" could be closed. `wrap()` took the boundary out of the document by replacing it with nothing, so a boundary nested in itself (its first half, the boundary, its second half) came out whole. A document that knew the boundary could end its own block, and the boundary isn't secret from the model, which can repeat its instructions. It is replaced with a space now, which can't join two halves; a loop would need one pass per level of nesting. The marking missed separators too: only spaces and tabs got the mark, so words joined by `\v`, `\r`, U+1680, U+2028 or a Hangul filler reached the model unmarked. Every space but a line break gets it now, and so do the blank letters (Hangul fillers, the braille blank); other line breaks become `\n`. Tests: every cut of the boundary at depths 1, 2 and 5, and 16 separators.
 
 **Residual risk.** Visible-text attacks are only reviewed. The 180 placements are 30 independent attacks. Spotlighting needs an LLM to measure and hasn't been measured. Instructions that don't address a model (a poisoned policy, a form note) read like ordinary text. A one-word attribute value isn't read, so an instruction written without spaces passes there. A value with `<` in it is read as visible text, so it's reviewed, not blocked; so is text inside `<script>` and `<style>`. The customer-service messages in the `title` previews are ones the ML layer was trained on, so no false alarm there is optimistic. Untested carriers: PDF and DOCX.
 
@@ -255,6 +292,7 @@ Masking and link cleaning always happen; the policy only decides whether the ans
 - The masking layers in [`masking/`](sieve/masking) run on the whole message before the model sees it, and on documents in `DocumentGuard.wrap()`.
 - SIEM events carry no raw text, only a hash of the masked text and HMAC pseudonyms for user and session IDs; the excerpt is masked and off by default.
 - The traffic log stores masked text only, with a keyed pseudonym of the session ID like the SIEM's (it was a plain hash, which hashing every likely session ID would reverse).
+- Session memory and the result cache hold masked text only. [`tests/test_isolation.py`](tests/test_isolation.py) checks every value of the labelled set below that the masking catches against the events of all four directions (excerpts on, JSON and CEF), session memory and the cache ([who sees what](#who-sees-what)).
 
 **Evidence.** A labelled set, [`corpus/pii/`](corpus/pii): 151 Turkish messages written with Claude after reading the masking code, so white-box. The test split has 113 personal-data values (TC numbers, IBANs, cards with expiry date and CVV, phone numbers, e-mail addresses, tax numbers, keys and passwords) in the shapes customers write them: grouped, dashed, spelled out, with look-alike letters, fullwidth or Arabic-Indic digits, in a URL, broken over a line, with a suffix. It also has 49 numbers that must stay: order and receipt numbers, amounts, dates, the bank's own phone numbers, a tracking number, a file hash. Every value is synthetic. `python -m scripts.evaluate_masking` sends each message through `mask()`, and through `DocumentGuard.wrap()` inside a support-ticket export. A value counts as masked only when one replaced piece holds all of it, under its own label.
 
@@ -338,7 +376,7 @@ Fuzzing every pattern then found more, and the worst wasn't a pattern. Masking r
 
 **Attack.** The attacker tries variants until one passes.
 
-**Controls.** After 3 flagged messages in 10 minutes, the user is paused for 15 minutes (`session.repeat_offender`). Limits count per user ID, so a new session doesn't reset them.
+**Controls.** After 3 flagged messages in 10 minutes, the user is paused for 15 minutes (`session.repeat_offender`). Limits count per user ID, so a new session doesn't reset them. Each try tells the attacker the decision and nothing more: a blocked user gets one fixed message whatever fired, and nothing a check found reaches the model, so the answer can't name the rule either ([who sees what](#who-sees-what)).
 
 **Residual risk.** New accounts. The code and model are public, so the search can happen offline with no queries at all. State is per process.
 
