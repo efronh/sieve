@@ -234,5 +234,7 @@ def test_no_personal_data_the_masking_catches_reaches_an_event_or_session_memory
         assert not [v for v in values if v in history], (record["id"], "session memory")
     assert len(caught) > 100
 
-    cache = repr(tenant.guard.cache)
+    # A cached result holds the message in its text and in what the checks matched. Keys are hashes, and timings
+    # are left out: a TC number's run of zeros turns up in one like 0.010000005332 by chance.
+    cache = repr([(r.text, [f.matches for f in r.findings]) for r in tenant.guard.cache.values()])
     assert "[TC_KIMLIK]" in cache and not [v for v in caught if len(v) >= 6 and v in cache]
