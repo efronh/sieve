@@ -24,7 +24,9 @@ KNOWN_KEYS = [
 # A scheme is short; an unbounded one was read again from every word start in a long "a-a-a-..." run.
 URL_PASSWORD = re.compile(r"\b[a-z][a-z0-9+.-]{0,31}://[^\s:/@]+:([^\s@/]+)@", re.IGNORECASE)
 
-HAS_DIGIT_OR_SYMBOL = r"(?=[^\s\"',;]*[\d!@#$%^&*?.+\-_])"
+# A digit or a symbol in the word; ".", "!" and "?" only inside it, since a sentence ends with one: "şifremi
+# unuttum." isn't a password.
+HAS_DIGIT_OR_SYMBOL = r"(?=[^\s\"',;]*(?:[\d@#$%^&*+\-_]|[.!?](?=[^\s\"',;.!?])))"
 PASSWORD_WITH_COLON = re.compile(
     # "şifrem:", "parolanız=": Turkish adds the owner to the word.
     r"\b(?:password|passwd|pwd|pass|(?:parola|şifre|sifre)(?:m|n|niz|nız|miz|mız)?|secret|api[_-]?key|token"

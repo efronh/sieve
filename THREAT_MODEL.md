@@ -113,7 +113,7 @@ Each control below works only if the app does its part. If an assumption breaks,
 | [TH-05](#th-05-multi-turn-attacks) | Multi-turn attacks | AT1 | B1 | LLM01 | review | 60 corpus groups (`MT-*`); 387 benign conversations |
 | [TH-06](#th-06-malicious-tool-calls) | Malicious tool calls | AT1–AT3 via the model | B5 | LLM06 | block outside the spec, review the unverified | 53 corpus groups (43 calls, 10 chains); 15 benign calls |
 | [TH-07](#th-07-exfiltration-through-the-answer) | Exfiltration through the answer | AT1–AT3 via the model | B4 | LLM05 | remove + review | 13 corpus groups (`EXF-LINK`); 22 benign answers |
-| [TH-08](#th-08-personal-data-leaving-in-prompts-or-logs) | Personal data leaving in prompts or logs | — | B3, B6 | LLM02 | mask | 151 labelled messages: 113 values, 49 look-alikes, in messages and documents; a random stress test; every caught value against events, session memory and cache |
+| [TH-08](#th-08-personal-data-leaving-in-prompts-or-logs) | Personal data leaving in prompts or logs | — | B3, B6 | LLM02 | mask | 151 labelled messages: 113 values, 49 look-alikes, in messages and documents; a random stress test; every caught value against events, session memory and cache; what masking takes from 1,900 benign texts and 95 tool records |
 | [TH-09](#th-09-another-customers-data-in-the-answer) | Another customer's data in the answer | AT1, AT3 via the model | B4 | LLM02 | review | 12 corpus groups (`EXF-PII`); 22 benign answers |
 | [TH-10](#th-10-active-content-in-the-answer) | Active content in the answer | AT1–AT3 via the model | B4 | LLM05 | remove + review | 10 corpus groups (`OUT-ACTIVE`), 9 more dev |
 | [TH-11](#th-11-resource-exhaustion) | Resource exhaustion | AT1, AT2 | B1, B2, B5 | LLM10 | review or block, never crash | Unit tests for inputs that crashed or took minutes; a pattern fuzzer; a latency benchmark |
@@ -303,7 +303,14 @@ Masking and link cleaning always happen; the policy only decides whether the ans
 
 The five misses are by design: an e-mail address with spaces around `@`, one with `at` and `dot` in words, a tax number with its keyword after it, a password with no digit or symbol, an old password with no keyword before it. `tests/test_masking_corpus.py` fails when a value masked, or a number left alone, in the committed baseline isn't any more.
 
-`--random 6000` packs 12,094 checksum-valid numbers in random shapes among other numbers and words: 99.1% are masked whole (83.5% before), 8 that were masked before aren't now, and 7.7% of 6,000 random reference numbers are masked by mistake (14.4% before). I used it while making the changes below, so it's a dev set, not a measurement.
+`--random 6000` packs 12,094 checksum-valid numbers in random shapes among other numbers and words: 98.7% are masked whole (83.5% before), and 6.2% of 6,000 random reference numbers are masked by mistake (14.4% before). I used it while making the changes below, so it's a dev set, not a measurement.
+
+**What masking costs.** Masking takes the value along with the risk, and sometimes more than the value. `python -m scripts.evaluate_masking_loss` measures three costs against known answers, without a model:
+- **Wrong masks.** Every piece masked in 1,900 benign texts (1,504 customer-service messages, the other benign data sets, the corpus's benign records) has a verdict by hand in [`corpus/pii/review/benign_masks.jsonl`](corpus/pii/review/benign_masks.jsonl): 112 distinct pieces. Before the fixes below, 8 of 124 masks took text that isn't personal data: "Hesap şifremi unuttum." reached the model as "Hesap şifremi [SIFRE]", an order number and the three words after it became `[IBAN]`, order numbers became `[TELEFON]`, and so did the branch's own phone number in an answer. Another 6 hid account numbers as `[TELEFON]`: hidden, as personal data should be, but the model is told it's a phone number. After the fixes: 1 and 6 of 117. That's a dev number, since I made the fixes reading these texts.
+- **Merged values.** A label stands for every value of its kind, so "eski e-postam X, yeni e-postam Y" reaches the model as two `[EPOSTA]`, and it can't tell which is the new one. 4 of the 96 customer-service conversations with a mask have two different values under one label (6 before the fixes), and so do 3 of the 106 labelled messages with a mask: two TC numbers, the two IBANs of a transfer, two phone numbers.
+- **Needed values.** A tool call often needs a value the user typed. 11 of the corpus's 17 benign tool requests do, and in 8 the model never sees it (9 of the 13 values): the IBAN to send money to, the new phone number, the e-mail address to send to. The model gets `[IBAN]` and can't write the call, and nothing in Sieve leads from a label back to its value. The same holds for attacks that need the model to copy a value: in 35 of 38 the model never sees it (34 of 39 values from the user's text, like an IBAN in a pasted scam SMS; 7 of 9 from a document read before the call). Masking stops those as a side effect. Turning masking off for a label, today the only way to let the model use such a value, gives that up too.
+
+What an answer loses, as a model reads the masked text, needs an LLM and isn't measured.
 
 **Fixed.** Measuring found four problems:
 - `DocumentGuard.wrap()` didn't mask at all, so a retrieved page or a ticket reached the model with every TC number and card in it. It masks with the tenant's `[masking]` layers now (`keep_personal_data=True` turns it off).
@@ -313,10 +320,19 @@ The five misses are by design: an e-mail address with spaces around `@`, one wit
 
 The 10 test records that showed these are dev now, and 5 written with the fix are dev too.
 
+**Fixed.** Measuring what masking costs found three rules that took more than personal data:
+- After "şifremi", a word with a symbol in it was a password, and the full stop that ends a sentence counted: "şifremi unuttum.", "sıfırladım.", "oluşturdum.". A ".", "!" or "?" counts only inside the word now.
+- A foreign IBAN was tried at every length from 15 to 34, reading on through spaces and dashes into the next words, whatever its two letters were. About one start in five found a length that passed mod 97. Now the two letters must be a country with IBANs, the length is that country's, and the IBAN must end where a word ends.
+- A bare 10-digit number starting with 5 was a mobile number even right after "Sipariş numaram". After an order, tracking, cargo, reference, receipt, serial or product keyword it isn't now; with 0 or +90 in front it still is. In the random test, 48 more valid numbers aren't masked (98.7%, from 99.1%): phone numbers the generator put right after "Sipariş ", which in real text is where an order number goes. 90 fewer reference numbers are masked (6.2%, from 7.7%).
+
+The labelled set's baseline didn't move, and the unit tests have the texts that showed each one.
+
 **Residual risk.**
 - Names, addresses and free-text personal data (health, family) aren't masked.
-- Numbers with only a space between them can still be misread: in the random test, 0.9% of valid numbers aren't masked whole, nearly all with other digits right next to them.
-- A random reference number is masked by mistake 7.7% of the time: a 16-digit one starting with 4 or 5 passes Luhn one time in ten.
+- Numbers with only a space between them can still be misread: in the random test, 1.3% of valid numbers aren't masked whole, nearly all with other digits right next to them or right after "Sipariş ".
+- A random reference number is masked by mistake 6.2% of the time: a 16-digit one starting with 4 or 5 passes Luhn one time in ten.
+- A label hides which value it stood for. Two values of a kind in one conversation can't be told apart, and a tool call can't use a value the user typed (8 of 11 such benign requests). Numbered labels that only the app maps back, never the model or the logs, would fix both; they don't exist yet.
+- An account number starting with 5 is masked as a phone number, and so is a business's own phone number in an answer: masking can't tell whose number it is.
 - The set is white-box and synthetic. Real customer messages haven't been measured.
 - Without `SIEVE_PSEUDONYM_KEY`, pseudonyms are keyed with the tenant name, which isn't secret.
 

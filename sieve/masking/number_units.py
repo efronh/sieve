@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 MAX_GAP = 3
 
-# OutputGuard sets a list here to collect the values masking replaces; None otherwise.
+# OutputGuard sets a list here to collect what masking replaces, as (label, value); None otherwise.
 REPLACED = ContextVar("replaced", default=None)
 
 NUMBER_WORDS = {
@@ -141,7 +141,7 @@ def apply_labeled_masks(text, spans):
         result.append(text[last_end:start])
         result.append(label)
         if replaced is not None:
-            replaced.append(text[start:end])
+            replaced.append((label, text[start:end]))
         last_end = end
 
     result.append(text[last_end:])

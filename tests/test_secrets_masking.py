@@ -20,11 +20,18 @@ SHOULD_MASK = [
     ("Parolanız=Ankara06*", "Ankara06*"),
     ("Şifrem 123456 ama giremiyorum", "123456"),
     ("parolam de Kedi*99", "Kedi*99"),
+    ("Şifrem Ankara1923.", "Ankara1923"),
+    ("Şifrem abc.def oldu", "abc.def"),  # a full stop inside the word still counts
     ("config: Zk8Qp2Lm7Vx4Rt9Nw3Bj6Hy1Cf5Gd0Ks8Ea", "Zk8Qp2Lm7Vx4Rt9Nw3Bj6Hy1Cf5Gd0Ks8Ea"),
 ]
 
 SHOULD_NOT_CHANGE = [
     "Şifremi unuttum, nasıl sıfırlarım?",
+    # The full stop that ends the sentence isn't a symbol in a password (customer-service messages).
+    "Hesap şifremi unuttum.",
+    "Bağlantıyı aldım ve şifremi sıfırladım. Çok teşekkürler!",
+    "Tamam, yeni şifremi oluşturdum.",
+    "Şifremi değiştirdim!",
     "Şifrem nasıl değiştirilir?",
     "Parolam en az kaç karakter olmalı?",
     "API anahtarımı nereden alırım?",

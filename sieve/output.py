@@ -125,7 +125,7 @@ def mask_and_collect(text, layers=None):
         masked = mask(text, layers)
     finally:
         REPLACED.reset(token)
-    return masked, [v for v in replaced if not MASK_LABEL.fullmatch(v.strip())]
+    return masked, [v for _, v in replaced if not MASK_LABEL.fullmatch(v.strip())]
 
 
 # Numbers by their digits; anything else (e-mails, keys) as written, spaces and case aside: without its

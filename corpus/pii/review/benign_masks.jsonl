@@ -1,0 +1,112 @@
+{"label": "[EPOSTA]", "value": "Can.doe@gmail.com", "verdict": "right"}
+{"label": "[EPOSTA]", "value": "Candoe@email.com", "verdict": "right"}
+{"label": "[EPOSTA]", "value": "Serap@email.com", "verdict": "right"}
+{"label": "[EPOSTA]", "value": "abc@gmail.com", "verdict": "right"}
+{"label": "[EPOSTA]", "value": "ahmet.kaya@gmail.com", "verdict": "right"}
+{"label": "[EPOSTA]", "value": "ahmet_saglam@hotmail.com", "verdict": "right"}
+{"label": "[EPOSTA]", "value": "ayse.kaya@ornekmail.com", "verdict": "right"}
+{"label": "[EPOSTA]", "value": "eski_email@example.com", "verdict": "right"}
+{"label": "[EPOSTA]", "value": "jane.doe@email.com", "verdict": "right"}
+{"label": "[EPOSTA]", "value": "jane@email.com", "verdict": "right"}
+{"label": "[EPOSTA]", "value": "janedoe@email.com", "verdict": "right"}
+{"label": "[EPOSTA]", "value": "janesmith@email.com", "verdict": "right"}
+{"label": "[EPOSTA]", "value": "john.doe@email.com", "verdict": "right"}
+{"label": "[EPOSTA]", "value": "john.doe@example.com", "verdict": "right"}
+{"label": "[EPOSTA]", "value": "john.doe@gmail.com", "verdict": "right"}
+{"label": "[EPOSTA]", "value": "johndoe2@example.com", "verdict": "right"}
+{"label": "[EPOSTA]", "value": "johndoe@email.com", "verdict": "right"}
+{"label": "[EPOSTA]", "value": "johndoe@example.com", "verdict": "right"}
+{"label": "[EPOSTA]", "value": "kamil.sen@example.com", "verdict": "right"}
+{"label": "[EPOSTA]", "value": "rachel@email.com", "verdict": "right"}
+{"label": "[EPOSTA]", "value": "xyz@gmail.com", "verdict": "right"}
+{"label": "[EPOSTA]", "value": "yeni_email@example.com", "verdict": "right"}
+{"label": "[IBAN]", "value": "BB789012 ve e-posta adresi", "verdict": "not_personal", "note": "an order number and the next words: BB isn't an IBAN country, and some length from 15 to 34 passed mod 97"}
+{"label": "[IBAN]", "value": "TR33 0006 1005 1978 6457 8413 26", "verdict": "right"}
+{"label": "[IBAN]", "value": "TR330006100519786457841326", "verdict": "right"}
+{"label": "[IBAN]", "value": "TR66 0006 2000 0012 3456 7890 12", "verdict": "right"}
+{"label": "[IBAN]", "value": "tr33-0006100519786457841326", "verdict": "right"}
+{"label": "[SIFRE]", "value": "oluşturdum.", "verdict": "not_personal", "note": "'yeni şifremi oluşturdum.': the verb after 'şifremi'"}
+{"label": "[SIFRE]", "value": "sıfırladım.", "verdict": "not_personal", "note": "'şifremi sıfırladım.': the verb after 'şifremi'"}
+{"label": "[SIFRE]", "value": "unuttum.", "verdict": "not_personal", "note": "'Hesap şifremi unuttum.': the verb after 'şifremi', its full stop read as a symbol"}
+{"label": "[TC_KIMLIK]", "value": "10000000146", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 500 7543355", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 506 7608366", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 508 1940642", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 510 5748947", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 510 6036225", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 510 6730231", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 510 9303394", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 511 2413294", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 512 7707267", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 512 8680023", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 515 6940819", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 516 6261110", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 520 7285071", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 522 6896745", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 523 8727238", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 523 9700549", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 528 6000237", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 529 4035160", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 529 6954443", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 531 8996676", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 532 111 22 33", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 532 6711635", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 537 9341653", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 541 4188187", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 542 3758073", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 545 7064276", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 546 3124497", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 553 1395085", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 553 8376852", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 555 3471371", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 557 3818143", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 558 2049258", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 560 5612629", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 560 9000894", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 561 2813838", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 561 7764825", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 562 5116151", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 563 6954883", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 564 5772597", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 567 2716764", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 568 1127275", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 569 9211513", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 573 5797163", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 575 4084202", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 579 9197017", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 580 3298356", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 582 7649416", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 582 7805636", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 583 1620491", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 584 6868027", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 585 4488566", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 586 2304645", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 587 7216596", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 590 5482889", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 590 6351684", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 592 3350875", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 593 2358409", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 593 7373929", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 594 3152769", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 597 5507384", "verdict": "right"}
+{"label": "[TELEFON]", "value": "+90 599 1375823", "verdict": "right"}
+{"label": "[TELEFON]", "value": "0312 555 12 34", "verdict": "not_personal", "note": "the bank branch's own number, in an answer that gives it to the customer"}
+{"label": "[TELEFON]", "value": "0532 123 45 67", "verdict": "right"}
+{"label": "[TELEFON]", "value": "05321234567", "verdict": "right"}
+{"label": "[TELEFON]", "value": "05331234567", "verdict": "right"}
+{"label": "[TELEFON]", "value": "05337778899", "verdict": "right"}
+{"label": "[TELEFON]", "value": "05436667788", "verdict": "right"}
+{"label": "[TELEFON]", "value": "0555 555 55 55", "verdict": "right"}
+{"label": "[TELEFON]", "value": "05553332211", "verdict": "right"}
+{"label": "[TELEFON]", "value": "05554443322", "verdict": "right"}
+{"label": "[TELEFON]", "value": "05556667788", "verdict": "right"}
+{"label": "[TELEFON]", "value": "5009905162", "verdict": "mislabeled", "note": "'Hesap numaram 5009905162': a customer account number starting with 5"}
+{"label": "[TELEFON]", "value": "5239128490", "verdict": "mislabeled", "note": "'Saygılarımla, Alp5239128490+90 587 7216596': the number before the phone, an account number in this set's other signatures ('Güven, 7211749059, +90 508 1940642')"}
+{"label": "[TELEFON]", "value": "5415126883", "verdict": "mislabeled", "note": "'Hesap numaram 5415126883': a customer account number starting with 5"}
+{"label": "[TELEFON]", "value": "5436547654", "verdict": "right"}
+{"label": "[TELEFON]", "value": "5522776315", "verdict": "not_personal", "note": "'Sipariş numaram 5522776315': an order number starting with 5"}
+{"label": "[TELEFON]", "value": "555-987-6543", "verdict": "right"}
+{"label": "[TELEFON]", "value": "5551234567", "verdict": "mislabeled", "note": "'Hesap numaram 5551234567': a customer account number starting with 5"}
+{"label": "[TELEFON]", "value": "5566778899", "verdict": "mislabeled", "note": "'Hesap numaram 5566778899': a customer account number starting with 5"}
+{"label": "[TELEFON]", "value": "5884365265", "verdict": "not_personal", "note": "'Sipariş numaram5884365265': an order number starting with 5"}
+{"label": "[TELEFON]", "value": "sıfır beş üç iki bir iki üç dört beş altı yedi", "verdict": "right"}

@@ -101,7 +101,7 @@ def evaluate(records):
             seen, replaced = seen_and_replaced(view, r, i)
             for n, item in enumerate(r["pii"]):
                 value = clean(item["value"]).strip()
-                gone = any(value in piece for piece in replaced)
+                gone = any(value in piece for _, piece in replaced)
                 rows.append({"item": f"{r['id']}#{n}", "split": r["split"], "label": item["label"], "pii": True,
                              "ok": gone and item["label"] in seen, "gone": gone,
                              "partly": not gone and value not in seen, "note": r.get("note", "")})
@@ -198,7 +198,7 @@ def random_shares(n, seed=42):
             mask(text + rng.choice(["", ".", " lütfen", "'dir"]))
         finally:
             REPLACED.reset(token)
-        masked += sum(any(clean(v) in piece for piece in replaced) for v in values)
+        masked += sum(any(clean(v) in piece for _, piece in replaced) for v in values)
         total += len(values)
     wrongly = 0
     for _ in range(n):

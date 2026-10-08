@@ -20,6 +20,9 @@ SHOULD_MASK = [
     ("[TELEFON]", "0090 532 111 2233"),
     ("[TELEFON]", "cep: 5321112233"),
     ("[TELEFON]", "Ev telefonu 0212 555 12 12"),
+    # An order keyword makes way only for a bare 10 digits right after it.
+    ("[TELEFON]", "Sipariş numaram 05321234567"),
+    ("[TELEFON]", "Siparişim gelmedi, beni 5321234567 numarasından arayın"),
     ("[TELEFON]", "sıfır beş üç iki bir bir bir iki iki üç üç"),
     ("[VKN]", "Vergi numaram 1234567890"),
     ("[VKN]", "VKN: 123 456 78 90"),
@@ -39,6 +42,11 @@ SHOULD_NOT_MASK = [
     "Sipariş no 5321112233445566",
     "Kart numaram 4111 1111 1111 1112",
     "Referans kodu 1234567890",
+    # A bare mobile-shaped number named as another kind right before it (customer-service messages).
+    "Sipariş numaram 5522776315. Teşekkürler",
+    "Sipariş numaram5884365265.",
+    "Kargo takip no: 5321234567",
+    "Ürün kodu 5412345678 hangisi?",
     "212 555 1212 numaralı dosya",
     "ali.veli@ nerede",
     "Toplam 3 elma ve 25 armut aldım",

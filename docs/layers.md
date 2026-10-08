@@ -17,12 +17,12 @@ Sonuç `allow` < `review` < `block` sırasında en kötüsü. Kontroller ilk 800
 
 | Etiket | Modül | Nasıl |
 |---|---|---|
-| `[GIZLI_ANAHTAR]`, `[SIFRE]` | `masking/credentials.py` | Bilinen anahtar önekleri (OpenAI, Anthropic, AWS, GitHub, Slack, Google, Stripe, JWT, özel anahtar), "şifre" kelimesinden ("şifrem:", "parolanız=" dahil) sonra gelen değer, bağlantı dizesindeki parola. En son, başka bir şeye benzemeyen yüksek entropili diziler. |
+| `[GIZLI_ANAHTAR]`, `[SIFRE]` | `masking/credentials.py` | Bilinen anahtar önekleri (OpenAI, Anthropic, AWS, GitHub, Slack, Google, Stripe, JWT, özel anahtar), "şifre" kelimesinden ("şifrem:", "parolanız=" dahil) sonra gelen, rakam ya da sembol içeren değer (cümleyi bitiren `.`, `!`, `?` sayılmıyor: "şifremi unuttum." kalıyor), bağlantı dizesindeki parola. En son, başka bir şeye benzemeyen yüksek entropili diziler. |
 | `[EPOSTA]` | `masking/email.py` | `(at)` / `[nokta]` gibi yazımlar dahil |
-| `[IBAN]` | `masking/iban.py` | mod 97; boşluklu, tireli, araya harf karışmış ya da yazıyla yazılmış; yabancı IBAN'lar da |
+| `[IBAN]` | `masking/iban.py` | mod 97; boşluklu, tireli, araya harf karışmış ya da yazıyla yazılmış; yabancı IBAN'lar da: bilinen bir ülke kodu, o ülkenin uzunluğu ve bir kelime sonu gerekiyor |
 | `[KART]` | `masking/card.py` | Luhn ve kart öneki (Visa, MC, Amex, Troy) |
 | `[SKT]`, `[CVV]` | `masking/card_security.py` | Son kullanma tarihi (`AA/YY`, `AA/YYYY`) ve 3-4 haneli CVV. Sadece "skt"/"son kullanma"/"cvv"/"güvenlik kodu" gibi bir kelimeden sonra ya da `[KART]`'ın hemen yanında (`[KART] 12/27 123`), çünkü `12/27` ve `123` tek başına sıradan sayılar. `24.09.2026` gibi tam tarihlere dokunmuyor. |
-| `[TELEFON]` | `masking/phone.py` | 5xx mobil her zaman; 2xx-4xx sabit hat sadece başında `0` / `+90` varsa |
+| `[TELEFON]` | `masking/phone.py` | 5xx mobil her zaman; 2xx-4xx sabit hat sadece başında `0` / `+90` varsa. Başında `0` / `+90` olmayan 10 hane, hemen önünde "sipariş / takip / kargo / referans / dekont / seri / ürün (no, numara, kod)" varsa telefon sayılmıyor |
 | `[TC_KIMLIK]` | `masking/tc.py` | TC checksum; rakama benzeyen harfler (`O`→0, `l`→1), yazıyla rakamlar |
 | `[VKN]` | `masking/vkn.py` | Sadece "vergi"/"VKN" kelimesinden sonra ve tek başına duran 10 hane, çünkü checksum tek başına rastgele 10 haneli sayıların ~%10'unu tutuyor |
 

@@ -203,6 +203,7 @@ reply = guarded_reply(user_message, ask_model, TenantGuardrail(policy, system_pr
 - The 1% threshold from cross-validation gave 3–8% false alarms on the held-out set. It needs recalibrating on real traffic.
 - The indirect-injection test hides real attacks in real conversations, but the hiding is mine, and the 20 look-alike documents are hand-written. The ML layer was trained on the customer-service conversations, so 0 false alarms on the ticket exports is optimistic. The indirect examples in AltaySec are a dev set: I read them before writing the document rules.
 - Names and addresses aren't masked (that needs NER). Masking also misses e-mail addresses with spaces or words for `@` and the dot, passwords with no digit or symbol, a tax number with its keyword after it, and some numbers with only a space between them.
+- Masking takes values a task needs. The model sees `[IBAN]`, so it can't send money to the IBAN the user typed (8 of the corpus's 11 benign tool requests that need a typed value), and two values of a kind in one conversation become the same label ([TH-08](THREAT_MODEL.md#th-08-personal-data-leaving-in-prompts-or-logs), `python -m scripts.evaluate_masking_loss`).
 - The model file in `models/` is a joblib pickle and is loaded on import. Only load models you trained yourself or got from a source you trust.
 - Session limits and tool-call totals are kept in memory, so each process counts separately.
 - Nothing bounds how long a check takes; the timeout is the caller's.
@@ -212,6 +213,7 @@ reply = guarded_reply(user_message, ask_model, TenantGuardrail(policy, system_pr
 - Attacks of my own in the sealed set (`holdout/user_attacks.txt`), written without reading the rules.
 - Better generalisation: more varied Turkish training data (never the sealed set), measured on the sealed set.
 - Names and addresses (NER), and a check for harmful content in answers.
+- Numbered labels (`[IBAN_1]`) that only the app maps back to their values, so a tool call can use a value the user typed without the model or the logs seeing it.
 - An HTTP API and a Docker image.
 - A CI run with the BERTurk stage, not only TF-IDF.
 
@@ -254,6 +256,7 @@ python -m scripts.replay --baseline check   # the CI gate
 python -m scripts.replay --holdout   # the sealed held-out set, counts only
 python -m scripts.fuzz_slow_inputs  # inputs whose cost grows faster than their length
 python -m scripts.evaluate_masking  # masking on the labelled personal-data set
+python -m scripts.evaluate_masking_loss  # what masking takes that it shouldn't: wrong masks, merged values, needed values
 python -m scripts.benchmark_latency # time per stage, and what the checks add to a request
 ```
 

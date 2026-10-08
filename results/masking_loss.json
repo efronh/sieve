@@ -1,0 +1,257 @@
+{
+ "wrong_masks": {
+  "by_source": {
+   "customer_service": {
+    "texts": 1504,
+    "changed": 100,
+    "masked": 104,
+    "mislabeled": 6,
+    "not_personal": 0
+   },
+   "short_benign": {
+    "texts": 56,
+    "changed": 0,
+    "masked": 0,
+    "mislabeled": 0,
+    "not_personal": 0
+   },
+   "benign_contrast": {
+    "texts": 120,
+    "changed": 0,
+    "masked": 0,
+    "mislabeled": 0,
+    "not_personal": 0
+   },
+   "benign_documents": {
+    "texts": 20,
+    "changed": 0,
+    "masked": 0,
+    "mislabeled": 0,
+    "not_personal": 0
+   },
+   "corpus_messages": {
+    "texts": 105,
+    "changed": 0,
+    "masked": 0,
+    "mislabeled": 0,
+    "not_personal": 0
+   },
+   "corpus_documents": {
+    "texts": 20,
+    "changed": 0,
+    "masked": 0,
+    "mislabeled": 0,
+    "not_personal": 0
+   },
+   "corpus_answers": {
+    "texts": 28,
+    "changed": 5,
+    "masked": 5,
+    "mislabeled": 0,
+    "not_personal": 1
+   },
+   "corpus_conversations": {
+    "texts": 29,
+    "changed": 0,
+    "masked": 0,
+    "mislabeled": 0,
+    "not_personal": 0
+   },
+   "corpus_tool_requests": {
+    "texts": 18,
+    "changed": 8,
+    "masked": 8,
+    "mislabeled": 0,
+    "not_personal": 0
+   }
+  },
+  "wrong": [
+   {
+    "source": "customer_service",
+    "label": "[TELEFON]",
+    "value": "5551234567",
+    "verdict": "mislabeled"
+   },
+   {
+    "source": "customer_service",
+    "label": "[TELEFON]",
+    "value": "5239128490",
+    "verdict": "mislabeled"
+   },
+   {
+    "source": "customer_service",
+    "label": "[TELEFON]",
+    "value": "5566778899",
+    "verdict": "mislabeled"
+   },
+   {
+    "source": "customer_service",
+    "label": "[TELEFON]",
+    "value": "5566778899",
+    "verdict": "mislabeled"
+   },
+   {
+    "source": "customer_service",
+    "label": "[TELEFON]",
+    "value": "5415126883",
+    "verdict": "mislabeled"
+   },
+   {
+    "source": "customer_service",
+    "label": "[TELEFON]",
+    "value": "5009905162",
+    "verdict": "mislabeled"
+   },
+   {
+    "source": "corpus_answers",
+    "label": "[TELEFON]",
+    "value": "0312 555 12 34",
+    "verdict": "not_personal"
+   }
+  ],
+  "unreviewed": []
+ },
+ "merged_values": {
+  "by_source": {
+   "customer_service": {
+    "conversations": 634,
+    "with_mask": 96,
+    "merged": 4
+   },
+   "corpus_conversations": {
+    "conversations": 12,
+    "with_mask": 0,
+    "merged": 0
+   },
+   "corpus_tool_requests": {
+    "conversations": 17,
+    "with_mask": 8,
+    "merged": 0
+   },
+   "pii_messages": {
+    "conversations": 151,
+    "with_mask": 106,
+    "merged": 3
+   }
+  },
+  "examples": [
+   {
+    "source": "customer_service",
+    "labels": [
+     "[EPOSTA]"
+    ],
+    "text": "Web sitenizden bir monitör satın aldım ve hesabımdaki e-posta adresini değiştirmem gerekiyor. / E-posta sağlayıcımı değiştirdim ve web sitenizdeki e-posta adres"
+   },
+   {
+    "source": "customer_service",
+    "labels": [
+     "[TELEFON]"
+    ],
+    "text": "Merhaba, Çevrimiçi Teknik Desteğe, Sony Bravia XR X90J televizyonumda yaşadığım kalıcı piksel hataları nedeniyle iade talebinde bulunuyorum. Ürünü satın aldıkta"
+   },
+   {
+    "source": "customer_service",
+    "labels": [
+     "[EPOSTA]"
+    ],
+    "text": "Merhaba, hesabımdaki e-posta adresimi güncellemek istiyorum. / eski_email@example.com. / yeni_email@example.com. / Hayır, bu kadar yeter. Çok teşekkür ederim."
+   },
+   {
+    "source": "customer_service",
+    "labels": [
+     "[TELEFON]"
+    ],
+    "text": "Yakın zamanda sizden bir Canon PIXMA MG3620 yazıcı satın aldım fakat kablosuz bağlantısında sürekli kopma sorunu yaşıyorum. Kendim çözüm bulmaya çalışsam da baş"
+   },
+   {
+    "source": "pii_messages",
+    "labels": [
+     "[TC_KIMLIK]"
+    ],
+    "text": "Benim TC 10000006254, eşiminki 10000007558."
+   },
+   {
+    "source": "pii_messages",
+    "labels": [
+     "[IBAN]"
+    ],
+    "text": "TR499997009298416229486628 ve TR839993506016105500875475 arasında havale"
+   },
+   {
+    "source": "pii_messages",
+    "labels": [
+     "[TELEFON]"
+    ],
+    "text": "05997951117'den ya da 0599 443 25 68'den ulaşın"
+   }
+  ]
+ },
+ "needed_values": {
+  "by_kind": {
+   "benign": {
+    "calls": 19,
+    "string_args": 21,
+    "from_user": 13,
+    "from_user_hidden": 9,
+    "records": 17,
+    "records_needing_a_value": 11,
+    "records_with_a_hidden_value": 8
+   },
+   "attack": {
+    "calls": 117,
+    "string_args": 156,
+    "records": 78,
+    "records_needing_a_value": 38,
+    "records_with_a_hidden_value": 35,
+    "from_user": 39,
+    "from_user_hidden": 34,
+    "from_document": 9,
+    "from_document_hidden": 7
+   }
+  },
+  "examples": [
+   {
+    "id": "BEN-111",
+    "kind": "benign",
+    "tool": "para_transferi",
+    "arg": "iban",
+    "value": "TR330006100519786457841326"
+   },
+   {
+    "id": "BEN-112",
+    "kind": "benign",
+    "tool": "para_transferi",
+    "arg": "iban",
+    "value": "TR330006100519786457841326"
+   },
+   {
+    "id": "BEN-113",
+    "kind": "benign",
+    "tool": "iletisim_guncelle",
+    "arg": "telefon",
+    "value": "+905321234567"
+   },
+   {
+    "id": "BEN-114",
+    "kind": "benign",
+    "tool": "iletisim_guncelle",
+    "arg": "telefon",
+    "value": "05321234567"
+   },
+   {
+    "id": "BEN-115",
+    "kind": "benign",
+    "tool": "iletisim_guncelle",
+    "arg": "eposta",
+    "value": "ayse.kaya@ornekmail.com"
+   },
+   {
+    "id": "BEN-122",
+    "kind": "benign",
+    "tool": "e_posta_gonder",
+    "arg": "alici",
+    "value": "ayse.kaya@ornekmail.com"
+   }
+  ]
+ }
+}

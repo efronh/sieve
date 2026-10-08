@@ -203,6 +203,7 @@ reply = guarded_reply(user_message, ask_model, TenantGuardrail(policy, system_pr
 - Çapraz doğrulamadaki %1 eşik test setinde %3-8 yanlış alarm verdi. Gerçek trafikte yeniden ayarlanması gerekir.
 - Dolaylı injection testi gerçek saldırıları gerçek yazışmalara gizliyor ama gizleme şekilleri benim, 20 benzer doküman da elle yazıldı. ML müşteri hizmetleri yazışmalarıyla eğitildiği için kayıt dökümlerindeki 0 yanlış alarm iyimser. AltaySec'teki dolaylı örnekler geliştirme seti: doküman kurallarını yazmadan önce onları okudum.
 - İsim ve adres maskelenmiyor (NER gerekir). Maskeleme ayrıca `@` ve nokta yerine boşluk ya da kelime kullanan e-posta adreslerini, rakam ya da sembol içermeyen şifreleri, anahtar kelimesi sonra gelen vergi numarasını ve aralarında sadece boşluk olan bazı sayıları kaçırıyor.
+- Maskeleme bir görevin ihtiyaç duyduğu değeri de götürüyor. Model `[IBAN]` görüyor, yani kullanıcının yazdığı IBAN'a para gönderemiyor (korpusta yazılan bir değere ihtiyaç duyan 11 benign tool isteğinin 8'i); aynı konuşmadaki aynı türden iki değer de aynı etiket oluyor ([TH-08](THREAT_MODEL.md#th-08-personal-data-leaving-in-prompts-or-logs), `python -m scripts.evaluate_masking_loss`).
 - `models/` içindeki model dosyası bir joblib pickle'ı ve import sırasında yükleniyor. Sadece kendi eğittiğiniz ya da güvendiğiniz bir kaynaktan aldığınız modelleri yükleyin.
 - Oturum limitleri ve tool çağrısı toplamları bellekte tutuluyor, birden fazla süreç varsa her biri ayrı sayıyor.
 - Bir kontrolün ne kadar süreceğini hiçbir şey sınırlamıyor; zaman aşımı çağıranın işi.
@@ -212,6 +213,7 @@ reply = guarded_reply(user_message, ask_model, TenantGuardrail(policy, system_pr
 - Mühürlü sete kuralları okumadan yazdığım kendi saldırılarım (`holdout/user_attacks.txt`).
 - Daha iyi genelleme: daha çeşitli Türkçe eğitim verisi (mühürlü set asla değil), sonucu mühürlü sette ölçmek.
 - İsim ve adres (NER), cevaplarda zararlı içerik kontrolü.
+- Sadece uygulamanın değerine geri çevirebildiği numaralı etiketler (`[IBAN_1]`): tool çağrısı, model ve loglar görmeden kullanıcının yazdığı değeri kullanabilsin.
 - Bir HTTP API ve Docker imajı.
 - CI'da sadece TF-IDF değil, BERTurk aşamasıyla da bir çalışma.
 
@@ -254,6 +256,7 @@ python -m scripts.replay --baseline check   # CI kapısı
 python -m scripts.replay --holdout   # mühürlü held-out set, sadece sayı
 python -m scripts.fuzz_slow_inputs  # maliyeti uzunluğundan hızlı büyüyen girdiler
 python -m scripts.evaluate_masking  # etiketli kişisel veri setinde maskeleme
+python -m scripts.evaluate_masking_loss  # maskelemenin götürmemesi gerekenler: yanlış maske, birleşen değer, gereken değer
 python -m scripts.benchmark_latency # aşama başına süre ve kontrollerin isteğe eklediği süre
 ```
 

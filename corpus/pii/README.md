@@ -14,4 +14,6 @@ Messages with personal data that masking must hide before the model sees it, and
 
 Every value is synthetic: TC numbers in the 10000000xxx test range, IBANs with bank codes no bank has (999xx), cards on test ranges (411111…, 555555…, 9792 00…, 3700…), the unused 0599 mobile prefix, `example.com` addresses, keys made up or taken from vendors' documentation. The messages were written with Claude after reading `sieve/masking/`, so they're white-box.
 
+[`review/benign_masks.jsonl`](review/benign_masks.jsonl) has a verdict for every piece masked in benign text (customer-service messages, the benign corpus records): `right`, `mislabeled` (personal data under another label) or `not_personal`. `python -m scripts.evaluate_masking_loss` reads it to count what masking takes that it shouldn't; `tests/test_masking_loss.py` fails on a masked piece with no verdict, or a wrong one not known.
+
 `baseline.json` lists every value masked and every number left alone; `tests/test_masking_corpus.py` fails when one isn't any more. After an intended change: `python -m scripts.evaluate_masking --baseline update`.

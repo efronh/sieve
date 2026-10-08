@@ -21,6 +21,9 @@ SHOULD_MASK = [
     "IBAN: TR11 1111 1111 1111 1111 1111 11",
     "DE89 3704 0044 0532 0130 00",
     "gb82 west 1234 5698 7654 32",
+    "NL91ABNA0417164300 numaralı hesap",
+    "Norveç: NO93 8601 1117 947.",
+    "FR14 2004 1010 0505 0001 3M02 606",
 ]
 
 SHOULD_NOT_MASK = [
@@ -29,6 +32,9 @@ SHOULD_NOT_MASK = [
     "Toplam 3 elma ve 25 armut aldım",
     "Tarih 24.09.2026 saat 14:30",
     "DE89 3704 0044 0532 0130 01",
+    # Not a country with IBANs; any length from 15 to 34 used to be tried, reading on through the words.
+    "Sipariş numaram BB789012 ve e-posta adresim janedoe@email.com.",
+    "DE89370400440532013000x",  # a German IBAN's length, but the word goes on
 ]
 
 
