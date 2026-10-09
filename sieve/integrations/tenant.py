@@ -342,10 +342,11 @@ class TenantGuardrail:
         action = ALLOW if self.policy.mode == "monitor" else worst_action(findings)
         return findings, action, would_action
 
-    # When the policy code itself raises, the policy can't be trusted: always block, whatever on_error says.
-    def failed(self, error, direction, session_id, user_id, request_id=None):
+    # When the policy code itself raises, the policy can't be trusted: always block, whatever on_error says. where: what
+    # failed, for the event's detail; the HTTP server says "timeout" for a check that ran out of time.
+    def failed(self, error, direction, session_id, user_id, request_id=None, where="policy"):
         logger.warning("sieve: %s check failed with %s", direction, type(error).__name__)
-        result = GuardrailResult("", BLOCK, [error_finding("policy", error)], request_id=request_id)
+        result = GuardrailResult("", BLOCK, [error_finding(where, error)], request_id=request_id)
         try:
             emit(to_event(result, BLOCK, self.policy, original="", session_id=session_id, user_id=user_id,
                           direction=direction, request_id=request_id, checked=count_decision()))

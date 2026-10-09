@@ -2,6 +2,8 @@
 
 Kod `sieve/integrations/` altında. Guardrail bunlar olmadan da çalışıyor; bunlar bir uygulamaya bağlarken lazım olan parçalar.
 
+Sieve'i kütüphane olarak değil, uygulamanın çağırdığı bir HTTP servisi olarak çalıştırmak için: [api.md](api.md).
+
 ## Kiracı politikası ve SIEM
 
 `tenant.py`, `siem.py`, `rules.py`.

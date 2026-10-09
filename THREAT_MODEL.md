@@ -29,6 +29,8 @@ The starting assumption: **the model is not a security boundary.** Anything an a
 | B5 | LLM → tool | A tool call | [`ToolGuard.check`](sieve/tools.py), `TenantGuardrail.check_tool` | Allowlist, types, limits, "did the user give this value", confirmation, rules on string arguments |
 | B6 | Sieve → logs | Decision events | [`siem.py`](sieve/integrations/siem.py), [`traffic_log.py`](sieve/integrations/traffic_log.py) | No raw text: masked-text hash, keyed pseudonyms, optional masked excerpt |
 
+The same entry points are served over HTTP by [`sieve/server.py`](sieve/server.py) ([docs/api.md](docs/api.md)), for an app that can't import Sieve. Its caller is the app, authenticated with an API key; it's not meant to be reachable by users.
+
 ### Who sees what
 
 Every component, what it reads, what it keeps, and what it passes on. Sieve runs in one process, so "isolated" doesn't mean a sandbox here: a check holds the raw message in memory while it runs. It means that what a check reads leaves it only through its result, and a result names rules, not text.
@@ -103,6 +105,7 @@ Each control below works only if the app does its part. If an assumption breaks,
 - Confirmation for `confirm = true` tools is real UI confirmation, outside the model. [TH-06]
 - The app's renderer sanitizes HTML and Markdown. `OutputGuard` removes what can run code or send data; it is not a sanitizer. [TH-10]
 - `SIEVE_PSEUDONYM_KEY` is set. Without it, pseudonyms are keyed with the tenant name. [TH-08]
+- Over HTTP, the app takes any answer other than 200, a timeout and a lost connection as block: Sieve not answering is a message nobody checked. [TH-15]
 - The app keeps the order: check the input, ask the model only if it wasn't blocked, show the answer only after `OutputGuard`. `guarded_reply` does this in one call ([TH-15](#th-15-guard-failure)). [all]
 
 ## 5. Threats
@@ -396,6 +399,7 @@ Fuzzing every pattern then found more, and the worst wasn't a pattern. Masking r
 - A document is one ML call per sentence: 158,000 characters of support tickets were 3,771 parts and took 8.3 seconds in the default setup.
 - The fuzzer only tries runs of repeated pieces. A pattern that's slow on some other shape would pass it.
 - Rate limits apply only when the app passes a session or user ID, and only within one process.
+- Over HTTP one check runs at a time per process, since a tenant's session state isn't thread-safe, and a request's waiting time counts toward its deadline. A slow input delays the checks behind it, and they're answered with block when their time runs out: the server doesn't fall over, but it stops letting messages through until the slow check ends. Past 64 waiting requests the answer is 503.
 
 ### TH-12 Probing the guardrail
 
@@ -456,7 +460,7 @@ Fuzzing every pattern then found more, and the worst wasn't a pattern. Masking r
 **Fixed.** The audit trail couldn't see its own failures. `syslog_handler` used UDP, which drops an event without a word. Python's `SysLogHandler` over TCP raised at start when the collector was down, kept a broken connection for good (every later event lost) and had no timeout, and a handler's error only reaches stderr. Now TCP is the default, and `SiemHandler` starts without the collector, drops a broken connection so the next event connects again, gives a connect or a send 2 seconds, waits 30 seconds after a failed connect, and counts every failure and says it on the `sieve` logger. Events carry the process's `instance` and a `seq` number, so a lost one is a gap the SIEM can see, `checked` (the decisions made, logged or not), and a `request_id` that joins a request's input, document, tool and output events. CEF lost the user, the mode and which rules were only shadowed or suppressed; it carries them now. Tests run against real sockets ([`tests/test_siem_delivery.py`](tests/test_siem_delivery.py)).
 
 **Residual risk.**
-- **Nothing bounds how long a check takes.** Sieve runs locally and synchronously, so a timeout is the caller's to set (TH-11).
+- **In the library nothing bounds how long a check takes.** It runs synchronously, so a timeout is the caller's to set (TH-11). The HTTP server sets one (`--timeout`, 5 seconds): past it the answer is block, with a `layer_error` event whose detail is `timeout: TimeoutError`, and a retry gets the check's own decision once it ends, never a stored failure. The check itself still runs to its end in the background; Python can't stop a thread.
 - **Sending an event is part of the check.** A collector that stops answering costs a check up to 2 seconds, once per 30. A `QueueHandler` in front takes it off the request path; Sieve doesn't put one there itself.
 - **An event lost before it's sent is lost.** `seq` shows the gap, `failures` counts it, nothing sends it again.
 - **An app that calls the model on its own loses the guarantee** if it doesn't keep the order `guarded_reply` keeps.
@@ -467,7 +471,7 @@ Fuzzing every pattern then found more, and the worst wasn't a pattern. Masking r
 1. **An attack in the user's own words is never blocked by default.** If the app ignores `review`, only the output and tool checks are left (TH-01, TH-04).
 2. **Tool specs are the real boundary for actions.** A loose spec is an open tool (TH-06).
 3. **The model file is code.** Anyone who can write it can run code in the app (TH-13).
-4. **Nothing bounds how long a check takes.** A pathological input (nothing has been tested for ReDoS) can stall a request, and the timeout is the caller's (TH-11, TH-15).
+4. **A slow input stalls its check.** The fuzzer found and fixed the known ones, but it only tries repeated pieces. Over HTTP the answer is block after `--timeout`; in the library the timeout is the caller's (TH-11, TH-15).
 5. **The detection numbers rest on 30 independent attacks** (TH-01 to TH-04).
 
 ## 7. Attack corpus
