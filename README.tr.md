@@ -54,6 +54,31 @@ Tablo dedektörleri tek başına ölçüyor. `Guardrail()`'in varsayılan ayarla
 
 ML katmanı mesajı sadece review'a gönderiyor, tek başına engellemiyor. Yani pratikte `review` sonucuna birinin (ya da sizin politikanızın) karar vermesi gerekiyor. Kurallar tek başına sadece açık, kelimesi kelimesine saldırıları engelliyor. Kontroller raporluyor, karar kiracı politikasının: skor üreten katman başına threshold (`[thresholds]`), kural başına karar (`[actions]`), katman başına shadow ya da off ([docs/operations.md](docs/operations.md)).
 
+#### ML threshold'unu oynatmak
+
+ML katmanı 0,76'da review'a gönderiyor; bu, çapraz doğrulamada normal mesajların %1'ini işaretleyen threshold. Politika onu oynatabiliyor (`[thresholds.prompt_injection_ml]`), mesajlarda, dokümanlarda ve tool argümanlarında aynı şekilde. `python -m scripts.threshold_sweep` her seti bir kez çalıştırıp 0,01'den 0,999'a her threshold'u hesaplıyor ([results/threshold_sweep.json](results/threshold_sweep.json)). Diğer katmanların işaretledikleri her threshold'da işaretli kalıyor.
+
+![ML threshold'una göre işaretlenen saldırılar ve normal kayıtlar, set başına](results/threshold_sweep.svg)
+
+| ML threshold'u | Çapraz doğrulama (763 saldırı, 2.486 normal) | TCPI test bölümü (30, 90) | Mühürlü `deepset_tr` (258, 345) | Corpus test dokümanları (1.231, 494) |
+|---|---|---|---|---|
+| 0,3 | %97 / %7,6 | %100 / %17 | %55 / %5,2 | %100 / %99 |
+| 0,5 | %92 / %3,9 | %93 / %6,7 | %38 / %0,3 | %98 / %81 |
+| 0,6 | %89 / %2,1 | %87 / %4,4 | %31 / %0 | %83 / %13 |
+| 0,7 | %88 / %1,3 | %87 / %4,4 | %29 / %0 | %80 / %6,3 |
+| **0,76 (varsayılan)** | **%85 / %1,1** | **%73 / %3,3** | **%26 / %0** | **%75 / %1,8** |
+| 0,8 | %81 / %1,0 | %70 / %3,3 | %24 / %0 | %72 / %1,6 |
+| 0,9 | %67 / %0,4 | %67 / %3,3 | %20 / %0 | %58 / %1,0 |
+| 0,95 | %57 / %0,3 | %50 / %1,1 | %17 / %0 | %45 / %0,6 |
+| 0,99 | %35 / %0,2 | %23 / %0 | %11 / %0 | %28 / %0,4 |
+
+Yakalanan saldırı / işaretlenen normal kayıt; varsayılan pipeline, threshold'u oynatılmış haliyle.
+
+- **Varsayılan threshold'un çevresinde mesajlar yavaş değişiyor.** 0,7'den 0,8'e çapraz doğrulamada yakalama %88'den %81'e, yanlış alarm %1,3'ten %1,0'a iniyor. TCPI'da hemen altında bir basamak var: 0,7, 30 saldırının 22'si yerine 26'sını yakalıyor, 90'da 3 yerine 4 yanlış alarmla. Bu sadece dört mesaj ve TCPI test seti, o yüzden threshold çapraz doğrulamanın koyduğu yerde kalıyor.
+- **`deepset_tr`'deki %26 bir threshold sorunu değil.** 0,5'te %38 oluyor; orada 345'te 1 yanlış alarm var ama çapraz doğrulamada normal mesajların %3,9'u, TCPI'da %6,7'si işaretleniyor. 0,3'te %55, karşılığında %7,6 ve %17. Model o üslubu tanımıyor, threshold'u düşürmek ondan çok az kazandırıyor. Mühürlü set burada sadece okunuyor; hiçbir şey ona göre ayarlanmadı.
+- **Düşük threshold'un bedelini en çok dokümanlar ödüyor.** Bir doküman, parçalarından biri işaretlenince işaretleniyor: 0,6 normal dokümanların %13'ünü işaretliyor (şu an %1,8), 0,5 %81'ini. O basamağın çoğu tek tür satır: corpus'taki ticket export'larının kayıt etiketleri (`Kayıt cs_00105:`), 0,53–0,59 skor alıyorlar. Politika henüz mesajlara bir, dokümanlara başka bir threshold veremiyor.
+- **ML en üstte engelleyebilir.** Varsayılan olarak hiç engellemiyor. `block_at = 0.99` ile çapraz doğrulamadaki 763 saldırının 118'ini daha engellerdi (toplamda %31, sadece kurallarla %15) ve TCPI'da 30'un 7'sini; hiçbir mesaj setinde tek bir normal mesajı daha engellemezdi. 0,95'te normal mesajlar da engellenmeye başlıyor: çapraz doğrulamada 2 tane daha, TCPI'da 90'da 1, corpus'ta 105'te 1.
+
 LLM katmanı prompt injection için değmedi. Etiket olmadan 1.7B'lik model İngilizce dedektörden çok az iyi. Eğitilmiş başlıkla %80'e çıkıyor ama fine-tuned BERTurk onu on kat daha hızlı geçiyor. AnyJev'in varsayılanı Qwen3-8B'yi deneyemedim, 16 GB belleğe sığmıyor.
 
 ### Dolaylı injection
@@ -247,7 +272,7 @@ reply = guarded_reply(user_message, ask_model, TenantGuardrail(policy, system_pr
 - Korpusun çoğu white-box: 333 test grubunun 291'i kurallar bilinerek Claude ile yazıldı. Kapsamı ölçüyor ve regresyonu yakalıyor; tespiti mühürlü set ölçüyor. Mühürlü setin etiketleri kaynaklarının kendi etiketleri; kör kalmak için kontrol etmedim.
 - TCPI test setinde 30 saldırı var, yani bir saldırı yaklaşık 3 puan. Her şey tek seed ile.
 - LLM katmanını sadece Qwen3-1.7B ile ölçtüm. Daha büyük bir model etiketsiz de daha iyi olabilir. Hakaret kontrolünün etiketli verisi yok.
-- Çapraz doğrulamadaki %1 eşik test setinde %3-8 yanlış alarm verdi. Gerçek trafikte yeniden ayarlanması gerekir.
+- Çapraz doğrulamadaki %1 eşik test setinde %3-8 yanlış alarm verdi. Gerçek trafikte yeniden ayarlanması gerekir ([oynatınca ne oluyor](#ml-thresholdunu-oynatmak)).
 - Dolaylı injection testi gerçek saldırıları gerçek yazışmalara gizliyor ama gizleme şekilleri benim, 20 benzer doküman da elle yazıldı. ML müşteri hizmetleri yazışmalarıyla eğitildiği için kayıt dökümlerindeki 0 yanlış alarm iyimser. AltaySec'teki dolaylı örnekler geliştirme seti: doküman kurallarını yazmadan önce onları okudum.
 - İsim ve adres maskelenmiyor (NER gerekir). Maskeleme ayrıca `@` ve nokta yerine boşluk ya da kelime kullanan e-posta adreslerini, rakam ya da sembol içermeyen şifreleri, anahtar kelimesi sonra gelen vergi numarasını ve aralarında sadece boşluk olan bazı sayıları kaçırıyor.
 - Düz maskeleme bir görevin ihtiyaç duyduğu değeri de götürüyor. Model `[IBAN]` görüyor, yani kullanıcının yazdığı IBAN'a para gönderemiyor (korpusta yazılan bir değere ihtiyaç duyan 11 benign tool isteğinin 8'i); aynı konuşmadaki aynı türden iki değer de aynı etiket oluyor. Harfli etiketler (`[masking] lettered_labels = true`: `[IBAN_A]`, değerine sadece tool çağrısında ve kullanıcının kendi cevabında dönüyor) ikisini de çözüyor, bir bedelle: kullanıcının kendi metnindeki bir değer (yapıştırılmış dolandırıcılık SMS'indeki IBAN) yine bir tool çağrısına girebiliyor ([TH-08](THREAT_MODEL.md#th-08-personal-data-leaving-in-prompts-or-logs), [TH-06](THREAT_MODEL.md#th-06-malicious-tool-calls)).
@@ -298,6 +323,7 @@ ruff check .
 python -m scripts.train_injection    # yeniden eğitir, CV ve test seti sonuçlarını basar
 python -m scripts.compare_models     # results/compare_models.json'u yeniden üretir
 python -m scripts.compare_families   # Sieve ve DeBERTa baseline'ı saldırı ailesine göre (önbellekteki model; ~15 dk)
+python -m scripts.threshold_sweep    # her sette 0,01'den 0,999'a her ML threshold'u, grafiğiyle (~6 dk)
 python -m scripts.evaluate_pipeline  # varsayılan Guardrail() test setinde
 python -m scripts.evaluate_documents # dokümanlara gizlenmiş saldırılarda DocumentGuard
 python -m scripts.replay             # saldırı korpusu: giriş noktası, aile, taşıyıcı ve kaynağa göre

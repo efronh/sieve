@@ -54,6 +54,31 @@ The table measures the detectors on their own. What `Guardrail()` does with its 
 
 The ML layer only sends messages to review and never blocks on its own, so in practice someone (or your own policy) has to act on `review`. The rules alone block only the obvious, literal attacks. The checks report and a tenant policy decides: thresholds per scored layer (`[thresholds]`), an action per rule (`[actions]`), shadow or off per layer ([docs/operations.md](docs/operations.md)).
 
+#### Moving the ML threshold
+
+The ML layer reviews at 0.76, the threshold that flagged 1% of normal messages in cross-validation. A policy can move it (`[thresholds.prompt_injection_ml]`), for messages, documents and tool arguments alike. `python -m scripts.threshold_sweep` runs each set once and works out every threshold from 0.01 to 0.999 ([results/threshold_sweep.json](results/threshold_sweep.json)). What the other layers flag stays flagged at any threshold.
+
+![Attacks and normal records flagged against the ML threshold, per set](results/threshold_sweep.svg)
+
+| ML threshold | Cross-validation (763 attacks, 2,486 normal) | TCPI test split (30, 90) | Sealed `deepset_tr` (258, 345) | Corpus test documents (1,231, 494) |
+|---|---|---|---|---|
+| 0.3 | 97% / 7.6% | 100% / 17% | 55% / 5.2% | 100% / 99% |
+| 0.5 | 92% / 3.9% | 93% / 6.7% | 38% / 0.3% | 98% / 81% |
+| 0.6 | 89% / 2.1% | 87% / 4.4% | 31% / 0% | 83% / 13% |
+| 0.7 | 88% / 1.3% | 87% / 4.4% | 29% / 0% | 80% / 6.3% |
+| **0.76 (shipped)** | **85% / 1.1%** | **73% / 3.3%** | **26% / 0%** | **75% / 1.8%** |
+| 0.8 | 81% / 1.0% | 70% / 3.3% | 24% / 0% | 72% / 1.6% |
+| 0.9 | 67% / 0.4% | 67% / 3.3% | 20% / 0% | 58% / 1.0% |
+| 0.95 | 57% / 0.3% | 50% / 1.1% | 17% / 0% | 45% / 0.6% |
+| 0.99 | 35% / 0.2% | 23% / 0% | 11% / 0% | 28% / 0.4% |
+
+Attacks caught / normal records flagged, the default pipeline with the threshold moved.
+
+- **Near the shipped threshold, messages change slowly.** From 0.7 to 0.8, cross-validation goes from 88% to 81% caught and from 1.3% to 1.0% false alarms. TCPI has a step just below it: 0.7 catches 26 of 30 instead of 22, with 4 false alarms of 90 instead of 3. That's four messages, and TCPI is the held-out set, so the threshold stays where cross-validation put it.
+- **`deepset_tr`'s 26% isn't a threshold problem.** At 0.5 it's 38%, with 1 false alarm of 345 there but 3.9% of normal messages flagged in cross-validation and 6.7% in TCPI; at 0.3 it's 55%, for 7.6% and 17%. The model doesn't know that style, and a lower threshold buys little of it. The sealed set is only read here; nothing is tuned on it.
+- **Documents pay the most for a lower threshold.** A document is flagged when any of its parts is: 0.6 flags 13% of normal documents against 1.8% now, 0.5 flags 81%. Most of that step is one kind of line, the record labels in the corpus's ticket exports (`Kayıt cs_00105:`), which score 0.53–0.59. A policy can't yet set one threshold for messages and another for documents.
+- **ML could block at the very top.** By default it never blocks. With `block_at = 0.99` it would block 118 more of the 763 attacks in cross-validation (31% blocked in all, against 15% by the rules alone) and 7 of 30 in TCPI, and not one more normal message in any message set. At 0.95 normal messages start getting blocked: 2 more in cross-validation, 1 of 90 in TCPI, 1 of 105 in the corpus.
+
 The LLM layer wasn't worth it for prompt injection. Without labels a 1.7B model does barely better than the English detector. With a trained head it gets to 80%, but fine-tuned BERTurk beats it at a tenth of the latency. I couldn't test Qwen3-8B (AnyJev's default) because it doesn't fit in 16 GB.
 
 ### Indirect injection
@@ -247,7 +272,7 @@ reply = guarded_reply(user_message, ask_model, TenantGuardrail(policy, system_pr
 - Most of the corpus is white-box: 291 of its 333 test groups were written with Claude knowing the rules. It measures coverage and catches regressions; the sealed set measures detection. The sealed set's labels are its sources' own, and to keep it blind I haven't checked them.
 - The TCPI held-out set has 30 attacks, so one attack is about 3 points. Everything is from a single seed.
 - The LLM layer was only measured with Qwen3-1.7B. A bigger model might do better without labels. The abuse check has no labelled data.
-- The 1% threshold from cross-validation gave 3–8% false alarms on the held-out set. It needs recalibrating on real traffic.
+- The 1% threshold from cross-validation gave 3–8% false alarms on the held-out set. It needs recalibrating on real traffic ([what moving it does](#moving-the-ml-threshold)).
 - The indirect-injection test hides real attacks in real conversations, but the hiding is mine, and the 20 look-alike documents are hand-written. The ML layer was trained on the customer-service conversations, so 0 false alarms on the ticket exports is optimistic. The indirect examples in AltaySec are a dev set: I read them before writing the document rules.
 - Names and addresses aren't masked (that needs NER). Masking also misses e-mail addresses with spaces or words for `@` and the dot, passwords with no digit or symbol, a tax number with its keyword after it, and some numbers with only a space between them.
 - Plain masking takes values a task needs. The model sees `[IBAN]`, so it can't send money to the IBAN the user typed (8 of the corpus's 11 benign tool requests that need a typed value), and two values of a kind in one conversation become the same label. Lettered labels (`[masking] lettered_labels = true`: `[IBAN_A]`, turned back into the value only in a tool call and in the user's own answer) fix both, at a cost: a value from the user's own text, like an IBAN in a pasted scam SMS, can reach a tool call again ([TH-08](THREAT_MODEL.md#th-08-personal-data-leaving-in-prompts-or-logs), [TH-06](THREAT_MODEL.md#th-06-malicious-tool-calls)).
@@ -298,6 +323,7 @@ ruff check .
 python -m scripts.train_injection    # retrain, prints CV and held-out results
 python -m scripts.compare_models     # regenerates results/compare_models.json
 python -m scripts.compare_families   # Sieve and the DeBERTa baseline per attack family (cached model; ~15 min)
+python -m scripts.threshold_sweep    # every ML threshold from 0.01 to 0.999 on every set, with the chart (~6 min)
 python -m scripts.evaluate_pipeline  # the default Guardrail() on the held-out set
 python -m scripts.evaluate_documents # DocumentGuard on attacks hidden in documents
 python -m scripts.replay             # the attack corpus, per entry point, family, carrier and source
