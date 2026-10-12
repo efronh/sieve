@@ -85,6 +85,44 @@ Every attack in [`corpus/`](corpus) has a family, a carrier and the least action
 
 "Stopped" means at least the expected action: review for most, block for an instruction hidden in HTML or a leaked canary. Asking the user to confirm doesn't count. What gets through, family by family, is in [THREAT_MODEL.md](THREAT_MODEL.md): social engineering with no attack words, leak requests that never say "system prompt", another customer's name, address or balance in an answer, tool limits shared across tools.
 
+#### Against the baseline, family by family
+
+The same test records through protectai's DeBERTa v3 detector, the baseline in [Detectors compared](#detectors-compared), reading the text each boundary carries: a message, each turn, a document in overlapping pieces, a tool call's string arguments, an answer (`python -m scripts.compare_families`). Flagged here means anything was flagged, for both, so Sieve's column is higher than "stopped" above. As it ships (a score of 0.5) the baseline flags most Turkish text, normal or not, so its catch rate there means little. At the threshold where it flags as many normal records as Sieve does, it catches almost nothing.
+
+| Family | Attack | Records (attacks) | Sieve | Baseline at Sieve's false-alarm rate | Baseline as shipped |
+|---|---|---|---|---|---|
+| PI-OVR | Instruction override | 120 (15) | 94% | 1% | 69% |
+| PI-ROLE | Role play, personas, DAN | 120 (15) | 90% | 0% | 43% |
+| PI-AUTH | Claimed authority | 120 (15) | 75% | 1% | 52% |
+| PI-SOC | Pretext: urgency, "for a test" | 120 (15) | 67% | 0% | 50% |
+| PI-ACT | Forbidden request, no pretext | 120 (15) | 48% | 0% | 41% |
+| PI-LEAK | Asking for the system prompt | 120 (15) | 80% | 2% | 54% |
+| PI-IND | Aimed at a model reading a document | 37 (16) | 92% | 0% | 38% |
+| OBF-UNI | Unicode tricks | 128 (16) | 75% | 6% | 64% |
+| OBF-ENC | Encodings and ciphers | 136 (17) | 89% | 11% | 79% |
+| OBF-LEX | Leetspeak, spacing, no diacritics | 136 (17) | 77% | 1% | 50% |
+| OBF-LANG | Other languages, code-switching | 120 (15) | 41% | 36% | 86% |
+| MT-SPLIT | Split over messages | 29 (29) | 93% | 10% | 83% |
+| MT-ESC | Slow escalation | 15 (15) | 87% | 0% | 93% |
+| MT-MEM | "Remember this as a rule" | 128 (16) | 77% | 0% | 48% |
+| TOOL-SCHEMA | Malformed tool calls | 14 (12) | 100% | 7% | 14% |
+| TOOL-LIMIT | Limit bypass | 15 (10) | 80% | 0% | 0% |
+| TOOL-RCPT | A recipient the user never gave | 15 (11) | 80% | 0% | 67% |
+| TOOL-ARGINJ | Payload in an argument | 10 (10) | 100% | 20% | 50% |
+| TOOL-CHAIN | Document → tool call | 10 (10) | 100% | n/a | 50% |
+| EXF-LINK | Data in a link or image URL | 14 (13) | 100% | 29% | 79% |
+| EXF-LEAK | System prompt in the answer | 14 (14) | 71% | 21% | 43% |
+| EXF-PII | Another customer's data in the answer | 13 (12) | 77% | 8% | 54% |
+| OUT-ACTIVE | Script, `javascript:` link | 10 (10) | 100% | 40% | 90% |
+| | **Normal records flagged** | | | | |
+| | Messages | 105 | 3% | 3% | 42% |
+| | Documents | 494 | 2% | 2% | 69% |
+| | Conversations | 387 | 0% | 0% | 71% |
+| | Tool calls | 15 | 0% | 0% | 13% |
+| | Answers | 22 | 9% | 9% | 36% |
+
+Two things make this kinder to Sieve than to an attacker. Most of the corpus was written knowing Sieve's rules, so its column is coverage, not how it does on attacks it hasn't seen; the sealed set above measures that. The baseline saw none of it either way, and its matched threshold is set on the same normal records it's then measured on, which flatters it. Where it does best is attacks in other languages, English among them: 36% against Sieve's 41%, its own ground and Sieve's weakest family. The rest of what Sieve checks, a classifier can't see at all: a transfer over the limit, a recipient the user never gave, a link that carries data out.
+
 Some other numbers:
 
 - BERTurk only runs when TF-IDF is unsure. In cross-validation that was 3% of normal messages, and 0 of 300 customer-service messages.
@@ -259,6 +297,7 @@ pytest -m slow          # downloads a tiny transformers model
 ruff check .
 python -m scripts.train_injection    # retrain, prints CV and held-out results
 python -m scripts.compare_models     # regenerates results/compare_models.json
+python -m scripts.compare_families   # Sieve and the DeBERTa baseline per attack family (cached model; ~15 min)
 python -m scripts.evaluate_pipeline  # the default Guardrail() on the held-out set
 python -m scripts.evaluate_documents # DocumentGuard on attacks hidden in documents
 python -m scripts.replay             # the attack corpus, per entry point, family, carrier and source

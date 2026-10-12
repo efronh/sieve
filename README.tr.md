@@ -85,6 +85,44 @@ ML'in mesaj olarak işaretlediği saldırılar (30'da 22), 1.000 karakterlik bir
 
 "Durdurulan", en az beklenen karar demek: çoğu için review, HTML'e gizlenmiş bir talimat ya da sızan canary için block. Kullanıcıdan onay istemek sayılmıyor. Ailelere göre neyin geçtiği [THREAT_MODEL.md](THREAT_MODEL.md)'de: saldırı kelimesi içermeyen sosyal mühendislik, "sistem promptu" demeyen sızdırma istekleri, cevapta başka bir müşterinin adı, adresi ya da bakiyesi, tool'lar arasında ortak olmayan limitler.
 
+#### Baseline'a karşı, aile aile
+
+Aynı test kayıtları, [Dedektörlerin karşılaştırması](#dedektörlerin-karşılaştırması)'ndaki baseline olan protectai'nin DeBERTa v3 dedektöründen geçiyor; her sınırın taşıdığı metni okuyor: bir mesaj, konuşmanın her mesajı, üst üste binen parçalar halinde bir doküman, bir tool çağrısının string argümanları, bir cevap (`python -m scripts.compare_families`). Burada işaretlenen, ikisi için de herhangi bir şeyin işaretlenmesi demek, yani Sieve'in sütunu yukarıdaki "durdurulan"dan yüksek. Geldiği haliyle (0,5 skor) baseline normal olsun olmasın Türkçe metnin çoğunu işaretliyor, yani oradaki yakalama oranı pek bir şey söylemiyor. Sieve kadar normal kaydı işaretlediği eşikte neredeyse hiçbir şey yakalamıyor.
+
+| Aile | Saldırı | Kayıt (saldırı) | Sieve | Sieve'in yanlış alarm oranında baseline | Baseline olduğu gibi |
+|---|---|---|---|---|---|
+| PI-OVR | Talimatları ezme | 120 (15) | %94 | %1 | %69 |
+| PI-ROLE | Rol yapma, persona, DAN | 120 (15) | %90 | %0 | %43 |
+| PI-AUTH | Yetki iddiası | 120 (15) | %75 | %1 | %52 |
+| PI-SOC | Bahane: aciliyet, "test için" | 120 (15) | %67 | %0 | %50 |
+| PI-ACT | Bahanesiz yasak istek | 120 (15) | %48 | %0 | %41 |
+| PI-LEAK | Sistem promptunu isteme | 120 (15) | %80 | %2 | %54 |
+| PI-IND | Dokümanı okuyan modele hitap | 37 (16) | %92 | %0 | %38 |
+| OBF-UNI | Unicode hileleri | 128 (16) | %75 | %6 | %64 |
+| OBF-ENC | Kodlamalar ve şifreler | 136 (17) | %89 | %11 | %79 |
+| OBF-LEX | Leetspeak, boşluk, aksansız yazım | 136 (17) | %77 | %1 | %50 |
+| OBF-LANG | Başka diller, dil karıştırma | 120 (15) | %41 | %36 | %86 |
+| MT-SPLIT | Mesajlara bölünmüş | 29 (29) | %93 | %10 | %83 |
+| MT-ESC | Yavaş tırmandırma | 15 (15) | %87 | %0 | %93 |
+| MT-MEM | "Bunu kural olarak hatırla" | 128 (16) | %77 | %0 | %48 |
+| TOOL-SCHEMA | Bozuk tool çağrıları | 14 (12) | %100 | %7 | %14 |
+| TOOL-LIMIT | Limit aşma | 15 (10) | %80 | %0 | %0 |
+| TOOL-RCPT | Kullanıcının vermediği alıcı | 15 (11) | %80 | %0 | %67 |
+| TOOL-ARGINJ | Argümanda payload | 10 (10) | %100 | %20 | %50 |
+| TOOL-CHAIN | Doküman → tool çağrısı | 10 (10) | %100 | yok | %50 |
+| EXF-LINK | Link ya da resim URL'sinde veri | 14 (13) | %100 | %29 | %79 |
+| EXF-LEAK | Cevapta sistem promptu | 14 (14) | %71 | %21 | %43 |
+| EXF-PII | Cevapta başka müşterinin verisi | 13 (12) | %77 | %8 | %54 |
+| OUT-ACTIVE | Script, `javascript:` linki | 10 (10) | %100 | %40 | %90 |
+| | **İşaretlenen normal kayıtlar** | | | | |
+| | Mesajlar | 105 | %3 | %3 | %42 |
+| | Dokümanlar | 494 | %2 | %2 | %69 |
+| | Konuşmalar | 387 | %0 | %0 | %71 |
+| | Tool çağrıları | 15 | %0 | %0 | %13 |
+| | Cevaplar | 22 | %9 | %9 | %36 |
+
+İki şey bu tabloyu Sieve'e bir saldırgandan daha nazik yapıyor. Korpusun çoğu Sieve'in kuralları bilinerek yazıldı, yani Sieve'in sütunu kapsamı ölçüyor, görmediği saldırılardaki başarısını değil; onu yukarıdaki mühürlü set ölçüyor. Baseline ise hiçbirini görmedi, ve eşleştirilen eşiği sonra ölçüldüğü aynı normal kayıtlarla ayarlanıyor, bu da onun lehine. En iyi olduğu yer başka dillerdeki saldırılar, İngilizce de dahil: Sieve'in %41'ine karşı %36; onun kendi alanı ve Sieve'in en zayıf ailesi. Sieve'in kontrol ettiği geri kalanı bir sınıflandırıcı hiç göremez: limiti aşan bir transfer, kullanıcının vermediği bir alıcı, veriyi dışarı taşıyan bir link.
+
 Diğer sonuçlar:
 
 - BERTurk sadece TF-IDF emin olmadığında çalışıyor. Çapraz doğrulamada bu normal mesajların %3'üydü, 300 müşteri hizmetleri mesajında hiç olmadı.
@@ -259,6 +297,7 @@ pytest -m slow          # küçük bir transformers modeli indirir
 ruff check .
 python -m scripts.train_injection    # yeniden eğitir, CV ve test seti sonuçlarını basar
 python -m scripts.compare_models     # results/compare_models.json'u yeniden üretir
+python -m scripts.compare_families   # Sieve ve DeBERTa baseline'ı saldırı ailesine göre (önbellekteki model; ~15 dk)
 python -m scripts.evaluate_pipeline  # varsayılan Guardrail() test setinde
 python -m scripts.evaluate_documents # dokümanlara gizlenmiş saldırılarda DocumentGuard
 python -m scripts.replay             # saldırı korpusu: giriş noktası, aile, taşıyıcı ve kaynağa göre
