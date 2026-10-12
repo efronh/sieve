@@ -429,7 +429,9 @@ Fuzzing every pattern then found more, and the worst wasn't a pattern. Masking r
 
 **Risk.** A policy that quietly turns protection off.
 
-**Controls.** `load_policy` rejects unknown keys, layers, modes, rule IDs and malformed tool specs. Disabling only some of the rules in a finding keeps the finding. Monitor and shadow modes still log what would have happened (`would_action`).
+**Controls.** `load_policy` rejects unknown keys, layers, modes, rule IDs and malformed tool specs. Disabling only some of the rules in a finding keeps the finding. Monitor and shadow modes still log what would have happened (`would_action`). `policies/default.toml` lists every setting the code accepts, and a test fails when one is missing.
+
+**Fixed.** A tenant that set its own `version` hid every change to `default.toml`, which it inherits: its events kept the same `policy_version` while the base thresholds or layers changed under it, and a SIEM watching the version saw nothing. Its version now names both (`2026-09-24.1+default.2026-10-12.1`). `default.toml` itself had been changed without a new version; it has one now. The file also left out the four answer checks (`canary`, `prompt_overlap`, `output_links`, `output_masking`) a policy can set, the `line` type and the `max_total`, `max_calls` and `window_seconds` tool keys, and some comments had gone stale (`[actions]` works on any rule now, ML can block with a threshold, the split check is off below 2 messages).
 
 **Residual risk.** `mode = "monitor"` or `shadow` layers left on in production allow everything; the only trace is the events. `[thresholds]` and `[actions]` can also loosen a layer or a rule (a higher `review_at`, `block_at = "never"`, a rule set to `"allow"`). That's a decision the policy file holds: every event carries the policy version, and loading a policy that sets a rule to `allow` or a layer to never block logs a warning, but nothing stops it. Whoever can edit `policies/` can turn Sieve off: policy files are trusted input.
 

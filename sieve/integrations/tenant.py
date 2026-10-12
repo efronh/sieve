@@ -133,9 +133,15 @@ def threshold_problems(thresholds):
     return problems
 
 
+# A tenant that sets its own version would hide a change to default.toml, which it inherits: every event carries the
+# version, and a SIEM watches it for changes. Such a tenant's version names both, "2026-09-24.1+default.2026-10-12.1".
+def policy_version(data, base):
+    return data["version"] if data["version"] == base["version"] else f"{data['version']}+default.{base['version']}"
+
+
 def load_policy(tenant="default", directory=POLICY_DIR, overrides=None):
     directory = Path(directory)
-    data = read_toml(directory / "default.toml")
+    data = base = read_toml(directory / "default.toml")
     if tenant != "default":
         data = merge(data, read_toml(directory / f"{tenant}.toml"))
     if overrides:
@@ -151,7 +157,7 @@ def load_policy(tenant="default", directory=POLICY_DIR, overrides=None):
 
     return Policy(
         tenant=tenant,
-        version=data["version"],
+        version=policy_version(data, base),
         mode=data["mode"],
         on_error=data.get("on_error", "block"),
         max_check_chars=data["max_check_chars"],

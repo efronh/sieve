@@ -1,16 +1,19 @@
-# Base policy. A tenant file (policies/<tenant>.toml) overrides only the keys it sets;
-# lists replace, they don't append.
+# Base policy. A tenant file (policies/<tenant>.toml) overrides only the keys it sets: tables merge key by key,
+# lists replace, they don't append. A typo anywhere (a key, a layer, a rule ID, a tool spec) fails at load.
+# Change the version with the file: every SIEM event carries it, and a tenant with its own version shows both
+# ("2026-09-24.1+default.2026-10-12.1"). docs/operations.md, "Kiracı politikası ve SIEM", says how a decision is made.
 
-version = "2026-09-24.1"
+version = "2026-10-12.1"
 mode = "enforce"         # enforce | monitor (log what would happen, always allow)
 on_error = "block"       # a check that raises: block (fail closed) | review | allow (fail open, still logged)
-max_check_chars = 8000
+max_check_chars = 8000   # a message's checks read this much; a longer one is reviewed (input_length)
 log_excerpt = false      # put the first 200 masked characters into SIEM events
 log_allowed = false      # also send allowed messages to the SIEM (SIEMs bill by event volume)
-disabled_rules = []      # rule IDs from rules.py, e.g. "url_check.ip_address_host"
+disabled_rules = []      # rule IDs from rules.py, e.g. "url_check.ip_address_host"; a finding is suppressed only
+                         # when every rule in it is disabled
 
-[masking]                # layer name = true | false
-secret_masking = true
+[masking]                # masking layer = true | false; documents and answers are masked with the same layers
+secret_masking = true    # API keys, passwords, connection strings
 email_masking = true
 iban_masking = true
 card_masking = true
@@ -18,50 +21,57 @@ card_security_masking = true  # expiry date and CVV, next to a card or after a k
 vkn_masking = true
 tc_masking = true
 phone_masking = true
-random_token_masking = true
+random_token_masking = true   # high-entropy strings nothing else took
 lettered_labels = false  # [IBAN_A], [IBAN_B] per session instead of [IBAN]: the model can tell values apart and a
                          # tool call can use the user's own (docs/layers.md, "Harfli etiketler")
 
-[layers]                 # enforce | shadow (log only) | off
+[layers]                 # enforce | shadow (log only, never decides) | off
 tampering = "enforce"
 prompt_injection_rules = "enforce"
 code_payloads = "enforce"
 url_check = "enforce"
-prompt_injection_ml = "enforce"  # review only; ML never blocks on its own
-session = "enforce"      # the [session] limits below
-tool_call = "enforce"    # the [tools.*] specs below, via TenantGuardrail.check_tool
+prompt_injection_ml = "enforce"  # reviews; it blocks only if [thresholds.prompt_injection_ml] sets a block_at
+session = "enforce"      # the [session] limits and the split-attack check
+tool_call = "enforce"    # the [tools.*] specs, via TenantGuardrail.check_tool
 indirect_injection = "enforce"  # document rules, via TenantGuardrail.check_document
+canary = "enforce"       # the answer checks, via TenantGuardrail.check_output; masking and link cleaning
+prompt_overlap = "enforce"  # apply whatever these say
+output_links = "enforce"
+output_masking = "enforce"
 
-# Where review and block start for a layer with a score, instead of the layer's own thresholds; both
-# ends are required. Layers: tampering, prompt_injection_rules, code_payloads, url_check,
-# indirect_injection, prompt_injection_ml.
+# Where review and block start for a layer with a score, instead of the layer's own thresholds; both ends are
+# required. Layers: tampering, prompt_injection_rules, code_payloads, url_check, indirect_injection, prompt_injection_ml.
 # [thresholds.prompt_injection_ml]
 # review_at = 0.5
-# block_at = 0.95        # or "never"; ML alone never blocks without this
+# block_at = 0.95        # or "never" (loading logs a warning); ML alone never blocks without this
 
-# The action for a rule ID from rules.py, for rules without a score: tool specs, output checks,
-# session limits, document rules. "allow" suppresses the rule, and loading such a policy logs a warning.
+# The action for a rule ID from rules.py. A finding whose rules all have one gets the worst of them; one whose rules
+# only some have can only go up, since the others' own actions aren't known. "allow" suppresses the rule, and loading
+# such a policy logs a warning. layer_error can't be set here: that's on_error.
 # [actions]
 # "tool_call.not_from_user" = "block"
 # "output_links.external_image" = "review"
 
-[session]                # per user (or session when there's no user ID); needs session_id / user_id in check()
+[session]                # per user (or session when there's no user ID); needs user_id / session_id in check()
 max_requests_per_minute = 30
 max_chars_per_window = 50000
 max_flagged = 3          # this many flagged messages in the window pause the user ...
 cooldown_seconds = 900   # ... for this long
-window_seconds = 600
-context_messages = 4     # split-attack check over the last N messages of a session; 0 = off
+window_seconds = 600     # for max_chars_per_window, max_flagged and the split-attack check
+context_messages = 4     # split-attack check over the last N messages of a session; below 2 = off
 
 [url_check]
-allowed_hosts = []
+allowed_hosts = []       # the URL rules skip these hosts, and answers and tool calls may link to them
 
 # Tools the model may call; any other tool is blocked. One table per tool:
 #   [tools.para_transferi]
-#   params = { iban = "str", tutar = "number", aciklama = "str" }   # str | number | integer | bool
+#   params = { iban = "line", tutar = "number", aciklama = "str" }  # str | line (no line breaks) | number | integer | bool
 #   optional = ["aciklama"]  # every other parameter is required; unknown ones block
 #   min = { tutar = 1 }      # outside min/max blocks
 #   max = { tutar = 50000 }
+#   max_total = { tutar = 50000 }  # summed over the user's calls in window_seconds; over it blocks, no user ID reviews
+#   max_calls = 5            # calls per user in window_seconds; over it blocks
+#   window_seconds = 86400   # for max_total and max_calls; a day if not set
 #   from_user = ["iban"]     # must appear in the user's own messages, else review
 #   confirm = true           # every call goes to review (the user confirms)
 [tools]

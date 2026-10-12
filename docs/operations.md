@@ -18,7 +18,9 @@ guard = TenantGuardrail(load_policy("example_bank"))   # policies/default.toml +
 result = guard.check(text, session_id="abc", user_id="42")
 ```
 
-Politika TOML dosyalarında. `policies/default.toml` temel ayarlar, `policies/<kiracı>.toml` sadece değiştirdiği anahtarları eziyor. Bilinmeyen bir kural ID'si, katman ya da mod yüklemede hata veriyor; böylece yanlış yazılmış bir istisna kuralı sessizce açık bırakmıyor.
+Politika TOML dosyalarında. `policies/default.toml` temel ayarlar, `policies/<kiracı>.toml` sadece değiştirdiği anahtarları eziyor. Bilinmeyen bir kural ID'si, katman ya da mod yüklemede hata veriyor; böylece yanlış yazılmış bir istisna kuralı sessizce açık bırakmıyor. `default.toml` kodun kabul ettiği her ayarı listeliyor (eksik kalırsa test düşüyor), yani bir politikanın neler söyleyebileceği orada.
+
+Her dosyanın bir `version`'ı var ve her SIEM olayında `policy_version` olarak duruyor; dosya değişince sürüm de değişmeli. Kendi `version`'ını yazan bir kiracının olayında ikisi birden görünüyor (`2026-09-24.1+default.2026-10-12.1`): kiracı dosyası aynı kalsa da `default.toml`'daki bir değişiklik o kiracının olaylarında görünsün diye.
 
 - `mode = "monitor"` her şeye izin veriyor ama olaya ne olacağını (`would_action`) yazıyor.
 - `on_error` bir kontrol hata verirse ne olacağını söylüyor: `block` (varsayılan), `review` ya da `allow` (açık kalma, yine de loglanıyor). Shadow moddaki bir katmanın hatası engellemiyor. Hata veren katman diğerlerini durdurmuyor: mesajda, dokümanda, tool çağrısında ve oturumun split kontrolünde diğer katmanlar yine çalışıyor, bulguda hata veren katmanın adı var, shadow/off modu ona göre uygulanıyor. Politikanın kendi kodu hata verirse `on_error` ne derse desin sonuç block. Olayda kural `layer_error`, ayrıntıda katman ve hata tipi var, hata mesajı yok. `layer_error` `disabled_rules`'a yazılamıyor.
