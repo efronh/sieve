@@ -37,7 +37,7 @@ Her dosyanın bir `version`'ı var ve her SIEM olayında `policy_version` olarak
 
 Her giriş noktası (mesaj, doküman, tool çağrısı, model cevabı) aynı sırayı izliyor:
 
-1. **Katmanlar bulgu üretiyor.** Her bulguda bir skor (0–1), katmanın kendi kararı ve tetiklenen kural ID'leri var. Skor üreten katmanlar kararı kendi eşikleriyle veriyor; tool spec'i, çıkış kontrolleri ve oturum limitleri kural başına varsayılan bir karar veriyor. İkisi de politika aksini söylemedikçe geçerli.
+1. **Katmanlar bulgu üretiyor.** Her bulguda bir skor (0–1), katmanın kendi kararı ve tetiklenen kural ID'leri var. Skor üreten katmanlar kararı kendi eşikleriyle veriyor; tool spec'i, çıkış kontrolleri ve oturum limitleri kural başına varsayılan bir karar veriyor. İkisi de politika aksini söylemedikçe geçerli. Bir dokümanın gizli kısmında bir şey işaretlenirse eklenen `indirect_injection` block'u (`hidden_instruction`) katmanların kendi kararına bakıyor, politikanın eşiğine değil; onu `[thresholds.indirect_injection]` ya da `[actions]` değiştiriyor.
 2. **Politika her bulguya şu sırayla uygulanıyor:**
    1. Katman için `[thresholds]` varsa karar skordan bu eşiklerle yeniden hesaplanıyor.
    2. Bulgunun kuralları için `[actions]` varsa karar onlardan geliyor (yukarıya bakın).

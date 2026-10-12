@@ -192,10 +192,12 @@ def parts_of(text):
     return split_parts(text)[0]
 
 
+# A quiet score stays (the ML layer's, below its threshold): a policy with a lower threshold for the layer decides
+# on it, as it does for a message.
 def merge(findings):
     by_check = {}
     for f in findings:
-        if not f.matches and f.action == ALLOW:
+        if not f.matches and f.action == ALLOW and not f.probability:
             continue
         # Each failed layer stays a finding of its own: on_error reads which layer it was.
         key = (f.check, f.matches[0]) if f.check == ERROR_CHECK and f.matches else f.check
