@@ -207,3 +207,24 @@ def test_the_access_log_has_no_body(server, caplog):
     call(server, f"/v1/check?debug={TC}", {"text": ATTACK})
     logged = " ".join(r.getMessage() for r in caplog.records if r.name == "sieve.server")
     assert "POST /v1/check 200" in logged and TC not in logged and "talimat" not in logged
+
+
+# A service manager stops the server with SIGTERM; it finishes the running check and exits cleanly.
+def test_the_server_stops_cleanly_on_sigterm():
+    import os
+    import signal
+    import subprocess
+    import sys
+
+    env = dict(os.environ, SIEVE_API_KEY=KEY, SIEVE_CASCADE="0")
+    server = subprocess.Popen([sys.executable, "-m", "sieve.server", "--port", "0", "--siem", "none"],
+                              stderr=subprocess.PIPE, text=True, env=env)
+    lines = []
+    for line in server.stderr:
+        lines.append(line)
+        if "serving tenant" in line:
+            break
+    server.send_signal(signal.SIGTERM)
+    _, rest = server.communicate(timeout=10)
+    assert server.returncode == 0 and "sieve: stopped" in rest
+    assert any("SIEVE_PSEUDONYM_KEY isn't set" in line for line in lines) == ("SIEVE_PSEUDONYM_KEY" not in env)

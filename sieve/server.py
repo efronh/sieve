@@ -8,6 +8,7 @@ import hmac
 import json
 import logging
 import os
+import signal
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -15,7 +16,7 @@ from concurrent.futures import TimeoutError as CheckTimeout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from sieve.actions import ALLOW, BLOCK
-from sieve.integrations.siem import JsonFormatter, syslog_handler
+from sieve.integrations.siem import PSEUDONYM_KEY_ENV, JsonFormatter, syslog_handler
 from sieve.integrations.tenant import TenantGuardrail, load_policy
 from sieve.output import SAFE_REPLY
 from sieve.rules import rule_ids
@@ -246,10 +247,18 @@ def main(argv=None):
     events.setLevel(logging.INFO)
     events.handlers = [] if args.siem == "none" else [siem_handler(args.siem)]
 
+    if not os.environ.get(PSEUDONYM_KEY_ENV):
+        logger.warning("sieve: %s isn't set: user and session pseudonyms are keyed with the tenant name, which isn't "
+                       "secret", PSEUDONYM_KEY_ENV)
+
     system_prompt = open(args.system_prompt, encoding="utf-8").read() if args.system_prompt else ""
     guard = TenantGuardrail(load_policy(args.tenant), system_prompt=system_prompt)
     server = make_server(guard, args.host, args.port, api_key or None, args.timeout)
-    logger.info("sieve: serving tenant %r on %s:%d%s", args.tenant, args.host, args.port,
+    # A service manager (systemd, Kubernetes, docker stop) stops it with SIGTERM: finish the check that's running and
+    # exit cleanly. As PID 1 in a container there's no default handler at all, and it would be killed 10 seconds later.
+    # shutdown() waits for serve_forever, so it can't run on that thread.
+    signal.signal(signal.SIGTERM, lambda signum, frame: threading.Thread(target=server.shutdown).start())
+    logger.info("sieve: serving tenant %r on %s:%d%s", args.tenant, args.host, server.server_address[1],
                 "" if api_key else " WITHOUT AUTHENTICATION")
     try:
         server.serve_forever()
@@ -257,6 +266,8 @@ def main(argv=None):
         pass
     finally:
         server.server_close()
+        server.RequestHandlerClass.service.worker.shutdown(wait=True, cancel_futures=True)  # the check running ends
+        logger.info("sieve: stopped")
 
 
 if __name__ == "__main__":

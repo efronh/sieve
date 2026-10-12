@@ -15,7 +15,7 @@ SIEVE_API_KEY=... python -m sieve.server --tenant example_bank --system-prompt p
 | `--siem` | `stdout` | `stdout` (satır başına bir JSON olay), `host:port` (TCP syslog, JSON) ya da `none` |
 | `--insecure-no-auth` | kapalı | Anahtarsız çalıştırma; sadece yerel test için |
 
-`SIEVE_API_KEY` yoksa sunucu başlamıyor. Sadece standart kütüphane kullanıyor (`http.server`): güvenilmesi gereken bir web framework'ü yok ([TH-13](../THREAT_MODEL.md#th-13-model-and-training-data-integrity)).
+`SIEVE_API_KEY` yoksa sunucu başlamıyor; `SIEVE_PSEUDONYM_KEY` yoksa uyarı veriyor. SIGTERM'de çalışan kontrolü bitirip temiz kapanıyor (systemd, Kubernetes ve `docker stop` böyle durduruyor). Sadece standart kütüphane kullanıyor (`http.server`): güvenilmesi gereken bir web framework'ü yok ([TH-13](../THREAT_MODEL.md#th-13-model-and-training-data-integrity)).
 
 ## İstek
 
