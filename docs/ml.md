@@ -4,7 +4,7 @@ Kod `sieve/ml/injection.py`, eğitim `scripts/train_injection.py`, karşılaşt�
 
 ## Kademe
 
-Her mesajda TF-IDF (karakter 3-5 ve kelime 1-2 gram) + lojistik regresyon çalışıyor (~0.5 ms). TF-IDF skoru `low` ile `high` arasında kalırsa `dbmdz/bert-base-turkish-cased` cümle vektörü + lojistik regresyon da çalışıyor ve iki skorun ortalaması alınıyor (M4 GPU'da ~35 ms; model ilk kararsız mesajda ~8 saniyede yükleniyor).
+Her mesajda TF-IDF (karakter 3-5 ve kelime 1-2 gram) + lojistik regresyon çalışıyor (~0.06 ms: model doğrusal olduğu için skor n-gram ağırlıklarının toplamından doğrudan hesaplanıyor, scikit-learn'ün `predict_proba`'sıyla aynı sonuç; scikit-learn tek metin için ~0.45 ms sürüyordu). TF-IDF skoru `low` ile `high` arasında kalırsa `dbmdz/bert-base-turkish-cased` cümle vektörü + lojistik regresyon da çalışıyor ve iki skorun ortalaması alınıyor (M4 GPU'da ~35 ms; model ilk kararsız mesajda ~8 saniyede yükleniyor).
 
 `low` ve `high` eğitim sırasında çapraz doğrulamadan hesaplanıyor: `low` altında iki model birlikte hiçbir mesajı işaretlemedi, `high` üstünde hepsini işaretledi. Yani eğitim verisinde kademe, iki modeli her mesajda çalıştırmakla aynı kararı veriyor.
 

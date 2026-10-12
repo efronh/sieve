@@ -75,7 +75,7 @@ CEF'te kullanıcı `suser`, süreç `deviceExternalId`, `cn1` = `seq`, `cn2` = `
 - Gölge katmanlardan ve kapalı kurallardan gelen bulgular işaretli sayılmıyor.
 - Korpusta 29 bölünmüş saldırının 27'si yakalanıyor ve 387 normal konuşmanın hiçbiri işaretlenmiyor. Ama çoğunda bir parça zaten tek başına saldırı gibi okunuyor; her parçası zararsız yazılmış 14 saldırıdan, hiçbir parçası işaretlenmeyen 6'sının sadece 1'ini birleştirme kontrolü yakalıyor ([TH-05](../THREAT_MODEL.md#th-05-multi-turn-attacks)). Mesajların sınırında yan yana gelen kelimeler yanlış eşleşebildiği için sadece review'a atıyor.
 - Durum bellekte, en fazla 50.000 anahtar tutuluyor (en eskisi atılıyor). Birden fazla süreç varsa her biri ayrı sayıyor.
-- Normal bir müşteri mesajı varsayılan politikayla median 1.3 ms sürüyor; bunun 0.7 ms'si oturum kontrolleri (son mesajlar birleştirilip kurallar bir kez daha çalıştırılıyor). `python -m scripts.benchmark_latency`.
+- Normal bir müşteri mesajı varsayılan politikayla median 0.5 ms sürüyor; bunun 0.27 ms'si oturum kontrolleri (son mesajlar birleştirilip ML dahil her kontrol bir kez daha çalıştırılıyor). `python -m scripts.benchmark_latency`.
 
 ## Gerçek trafikten veri toplama
 

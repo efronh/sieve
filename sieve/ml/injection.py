@@ -1,7 +1,9 @@
 import importlib.util
 import logging
+import math
 import os
 import warnings
+from collections import Counter
 from pathlib import Path
 
 from sieve.actions import ALLOW, Finding, action_for
@@ -109,6 +111,59 @@ def load_bundle(path):
     return bundle
 
 
+# The TF-IDF model is linear: its score is a weighted sum over the n-grams a text has, each vectorizer's part divided
+# by that part's length. Summed directly, it's sklearn's predict_proba to within 1e-14 in an eighth of the time;
+# most of sklearn's 0.4 ms a call goes to building sparse matrices for one short text.
+class LinearScorer:
+    def __init__(self, parts, intercept):
+        self.parts = parts  # (analyzer, vocabulary, idf, weights, sublinear_tf) per vectorizer, in the union's order
+        self.intercept = intercept
+
+    def probability(self, text):
+        z = self.intercept
+        for analyzer, vocabulary, idf, weights, sublinear in self.parts:
+            counts = Counter(i for i in map(vocabulary.get, analyzer(text)) if i is not None)
+            dot = norm = 0.0
+            for i, count in counts.items():
+                value = idf[i] * (1.0 + math.log(count) if sublinear else count)
+                norm += value * value
+                dot += weights[i] * value
+            if norm:
+                z += dot / math.sqrt(norm)
+        return 1.0 / (1.0 + math.exp(-z)) if z >= 0 else math.exp(z) / (1.0 + math.exp(z))
+
+
+# A LinearScorer for a TF-IDF + logistic regression pipeline as train_injection.py builds it, or None for any other
+# model (it then goes through sklearn).
+def linear_scorer(model):
+    import numpy as np
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.pipeline import FeatureUnion, Pipeline
+
+    if not isinstance(model, Pipeline) or len(model.steps) != 2:
+        return None
+    features, classifier = model.steps[0][1], model.steps[1][1]
+    if isinstance(features, FeatureUnion):
+        if features.transformer_weights:
+            return None
+        vectorizers = [v for _, v in features.transformer_list]
+    else:
+        vectorizers = [features]
+    if not all(isinstance(v, TfidfVectorizer) and v.norm == "l2" and v.use_idf and not v.binary and v.dtype == np.float64
+               for v in vectorizers):
+        return None
+    if (not isinstance(classifier, LogisticRegression) or classifier.coef_.shape != (1, sum(len(v.vocabulary_) for v in vectorizers))
+            or list(classifier.classes_) != [0, 1]):
+        return None
+    coef, parts, start = classifier.coef_[0].tolist(), [], 0
+    for v in vectorizers:
+        end = start + len(v.vocabulary_)
+        parts.append((v.build_analyzer(), v.vocabulary_, v.idf_.tolist(), coef[start:end], v.sublinear_tf))
+        start = end
+    return LinearScorer(parts, float(classifier.intercept_[0]))
+
+
 # shadow=True reports what it would do but always allows.
 class MLInjectionLayer:
     name = "prompt_injection_ml"
@@ -117,6 +172,7 @@ class MLInjectionLayer:
     def __init__(self, path=MODEL_PATH, review_at=None, block_at=BLOCK_AT, shadow=False, cascade=None):
         bundle = load_bundle(path)
         self.model = bundle["model"]
+        self.scorer = linear_scorer(self.model)
         self.block_at = block_at
         self.shadow = shadow
 
@@ -135,6 +191,8 @@ class MLInjectionLayer:
         return unavailable_reason(path) is None
 
     def tfidf_probability(self, text):
+        if self.scorer is not None:
+            return self.scorer.probability(prepare(text))
         return float(self.model.predict_proba([prepare(text)])[0][1])
 
     # (score, action, which model answered)
