@@ -34,6 +34,11 @@ KEYS = {"version", "mode", "on_error", "max_check_chars", "log_excerpt", "log_al
 SCORED_LAYERS = ("tampering", "prompt_injection_rules", "code_payloads", "url_check", "indirect_injection",
                  "prompt_injection_ml")
 NEVER = "never"  # block_at = "never": the layer can review but not block
+# [thresholds.<layer>.messages] and [thresholds.<layer>.documents] override [thresholds.<layer>] for check() and for
+# check_document and check_tool (tool arguments are read as documents). A document is flagged when any of its parts
+# is, so a threshold that suits messages can flag most documents (README, "Moving the ML threshold").
+SCOPES = ("messages", "documents")
+MESSAGES, DOCUMENTS = SCOPES
 # What a check that raises means: block (fail closed, the default), review, or allow (fail open, still logged).
 ON_ERROR = ("block", "review", "allow")
 SESSION_KEYS = {"max_requests_per_minute", "max_chars_per_window", "max_flagged", "cooldown_seconds",
@@ -119,22 +124,45 @@ def action_problems(actions):
 
 
 # Both ends have to be written: a layer's own defaults differ, and half a pair would be easy to misread.
+def pair_problems(where, limits):
+    if not isinstance(limits, dict) or set(limits) != {"review_at", "block_at"}:
+        return [f"{where}: needs review_at and block_at, nothing else"]
+    if not is_share(limits["review_at"]):
+        return [f"{where}: review_at must be above 0 and at most 1"]
+    if limits["block_at"] != NEVER and not (is_share(limits["block_at"]) and limits["block_at"] >= limits["review_at"]):
+        return [f"{where}: block_at must be \"never\" or between review_at and 1"]
+    return []
+
+
 def threshold_problems(thresholds):
     problems = []
     for layer, limits in thresholds.items():
+        where = f"thresholds.{layer}"
         if layer not in SCORED_LAYERS:
             problems.append(f"thresholds: {layer!r} isn't a layer with a score; one of {SCORED_LAYERS}")
-        elif not isinstance(limits, dict) or set(limits) != {"review_at", "block_at"}:
-            problems.append(f"thresholds.{layer}: needs review_at and block_at, nothing else")
-        elif not is_share(limits["review_at"]):
-            problems.append(f"thresholds.{layer}: review_at must be above 0 and at most 1")
-        elif limits["block_at"] != NEVER and not (is_share(limits["block_at"]) and limits["block_at"] >= limits["review_at"]):
-            problems.append(f"thresholds.{layer}: block_at must be \"never\" or between review_at and 1")
+        elif not isinstance(limits, dict) or not limits or set(limits) - {"review_at", "block_at", *SCOPES}:
+            problems.append(f"{where}: needs review_at and block_at, a [{where}.messages] or [{where}.documents] "
+                            "table, or both, nothing else")
+        else:
+            pair = {k: v for k, v in limits.items() if k not in SCOPES}
+            problems += pair_problems(where, pair) if pair else []
+            problems += [p for scope in SCOPES if scope in limits for p in pair_problems(f"{where}.{scope}", limits[scope])]
     return problems
 
 
+# The review_at and block_at that apply to a layer's findings in check() (messages) or in check_document and
+# check_tool (documents), or None where the policy leaves the layer to decide.
+def limits_for(thresholds, layer, scope):
+    limits = thresholds.get(layer)
+    if not limits:
+        return None
+    if scope in limits:
+        return limits[scope]
+    return {k: limits[k] for k in ("review_at", "block_at")} if "review_at" in limits else None
+
+
 # A tenant that sets its own version would hide a change to default.toml, which it inherits: every event carries the
-# version, and a SIEM watches it for changes. Such a tenant's version names both, "2026-09-24.1+default.2026-10-12.1".
+# version, and a SIEM watches it for changes. Such a tenant's version names both, "2026-09-24.1+default.2026-10-12.2".
 def policy_version(data, base):
     return data["version"] if data["version"] == base["version"] else f"{data['version']}+default.{base['version']}"
 
@@ -152,6 +180,8 @@ def load_policy(tenant="default", directory=POLICY_DIR, overrides=None):
     loosened = sorted(f"{rule} = allow" for rule, action in data.get("actions", {}).items() if action == ALLOW)
     loosened += sorted(f"{layer} never blocks" for layer, limits in data.get("thresholds", {}).items()
                        if limits.get("block_at") == NEVER)
+    loosened += sorted(f"{layer} never blocks in {scope}" for layer, limits in data.get("thresholds", {}).items()
+                       for scope in SCOPES if limits.get(scope, {}).get("block_at") == NEVER)
     if loosened:
         logger.warning("policy %r loosens: %s", tenant, "; ".join(loosened))
 
@@ -258,8 +288,8 @@ class TenantGuardrail:
         return self.documents.wrap(text, vault=self.vault(session_id), **wrap_args)
 
     # How a finding becomes a decision; docs/operations.md, "Karar nasıl veriliyor".
-    def apply_policy(self, finding):
-        finding = self.apply_actions(self.apply_thresholds(finding))
+    def apply_policy(self, finding, scope=MESSAGES):
+        finding = self.apply_actions(self.apply_thresholds(finding, scope))
         if finding.action == ALLOW:
             return finding
         if finding.check == ERROR_CHECK:
@@ -273,8 +303,8 @@ class TenantGuardrail:
         return finding
 
     # The policy's own thresholds for a scored layer: the layer reports, the policy decides.
-    def apply_thresholds(self, finding):
-        limits = self.policy.thresholds.get(finding.check)
+    def apply_thresholds(self, finding, scope=MESSAGES):
+        limits = limits_for(self.policy.thresholds, finding.check, scope)
         if not limits:
             return finding
         block_at = float("inf") if limits["block_at"] == NEVER else limits["block_at"]
@@ -314,8 +344,10 @@ class TenantGuardrail:
     def enforced_rule(self, rule_id, check):
         return self.policy.layers.get(layer_of(check), "enforce") == "enforce" and rule_id not in self.policy.disabled_rules
 
-    # Rule IDs in these findings (shadow layers, disabled rules and, if asked, allowed findings don't count).
+    # Rule IDs in these findings (shadow layers, disabled rules and, if asked, allowed findings don't count), each
+    # decided by the policy's thresholds for messages: a score the policy doesn't count as a flag doesn't start a split.
     def local_rules(self, findings, flagged_only=False):
+        findings = [self.apply_thresholds(f) for f in findings]
         return {rule_id for f in findings if fired(f) and not f.shadow and not (flagged_only and f.action == ALLOW)
                 for rule_id, _ in rule_ids(f) if self.enforced_rule(rule_id, f.check)}
 
@@ -342,8 +374,8 @@ class TenantGuardrail:
         return errors + [Finding("session_split", 1.0, REVIEW, new)]
 
     # Findings after shadow modes and exceptions, the action, and the action ignoring shadow/exceptions/monitor mode.
-    def decide(self, findings):
-        findings = [self.apply_policy(f) for f in findings]
+    def decide(self, findings, scope=MESSAGES):
+        findings = [self.apply_policy(f, scope) for f in findings]
         would_action = max((intended_action(f) for f in findings), key=ACTION_ORDER.get, default=ALLOW)
         action = ALLOW if self.policy.mode == "monitor" else worst_action(findings)
         return findings, action, would_action
@@ -427,7 +459,7 @@ class TenantGuardrail:
         result = self.tools.check(name, args, user_data, user_id=who)
         timings, policy_start = dict(result.timings), time.perf_counter()
         found = [f for f in label_findings + result.findings if self.policy.layers.get(f.check) != "off"]
-        findings, action, would_action = self.decide(found)
+        findings, action, would_action = self.decide(found, DOCUMENTS)
         timings["policy"] = since(policy_start)
 
         checked = count_decision()
@@ -445,7 +477,7 @@ class TenantGuardrail:
         result = self.documents.check(text)
         timings, policy_start = dict(result.timings), time.perf_counter()
         found = [f for f in result.findings if self.policy.layers.get(f.check) != "off"]
-        findings, action, would_action = self.decide(found)
+        findings, action, would_action = self.decide(found, DOCUMENTS)
         timings["policy"] = since(policy_start)
 
         checked = count_decision()

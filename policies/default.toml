@@ -1,9 +1,9 @@
 # Base policy. A tenant file (policies/<tenant>.toml) overrides only the keys it sets: tables merge key by key,
 # lists replace, they don't append. A typo anywhere (a key, a layer, a rule ID, a tool spec) fails at load.
 # Change the version with the file: every SIEM event carries it, and a tenant with its own version shows both
-# ("2026-09-24.1+default.2026-10-12.1"). docs/operations.md, "Kiracı politikası ve SIEM", says how a decision is made.
+# ("2026-09-24.1+default.2026-10-12.2"). docs/operations.md, "Kiracı politikası ve SIEM", says how a decision is made.
 
-version = "2026-10-12.1"
+version = "2026-10-12.2"
 mode = "enforce"         # enforce | monitor (log what would happen, always allow)
 on_error = "block"       # a check that raises: block (fail closed) | review | allow (fail open, still logged)
 max_check_chars = 8000   # a message's checks read this much; a longer one is reviewed (input_length)
@@ -44,6 +44,9 @@ output_masking = "enforce"
 # [thresholds.prompt_injection_ml]
 # review_at = 0.5
 # block_at = 0.95        # or "never" (loading logs a warning); ML alone never blocks without this
+# [thresholds.prompt_injection_ml.documents]  # for documents and tool arguments; .messages for check() alone. A
+# review_at = 0.76                            # document is flagged when any part is, so a threshold low enough
+# block_at = "never"                          # for messages flags many (README, "Moving the ML threshold")
 
 # The action for a rule ID from rules.py. A finding whose rules all have one gets the worst of them; one whose rules
 # only some have can only go up, since the others' own actions aren't known. "allow" suppresses the rule, and loading

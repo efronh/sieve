@@ -210,7 +210,7 @@ def test_layer_error_cant_be_disabled_or_set_to_nonsense():
 def test_when_the_policy_code_fails_the_message_is_blocked_whatever_on_error_says(siem_events, monkeypatch):
     guard = TenantGuardrail(load_policy(overrides={"on_error": "allow"}))
 
-    def broken(findings):
+    def broken(*args):
         raise KeyError(SECRET)
 
     monkeypatch.setattr(guard, "decide", broken)
