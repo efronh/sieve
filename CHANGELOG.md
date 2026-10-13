@@ -80,6 +80,11 @@ From every `<` it scanned the rest of the document for a closing tag. 200 KB of 
 **2026-10-06 · Masking and eight patterns grew faster than their input** ([08241bb](https://github.com/efronh/sieve/commit/08241bb))
 For every look-alike digit (`ı`, `l`, `|`, `o`…) masking walked out to both ends of its word again, so one long word cost its length squared: 2,000 `ı` took 1.5 seconds and 8,000 kept `Guardrail.check` busy for over 20. Eight patterns rescanned the text from every start: `URL_PASSWORD` in masking; four code rules, which see a tool argument whole (`sql_comment_bypass`, `sql_stacked_query`, `shell_pipe_to_shell`, `template_injection`); `fake_system_line`; and the Markdown link, image and reference patterns and the HTML tag pattern in `OutputGuard`. 100 KB of `a-` took over 5 seconds in `URL_PASSWORD`, 50 KB of one letter over 5 in the code rules, 400 KB of `<a ` over 15 in `OutputGuard`. Each word is read once now, and each pattern starts only where a match can begin or stops at the last character a match can end on. No decision on the corpus changed; `OutputGuard` keeps the blank lines before a reference it removes, and reads `![a [b](url)` as the link it is in CommonMark. `scripts/fuzz_slow_inputs.py` came from this.
 
+## TH-13 Model and training data integrity
+
+**2026-10-13 · A swapped model file would have been unpickled** ([10ab693](https://github.com/efronh/sieve/commit/10ab693))
+`joblib.load` is pickle, and the model file was loaded without a check: whoever could write `models/prompt_injection_tr.joblib` could run code in the app, and the threat model listed it as a residual risk. The file is checked against `MODEL_SHA256` before it's opened now, and retraining rewrites that pin. BERTurk was loaded by name, so whatever its repository held that day was used; it and the scripts' models are pinned to the commits the results were measured with.
+
 ## TH-14 Policy misconfiguration
 
 **2026-10-12 · A tenant's own version hid changes to the base policy** ([6fdd41d](https://github.com/efronh/sieve/commit/6fdd41d))
