@@ -330,6 +330,7 @@ python -m scripts.replay             # saldırı korpusu: giriş noktası, aile,
 python -m scripts.replay --baseline check   # CI kapısı
 python -m scripts.replay --holdout   # mühürlü held-out set, sadece sayı
 python -m scripts.fuzz_slow_inputs  # maliyeti uzunluğundan hızlı büyüyen girdiler
+python -m scripts.bypass_suite      # yakalanan saldırılar yeniden yazılmış (kodlama, Unicode, alfabe, dil, doküman)
 python -m scripts.evaluate_masking  # etiketli kişisel veri setinde maskeleme
 python -m scripts.evaluate_masking_loss  # maskelemenin götürmemesi gerekenler: yanlış maske, birleşen değer, gereken değer
 python -m scripts.benchmark_latency # aşama başına süre ve kontrollerin isteğe eklediği süre

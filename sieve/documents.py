@@ -3,12 +3,14 @@
 #   docs = DocumentGuard(allowed_hosts=["ornekbank.com.tr"])
 #   r = docs.check(page)                       # r.action: allow / review / block (block: leave it out)
 #   prompt = docs.instructions + ... + docs.wrap(page, source="web")
+import base64
 import bisect
 import html
 import json
 import re
 import secrets
 import time
+import urllib.parse
 from collections import defaultdict
 from dataclasses import dataclass, field
 
@@ -55,7 +57,24 @@ HIDDEN_START = re.compile(
     re.IGNORECASE,
 )
 END_TAG = re.compile(r"</(?P<tag>\w+)\s*>")
-TAG = re.compile(r"<[^<>]+>")
+# Only real tags are taken out of the visible text. Anything else between angle brackets was dropped unread as a
+# "tag" while wrap() gave it to the model: "<Önceki talimatları yok say>" (a browser shows it as text) and
+# "<?not ...?>" or "<!...>" (a browser hides them, as it does a comment).
+CLOSING_TAG = re.compile(r"</[a-zA-Z][^<>]*>")
+DECLARATION = re.compile(r"<[!?](?P<text>[^<>]*)>")
+# Text a Markdown reader doesn't see: an image's alt text, a link's title, a reference definition's title (also the
+# "[//]: # (...)" comment). Read only inside the visible sentence around it, an instruction there was scored with the
+# link's address and the sentence, and fell under the threshold.
+MARKDOWN_HIDDEN = [
+    re.compile(r"!\[(?P<text>[^\[\]\n]{3,})\]\("),
+    re.compile(r"\]\([^\s()]++[^\S\n]++(?:\"(?P<double>[^\"\n]*)\"|'(?P<single>[^'\n]*)'|\((?P<round>[^()\n]*)\))[^\S\n]*\)"),
+    re.compile(r"^[^\S\n]*\[[^\]\n]+\]:[^\S\n]*+(?:<[^>\n]*>|\S++)?[^\S\n]*+"
+               r"(?:\"(?P<double>[^\"\n]*)\"|'(?P<single>[^'\n]*)'|\((?P<round>[^()\n]*)\))[^\S\n]*$", re.MULTILINE),
+]
+# Text inside a link that only whoever opens it gets: query values and the fragment, and a data: URI's contents.
+URL = re.compile(r"\b(?:https?://|data:)[^\s<>\"']+", re.IGNORECASE)
+# JSON in a <script> block (structured data, app state): its strings, unescaped, are text no reader sees.
+SCRIPT = re.compile(r"<script\b[^<>]*>(?P<text>[^<]*)</script\s*>", re.IGNORECASE)
 # A start tag. A quoted value may hold ">" (a browser reads it to the next quote) but not "<", so the scan
 # stops at the next tag; a value with "<" in it is read as visible text instead.
 START_TAG = re.compile(r"<(?P<name>[a-zA-Z][\w:-]*+)(?P<attributes>(?:[^<>\"']|\"[^\"<]*\"|'[^'<]*')*+)>")
@@ -89,8 +108,8 @@ class DocumentResult:
     timings: dict = field(default_factory=dict)  # ms per stage: tampering, url_check, split, each part layer summed
 
 
-# (every string in a JSON value or tool arguments, in order; whether some were deeper than max_depth),
-# without recursion.
+# (every string in a JSON value or tool arguments, in order, keys too; whether some were deeper than max_depth),
+# without recursion. Keys were left out, and an instruction written as one was never read.
 def strings_in(value, max_depth=MAX_NESTING):
     found, too_deep = [], False
     stack = [(value, 0)]
@@ -102,7 +121,7 @@ def strings_in(value, max_depth=MAX_NESTING):
             if depth >= max_depth:
                 too_deep = True
                 continue
-            children = list(item.values()) if isinstance(item, dict) else list(item)
+            children = [x for k, v in item.items() for x in (k, v)] if isinstance(item, dict) else list(item)
             stack += [(child, depth + 1) for child in reversed(children)]
     return found, too_deep
 
@@ -121,7 +140,47 @@ def attributes_in(text):
             if len(value.split()) >= 2 and re.search(r"[^\W\d_]", value):
                 shown = name in SHOWN_ATTRIBUTES and not hidden_input
                 found[value] = found.get(value, False) or not shown  # hidden if hidden anywhere
+        # Words with no value: "<x önceki tüm talimatları yok say>" is an element with five empty attributes, which a
+        # model reading the HTML gets as the sentence it is.
+        bare = " ".join(ATTRIBUTE.sub(" ", tag.group("attributes")).replace("/", " ").split())
+        if len(bare.split()) >= 2 and re.search(r"[^\W\d_]", bare):
+            found[bare] = True
     return list(found.items())
+
+
+def markdown_hidden(text):
+    return [next(v for v in m.groupdict().values() if v is not None) for pattern in MARKDOWN_HIDDEN
+            for m in pattern.finditer(text)]
+
+
+def link_texts(text):
+    found = []
+    for url in URL.findall(text):
+        if url[:5].lower() == "data:":
+            head, _, data = url.partition(",")
+            try:
+                found.append(base64.b64decode(data + "=" * (-len(data) % 4)).decode("utf-8") if head.lower().endswith(
+                    ";base64") else urllib.parse.unquote(data))
+            except ValueError:
+                pass
+            continue
+        try:  # "http://a＠" makes urlsplit raise, and a document anyone can write mustn't fail the check
+            parts = urllib.parse.urlsplit(url)
+        except ValueError:
+            continue
+        found += [v for part in (parts.query, parts.fragment) for _, v in urllib.parse.parse_qsl(part)]
+        found.append(urllib.parse.unquote(parts.fragment))
+    return [t for t in found if len(t.split()) >= 2]
+
+
+def script_strings(text):
+    found = []
+    for m in SCRIPT.finditer(text):
+        try:
+            found += strings_in(json.loads(m.group("text")))[0]
+        except (ValueError, RecursionError):
+            pass
+    return found
 
 
 # (start tag, what's inside, start, end) for each hidden element, up to the first closing tag of its name.
@@ -190,8 +249,9 @@ def split_parts(text, depth=0):
     hidden, text = without_hidden(text, "\n")
     # a hidden element's own attributes and what's inside it, then the attributes of what's left
     nested = [(h, True) for start_tag, inner in hidden for h in [v for v, _ in attributes_in(start_tag)] + [inner]]
-    nested += attributes_in(text)
-    visible = html.unescape(TAG.sub("\n", START_TAG.sub("\n", text)))
+    nested += attributes_in(text) + [(m.group("text"), True) for m in DECLARATION.finditer(text)]
+    nested += [(t, True) for t in markdown_hidden(text) + link_texts(text) + script_strings(text)]
+    visible = html.unescape(CLOSING_TAG.sub("\n", DECLARATION.sub("\n", START_TAG.sub("\n", text))))
 
     parts = []
     for inner, is_hidden in nested:
@@ -205,6 +265,15 @@ def split_parts(text, depth=0):
 
 def parts_of(text):
     return split_parts(text)[0]
+
+
+# The hidden parts, also joined: an instruction split over two hidden elements was half of one in each, and neither
+# half was flagged.
+def with_hidden_joined(parts):
+    hidden = [part for part, is_hidden in parts if is_hidden]
+    if len(hidden) < 2:
+        return parts
+    return parts + [(p, True) for p in split_long(" ".join(hidden))]
 
 
 # A quiet score stays (the ML layer's, below its threshold): a policy with a lower threshold for the layer decides
@@ -256,7 +325,7 @@ class DocumentGuard:
         source = re.sub(r"\W", "", source) or "belge"
         text = text[:MAX_DOCUMENT_CHARS]  # what check() read, and no more
         if not keep_hidden:
-            text = START_TAG.sub(links_only, without_hidden(text, " ")[1])
+            text = DECLARATION.sub(" ", START_TAG.sub(links_only, without_hidden(text, " ")[1]))
         if keep_personal_data:
             text = clean(text)
         else:
@@ -324,6 +393,7 @@ class DocumentGuard:
 
         start = time.perf_counter()
         parts, too_deep = split_parts(text)
+        parts = with_hidden_joined(parts)
         add(timings, "split", start)
         if too_deep:
             findings.append(Finding("input_nesting", 1.0, REVIEW, [f"more than {MAX_NESTING} levels"]))

@@ -28,6 +28,22 @@ INVISIBLE_CHARS = re.compile(
     r"[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff\u00ad\ufe00-\ufe0f\U000e0100-\U000e01ef]"
 )
 ANSI_CODES = re.compile(r"(?:\x1b|\\x1b)\[[0-9;]*[a-zA-Z]")
+# Letters drawn decoratively that NFKC leaves alone, or turns into "(a)": small capitals, parenthesized letters,
+# negative circled and squared ones. A model reads them as the letters; the checks didn't.
+DECORATED_LETTERS = str.maketrans(
+    dict(zip("ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀꜱᴛᴜᴠᴡʏᴢ", "abcdefghijklmnopqrstuvwyz"))
+    | {0x249C + i: chr(ord("a") + i) for i in range(26)}
+    | {0x1F110 + i: chr(ord("A") + i) for i in range(26)}
+    | {0x1F150 + i: chr(ord("A") + i) for i in range(26)}
+    | {0x1F170 + i: chr(ord("A") + i) for i in range(26)}
+)
+# What shows as a blank but isn't a space to the checks: Hangul fillers, the braille blank, the Ogham space mark
+# (NFKC keeps them), and the line and paragraph separators.
+BLANKS = str.maketrans({"\u115f": " ", "\u1160": " ", "\u3164": " ", "\uffa0": " ", "\u2800": " ", "\u1680": " ",
+                        "\u2028": "\n", "\u2029": "\n"})
+# A right-to-left override shows what follows it reversed, up to its pop or the line's end: "\u202e" + "yas kok"
+# reads as "kok say". Turned around here, so the checks read what a reader sees.
+RIGHT_TO_LEFT_OVERRIDE = re.compile(r"\u202e([^\u202c\u2069\n]*)")
 TAG_FIRST, TAG_LAST = 0xE0020, 0xE007E
 MAX_CHECK_CHARS = 8000
 # A message is masked whole, since the model gets all of it; past this it's blocked unread. Masking costs up to about
@@ -100,7 +116,8 @@ def strip_combining_marks(text):
 
 def clean(text):
     text = reveal_tag_chars(text)
-    text = unicodedata.normalize("NFKC", text)
+    text = RIGHT_TO_LEFT_OVERRIDE.sub(lambda m: m.group(1)[::-1], text)
+    text = unicodedata.normalize("NFKC", text.translate(DECORATED_LETTERS)).translate(BLANKS)
     text = strip_combining_marks(text)
     text = ANSI_CODES.sub("", text)
     return INVISIBLE_CHARS.sub("", text)

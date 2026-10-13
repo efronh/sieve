@@ -10,7 +10,7 @@ from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from typing import Optional
 
-from sieve.actions import ALLOW, BLOCK, REVIEW, Finding, error_finding, worst_action
+from sieve.actions import ALLOW, BLOCK, ERROR_CHECK, REVIEW, Finding, error_finding, worst_action
 from sieve.checks.code_payloads import CodePayloadLayer
 from sieve.documents import MAX_NESTING, Budget, DocumentGuard, strings_in
 from sieve.output import PLAIN_URL, carries_data, data_key, host_of, mask_and_collect, same_data
@@ -280,6 +280,9 @@ class ToolGuard:
             findings += self.documents.check(text, budget).findings
             add(timings, "document", start)
 
+        # A layer failing on every argument (keys are read too) is one failure.
+        errors = {tuple(f.matches): f for f in findings if f.check == ERROR_CHECK}
+        findings = [f for f in findings if f.check != ERROR_CHECK] + list(errors.values())
         reasons = [reason for _, _, reason in problems]
         reasons += [f"{f.check}: {', '.join(f.matches) or f'{f.probability:.2f}'}" for f in findings
                     if f.check not in (CHECK, "input_nesting") and f.action != ALLOW]

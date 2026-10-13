@@ -24,9 +24,14 @@ jobs:
       # Security regression gate: replays corpus/ (TF-IDF without BERTurk, as installed here) and fails if an
       # attack the baseline caught gets through, recall drops below its floor, or the ML layer didn't load.
       - run: python -m scripts.replay --baseline check
+      # Bypass gate: the corpus's caught attacks rewritten (encodings, Unicode, alphabets, languages, places in a
+      # document) must stay caught; fails if one the baseline caught gets through (corpus/bypass_baseline.json).
+      - run: python -m scripts.bypass_suite --baseline check
       - if: always()
         uses: actions/upload-artifact@v4
         with:
           name: replay-${{ matrix.python-version }}
-          path: results/replay.json
+          path: |
+            results/replay.json
+            results/bypass.json
           if-no-files-found: ignore

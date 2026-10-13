@@ -26,3 +26,4 @@ upstream/anyjev-transformers5/NASIL.md
 
 # Per-run replay output (timings change every run); the CI baseline is separate.
 results/replay.json
+results/bypass.json

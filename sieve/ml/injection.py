@@ -36,6 +36,14 @@ def prepare(text):
     return "\n".join(normalize(p) for p in parts)
 
 
+# What TF-IDF scores, the highest counting: the text with what was decoded from it, as trained, and each decoded part
+# on its own. Joined, an instruction behind a long token was scored with the token's letters around it and fell under
+# the threshold: 0.84 written plainly, 0.81 as base64.
+def readings(text):
+    parts = decode_hidden_parts(text)
+    return ["\n".join(normalize(p) for p in [text] + parts)] + [normalize(p) for p in parts]
+
+
 # Transformer tokenizers want natural text, so no ASCII folding; decoded hidden parts are appended.
 def with_hidden(text):
     return "\n".join([text] + decode_hidden_parts(text))
@@ -191,9 +199,10 @@ class MLInjectionLayer:
         return unavailable_reason(path) is None
 
     def tfidf_probability(self, text):
+        texts = readings(text)
         if self.scorer is not None:
-            return self.scorer.probability(prepare(text))
-        return float(self.model.predict_proba([prepare(text)])[0][1])
+            return max(self.scorer.probability(t) for t in texts)
+        return float(max(self.model.predict_proba(texts)[:, 1]))
 
     # (score, action, which model answered)
     def decide(self, text):

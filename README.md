@@ -330,6 +330,7 @@ python -m scripts.replay             # the attack corpus, per entry point, famil
 python -m scripts.replay --baseline check   # the CI gate
 python -m scripts.replay --holdout   # the sealed held-out set, counts only
 python -m scripts.fuzz_slow_inputs  # inputs whose cost grows faster than their length
+python -m scripts.bypass_suite      # caught attacks rewritten (encodings, Unicode, alphabets, languages, documents)
 python -m scripts.evaluate_masking  # masking on the labelled personal-data set
 python -m scripts.evaluate_masking_loss  # what masking takes that it shouldn't: wrong masks, merged values, needed values
 python -m scripts.benchmark_latency # time per stage, and what the checks add to a request
