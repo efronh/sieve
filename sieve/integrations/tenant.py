@@ -374,11 +374,28 @@ class TenantGuardrail:
         return errors + [Finding("session_split", 1.0, REVIEW, new)]
 
     # Findings after shadow modes and exceptions, the action, and the action ignoring shadow/exceptions/monitor mode.
-    def decide(self, findings, scope=MESSAGES):
+    # The time it takes goes into timings as the "policy" stage.
+    def decide(self, findings, timings, scope=MESSAGES):
+        start = time.perf_counter()
         findings = [self.apply_policy(f, scope) for f in findings]
         would_action = max((intended_action(f) for f in findings), key=ACTION_ORDER.get, default=ALLOW)
         action = ALLOW if self.policy.mode == "monitor" else worst_action(findings)
+        timings["policy"] = since(start)
         return findings, action, would_action
+
+    # A layer the policy turns off isn't used at all, whichever guard reported it.
+    def used(self, findings):
+        return [f for f in findings if self.policy.layers.get(f.check) != "off"]
+
+    # Every decision is counted; one the policy would flag (every one, with log_allowed) goes to the SIEM. masked()
+    # gives the event's text, masked, and is only called then: an allowed document isn't masked a second time.
+    def log(self, direction, original, masked, decision, start, timings, session_id, user_id, request_id):
+        findings, action, would_action = decision
+        checked = count_decision()
+        if would_action != ALLOW or self.policy.log_allowed:
+            emit(to_event(GuardrailResult(masked(), action, findings), would_action, self.policy, original=original,
+                          session_id=session_id, user_id=user_id, direction=direction, latency_ms=since(start),
+                          timings=timings, request_id=request_id, checked=checked))
 
     # When the policy code itself raises, the policy can't be trusted: always block, whatever on_error says. where: what
     # failed, for the event's detail; the HTTP server says "timeout" for a check that ran out of time.
@@ -418,21 +435,13 @@ class TenantGuardrail:
     def run_output(self, answer, user_data=None, session_id=None, user_id=None, request_id=None):
         start = time.perf_counter()
         result = self.output.check(answer, user_data)
-        timings, policy_start = dict(result.timings), time.perf_counter()
-        found = [f for f in result.findings if self.policy.layers.get(f.check) != "off"]
-        findings, action, would_action = self.decide(found)
-        timings["policy"] = since(policy_start)
+        timings = dict(result.timings)
+        decision = findings, action, _ = self.decide(self.used(result.findings), timings)
         text = SAFE_REPLY if action == BLOCK or result.answer == SAFE_REPLY else result.answer
         vault = self.vault(session_id)
         if vault is not None and text != SAFE_REPLY:
             text = vault.reveal(text)  # the user's own values, to the user; a document's stay labels
-
-        checked = count_decision()
-        if would_action != ALLOW or self.policy.log_allowed:
-            logged = GuardrailResult(result.answer, action, findings)
-            emit(to_event(logged, would_action, self.policy, original=answer, session_id=session_id, user_id=user_id,
-                          direction="output", latency_ms=since(start), timings=timings,
-                          request_id=request_id, checked=checked))
+        self.log("output", answer, lambda: result.answer, decision, start, timings, session_id, user_id, request_id)
         return OutputResult(text, action, findings, answer=result.answer, timings=timings)
 
     # A message starts a request: without a request_id from the app, it gets one (result.request_id) to pass on to the
@@ -457,35 +466,21 @@ class TenantGuardrail:
                 action = max((LABEL_ACTIONS[p] for p in problems), key=ACTION_ORDER.get)
                 label_findings.append(Finding(TOOL_CHECK, 1.0, action, sorted(problems)))
         result = self.tools.check(name, args, user_data, user_id=who)
-        timings, policy_start = dict(result.timings), time.perf_counter()
-        found = [f for f in label_findings + result.findings if self.policy.layers.get(f.check) != "off"]
-        findings, action, would_action = self.decide(found, DOCUMENTS)
-        timings["policy"] = since(policy_start)
-
-        checked = count_decision()
-        if would_action != ALLOW or self.policy.log_allowed:
-            call = f"{name} {json.dumps(args, ensure_ascii=False, sort_keys=True, default=str)}"
-            logged = GuardrailResult(mask(call, self.guard.masking_layers), action, findings)
-            emit(to_event(logged, would_action, self.policy, original=call, session_id=session_id, user_id=user_id,
-                          direction="tool", latency_ms=since(start), timings=timings,
-                          request_id=request_id, checked=checked))
+        timings = dict(result.timings)
+        decision = findings, action, _ = self.decide(self.used(label_findings + result.findings), timings, DOCUMENTS)
+        call = f"{name} {json.dumps(args, ensure_ascii=False, sort_keys=True, default=str)}"
+        self.log("tool", call, lambda: mask(call, self.guard.masking_layers), decision, start, timings, session_id,
+                 user_id, request_id)
         return ToolResult(action, findings, result.reasons, timings, result.args)
 
     # A document the model will read (retrieved page, e-mail, tool result); see documents.py.
     def run_document(self, text, session_id=None, user_id=None, request_id=None):
         start = time.perf_counter()
         result = self.documents.check(text)
-        timings, policy_start = dict(result.timings), time.perf_counter()
-        found = [f for f in result.findings if self.policy.layers.get(f.check) != "off"]
-        findings, action, would_action = self.decide(found, DOCUMENTS)
-        timings["policy"] = since(policy_start)
-
-        checked = count_decision()
-        if would_action != ALLOW or self.policy.log_allowed:
-            logged = GuardrailResult(mask(text, self.guard.masking_layers), action, findings)
-            emit(to_event(logged, would_action, self.policy, original=text, session_id=session_id, user_id=user_id,
-                          direction="document", latency_ms=since(start), timings=timings,
-                          request_id=request_id, checked=checked))
+        timings = dict(result.timings)
+        decision = findings, action, _ = self.decide(self.used(result.findings), timings, DOCUMENTS)
+        self.log("document", text, lambda: mask(text, self.guard.masking_layers), decision, start, timings, session_id,
+                 user_id, request_id)
         return DocumentResult(action, findings, result.flagged_parts, timings)
 
     def run(self, text, session_id=None, user_id=None, direction="input", request_id=None):
@@ -510,16 +505,15 @@ class TenantGuardrail:
             session_findings += self.split_attack(session_id, result)
         add(session_timing, "session", session_start)
 
-        policy_start = time.perf_counter()
-        findings, action, would_action = self.decide(list(result.findings) + session_findings)
-        timings["policy"] = since(policy_start)
+        own = self.used(result.findings)
+        decision = findings, action, _ = self.decide(own + session_findings, timings)
 
         session_start = time.perf_counter()
         if track:
             # Monitor mode still counts what would have been flagged. Only this message's own findings count (decide
             # keeps the order, so they come first): not the session's, and not a check failing on the history,
             # which says nothing about this message.
-            self.limiter.record(who, worst_action(findings[:len(result.findings)]))
+            self.limiter.record(who, worst_action(findings[:len(own)]))
             if session_id is not None and self.context_messages >= 2:
                 # A reported split counts as seen, so the next messages don't report the same pair again.
                 reported = {m for f in session_findings if f.check == "session_split" for m in f.matches}
@@ -529,12 +523,7 @@ class TenantGuardrail:
             timings.update(session_timing)
 
         result = GuardrailResult(result.text, action, findings, timings=timings, request_id=request_id)
-
-        checked = count_decision()
-        if would_action != ALLOW or self.policy.log_allowed:
-            emit(to_event(result, would_action, self.policy, original=text, session_id=session_id, user_id=user_id,
-                          direction=direction, latency_ms=since(start), timings=timings,
-                          request_id=request_id, checked=checked))
+        self.log(direction, text, lambda: result.text, decision, start, timings, session_id, user_id, request_id)
         # The model gets lettered labels; the event and the session's history keep plain ones, so a message's hash is
         # the same in every session. The values behind the letters stay in the vault.
         vault = self.vault(session_id) if direction == "input" else None

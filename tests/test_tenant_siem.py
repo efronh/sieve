@@ -161,3 +161,13 @@ def test_broken_policy_is_rejected(broken):
     data = tenant.merge(tenant.read_toml(tenant.POLICY_DIR / "default.toml"), broken)
     with pytest.raises(ValueError):
         tenant.validate(data, "test")
+
+
+# The app may build its own Guardrail with every layer; a layer the policy turns off still doesn't count.
+def test_a_layer_turned_off_is_left_out_whichever_guard_reported_it(siem_events):
+    from sieve.pipeline import Guardrail
+
+    own_guard = TenantGuardrail(load_policy(overrides={"layers": {"url_check": "off"}}), guardrail=Guardrail())
+    result = own_guard.check(IP_LINK, session_id="s", user_id="u")
+    assert result.action == "allow" and "url_check" not in [f.check for f in result.findings]
+    assert TenantGuardrail(load_policy(), guardrail=Guardrail()).check(IP_LINK).action == "review"
