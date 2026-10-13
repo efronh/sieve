@@ -62,6 +62,8 @@ HOST_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", re.IGNORECASE)
 # Message layers, which a Guardrail passed to TenantGuardrail must have unless the policy turns them off.
 MESSAGE_LAYERS = ("tampering", "prompt_injection_rules", "code_payloads", "url_check", "prompt_injection_ml")
 SESSION_CHECKS = {"session", "session_split"}  # both follow the "session" layer mode
+LEAK_CHECKS = ("canary", "prompt_overlap")
+LEAK_REDACTED = "[SISTEM_PROMPTU]"
 # [masking] lettered_labels = true: [IBAN_A], [IBAN_B] per session instead of [IBAN] (vault.py)
 LETTERED = "lettered_labels"
 # What a lettered label in a tool argument means when it can't be used as it stands.
@@ -532,7 +534,11 @@ class TenantGuardrail:
         vault = self.vault(session_id)
         if vault is not None and text != SAFE_REPLY:
             text = vault.reveal(text)  # the user's own values, to the user; a document's stay labels
-        self.log("output", answer, lambda: result.answer, decision, start, timings, session_id, user_id, request_id)
+        # An answer that leaked the system prompt is the system prompt, canary and all: its event keeps neither, so
+        # whoever reads the SIEM doesn't read the prompt in the excerpt. The rules say what leaked.
+        leaked = any(f.check in LEAK_CHECKS and fired(f) for f in result.findings)
+        self.log("output", answer, lambda: LEAK_REDACTED if leaked else result.answer, decision, start, timings,
+                 session_id, user_id, request_id)
         return OutputResult(text, action, findings, answer=result.answer, timings=timings)
 
     # A message starts a request: without a request_id from the app, it gets one (result.request_id) to pass on to the

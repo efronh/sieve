@@ -13,6 +13,7 @@ SIEVE_API_KEY=... python -m sieve.server --tenant example_bank --system-prompt p
 | `--host`, `--port` | `127.0.0.1`, `8080` | Dışarı açmak için `--host 0.0.0.0`, önünde TLS yapan bir reverse proxy ile |
 | `--timeout` | `5` | Bir kontrolün saniye cinsinden süresi; aşarsa cevap block |
 | `--siem` | `stdout` | `stdout` (satır başına bir JSON olay), `host:port` (TCP syslog, JSON) ya da `none` |
+| `--siem-tls`, `--siem-ca` | kapalı | `host:port`'a TLS ile gönder; toplayıcının sertifikası sistemin CA'larıyla ya da verilen dosyayla doğrulanıyor. Düz TCP'de her olay ağda okunabilir gidiyor |
 | `--insecure-no-auth` | kapalı | Anahtarsız çalıştırma; sadece yerel test için |
 
 `SIEVE_API_KEY` yoksa sunucu başlamıyor; `SIEVE_PSEUDONYM_KEY` yoksa uyarı veriyor. SIGTERM'de çalışan kontrolü bitirip temiz kapanıyor (systemd, Kubernetes ve `docker stop` böyle durduruyor). Sadece standart kütüphane kullanıyor (`http.server`): güvenilmesi gereken bir web framework'ü yok ([TH-13](../THREAT_MODEL.md#th-13-model-and-training-data-integrity)).
@@ -96,7 +97,7 @@ Modele verilecek sistem promptu (canary ile) ve dokümanlar için açıklama. Su
 | 503 | `busy` | Bekleyen ya da çalışan 64 istek ya da açık 128 bağlantı var |
 | 500 | `internal` | Sunucunun kendi hatası (kontroller kendi hatalarını block olarak cevaplıyor) |
 
-Hata mesajı alanın adını söylüyor, değerini asla: istek kişisel veri taşıyabilir. Erişim logunda sadece metot, yol ve durum var; gövde ve query string yok.
+Hata mesajı alanın adını söylüyor, değerini asla: istek kişisel veri taşıyabilir. Bir alan adı gibi görünmeyen anahtar (modelin yazdığı JSON'da her şey olabilir) hiç söylenmiyor. Erişim logunda sadece Sieve'in bildiği bir metot, bildiği bir yol ve durum kodu var; bilinmeyen bir yol (`/v1/check/10000000146`), query string, gövde ve bozuk istek satırı yok.
 
 **Uygulama 200 dışındaki her cevabı, zaman aşımını ve bağlantı hatasını block saymalı.** Sieve'e ulaşılamaması kontrol edilmemiş bir mesaj demek ([TH-15](../THREAT_MODEL.md#th-15-guard-failure)).
 

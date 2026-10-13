@@ -350,6 +350,16 @@ The 10 test records that showed these are dev now, and 5 written with the fix ar
 
 The labelled set's baseline didn't move, and the unit tests have the texts that showed each one.
 
+**Fixed.** What Sieve itself writes was checked value by value only for masking. [`tests/test_data_leaks.py`](tests/test_data_leaks.py) now puts marked secrets (a TC number, an IBAN, a card, a password, an API key, an e-mail address and phone number, a secret in the system prompt, the canary, Sieve's API key and the pseudonym key, and IDs an app might pass) through every entry point, in four policies, with every layer, the policy code and the server failing, and collects everything: every logger, stdout and stderr, events as JSON and CEF, HTTP answers and headers, errors and the access log. Against the old code it found:
+- An answer that leaked the system prompt went into the output event's excerpt, canary and all, so whoever read the SIEM read the prompt. The event's text is `[SISTEM_PROMPTU]` now when `canary` or `prompt_overlap` fired; the rules say what leaked.
+- The access log wrote the path as it came: `POST /v1/check/10000000146 404`. A malformed request line, which `http.server` puts in its error message, was logged too. Only a known method, a known path and a status are logged now.
+- An unknown field was named in the 400, and the app may pass on JSON the model wrote, whose keys are anything. A key that isn't a field name isn't echoed.
+
+It also checks that no value can split an event (a NUL, a line break, a forged `CEF:0|` header in the text, the IDs, a tool's name and its keys): JSON escapes control characters and CEF its separators, so none did. Beside it:
+- The traffic log and its directory were made readable by every user on the machine (0644 in 0755). They're made 0600 and 0700 now; a file already there keeps its mode.
+- Over TCP every event crossed the network readable. `syslog_handler(..., tls=True, cafile=...)` and the server's `--siem-tls` / `--siem-ca` send over TLS, checking the collector's certificate; one that doesn't verify is a failed connection, counted like the others.
+- Without `SIEVE_PSEUDONYM_KEY` only the server said so. The library says it too, once per process: a TC number used as the user ID is one of about a billion, and hashing them all takes seconds.
+
 **Residual risk.**
 - Names, addresses and free-text personal data (health, family) aren't masked.
 - Numbers with only a space between them can still be misread: in the random test, 1.3% of valid numbers aren't masked whole, nearly all with other digits right next to them or right after "Sipariş ".
@@ -357,7 +367,9 @@ The labelled set's baseline didn't move, and the unit tests have the texts that 
 - With plain labels, the default, a label hides which value it stood for. Two values of a kind in one conversation can't be told apart, and a tool call can't use a value the user typed (8 of 11 such benign requests). Lettered labels fix both in the same measurement: no conversation with two values under one label, no benign request whose value the model can't name. Their cost is in TH-06: a value from the user's own text reaches a tool call again.
 - An account number starting with 5 is masked as a phone number, and so is a business's own phone number in an answer: masking can't tell whose number it is.
 - The set is white-box and synthetic. Real customer messages haven't been measured.
-- Without `SIEVE_PSEUDONYM_KEY`, pseudonyms are keyed with the tenant name, which isn't secret.
+- Without `SIEVE_PSEUDONYM_KEY`, pseudonyms are keyed with the tenant name, which isn't secret; Sieve warns and runs.
+- An excerpt is the masked text, so whatever masking misses (a name, an address) is in it when `log_excerpt` is on.
+- The vault's values and the result cache live in the process's memory; a core dump or a debugger reads them.
 
 ### TH-09 Another customer's data in the answer
 

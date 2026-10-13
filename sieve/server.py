@@ -8,6 +8,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import signal
 import socket
 import sys
@@ -17,7 +18,7 @@ from concurrent.futures import TimeoutError as CheckTimeout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from sieve.actions import ALLOW, BLOCK
-from sieve.integrations.siem import PSEUDONYM_KEY_ENV, JsonFormatter, syslog_handler
+from sieve.integrations.siem import JsonFormatter, syslog_handler, warn_without_pseudonym_key
 from sieve.integrations.tenant import TenantGuardrail, load_policy
 from sieve.output import SAFE_REPLY
 from sieve.rules import rule_ids
@@ -37,6 +38,8 @@ BUSY = (b"HTTP/1.0 503 Service Unavailable\r\nContent-Type: application/json\r\n
         b'{"error": {"code": "busy", "message": "too many connections; treat as block"}}')
 
 logger = logging.getLogger("sieve.server")
+METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
+STATUS = re.compile(r"[1-5][0-9]{2}")
 
 WHO = {"session_id": str, "user_id": str, "request_id": str}
 # path -> (required fields, optional fields), each with its type.
@@ -46,6 +49,7 @@ ENDPOINTS = {
     "/v1/tool": ({"name": str, "args": dict}, WHO | {"user_data": list}),
     "/v1/output": ({"answer": str}, WHO | {"user_data": list}),
 }
+PATHS = set(ENDPOINTS) | {"/healthz", "/v1/prompt"}
 
 
 # A key twice in one object: Python keeps the last value, and a parser that keeps the first (several do) would run a
@@ -63,13 +67,19 @@ class BadRequest(Exception):
         self.status, self.code = status, code
 
 
+# A field's name is echoed back only when it's a name: the app may pass on JSON the model wrote, whose keys are
+# anything (a TC number).
+FIELD_NAME = re.compile(r"[a-z_]{1,32}")
+
+
 # Names the field, never echoes the value: a message can hold personal data.
 def validate(body, required, optional):
     if not isinstance(body, dict):
         raise BadRequest(400, "bad_request", "the body must be a JSON object")
     for name in body:
         if name not in required and name not in optional:
-            raise BadRequest(400, "bad_request", f"unknown field {name!r}")
+            raise BadRequest(400, "bad_request", f"unknown field {name!r}" if FIELD_NAME.fullmatch(name)
+                             else "unknown field")
     for name, kind in required.items():
         if name not in body:
             raise BadRequest(400, "bad_request", f"missing field {name!r}")
@@ -226,8 +236,13 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def log_message(self, format, *args):  # the request line, never a body or a query string
-        logger.info("%s %s %s", self.command, self.path.split("?")[0], args[1] if len(args) > 1 else "")
+    # The method, the path and the status, each only when it's one Sieve knows: a path ("/v1/check/10000000146"), a
+    # query string or a malformed request line, which http.server puts in its error message, can hold anything.
+    def log_message(self, format, *args):
+        path = (getattr(self, "path", None) or "").split("?")[0]
+        status = next((str(a) for a in args if STATUS.fullmatch(str(a))), "-")
+        logger.info("%s %s %s", self.command if self.command in METHODS else "-", path if path in PATHS else "-",
+                    status)
 
     def do_GET(self):
         self.deadline.cancel()  # the request is in; what's left is the answer
@@ -293,13 +308,13 @@ def make_server(guard, host="127.0.0.1", port=8080, api_key=None, check_timeout=
     return Server((host, port), handler, max_connections)
 
 
-def siem_handler(target):
+def siem_handler(target, tls=False, cafile=None):
     if target == "stdout":
         handler = logging.StreamHandler(sys.stdout)
         handler.setFormatter(JsonFormatter())
         return handler
     host, _, port = target.rpartition(":")
-    return syslog_handler(host, int(port), "json")
+    return syslog_handler(host, int(port), "json", tls=tls, cafile=cafile)
 
 
 def main(argv=None):
@@ -310,6 +325,8 @@ def main(argv=None):
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--timeout", type=float, default=CHECK_TIMEOUT, help="seconds a check may take before block")
     parser.add_argument("--siem", default="stdout", help="stdout (JSON lines), host:port (syslog over TCP) or none")
+    parser.add_argument("--siem-tls", action="store_true", help="send to host:port over TLS")
+    parser.add_argument("--siem-ca", help="the CA file the collector's certificate is checked against (with --siem-tls)")
     parser.add_argument("--insecure-no-auth", action="store_true", help="run without an API key (local tests only)")
     args = parser.parse_args(argv)
 
@@ -320,11 +337,9 @@ def main(argv=None):
     events = logging.getLogger("sieve.siem")
     events.propagate = False
     events.setLevel(logging.INFO)
-    events.handlers = [] if args.siem == "none" else [siem_handler(args.siem)]
+    events.handlers = [] if args.siem == "none" else [siem_handler(args.siem, args.siem_tls, args.siem_ca)]
 
-    if not os.environ.get(PSEUDONYM_KEY_ENV):
-        logger.warning("sieve: %s isn't set: user and session pseudonyms are keyed with the tenant name, which isn't "
-                       "secret", PSEUDONYM_KEY_ENV)
+    warn_without_pseudonym_key()
 
     system_prompt = open(args.system_prompt, encoding="utf-8").read() if args.system_prompt else ""
     guard = TenantGuardrail(load_policy(args.tenant), system_prompt=system_prompt)

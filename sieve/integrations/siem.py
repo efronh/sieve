@@ -11,6 +11,7 @@ import math
 import os
 import re
 import socket
+import ssl
 import sys
 import time
 import uuid
@@ -45,17 +46,29 @@ SEND_TIMEOUT = 2.0
 RETRY_AFTER = 30.0
 
 logger = logging.getLogger("sieve.siem")
+WARNED_WITHOUT_KEY = []
 
 
 def message_hash(masked_text):
     return hashlib.sha256(masked_text.encode("utf-8")).hexdigest()[:16]
 
 
-# Keyed hash, so a user ID (maybe a TC number) can't be brute-forced back.
-# Set SIEVE_PSEUDONYM_KEY in production; without it the tenant name is the key.
+# Without SIEVE_PSEUDONYM_KEY the tenant name is the key, and a TC number used as the user ID is one of about a billion
+# valid ones: hashing them all takes seconds. Said once per process, by the server at start or the library at its first
+# pseudonym.
+def warn_without_pseudonym_key():
+    if os.environ.get(PSEUDONYM_KEY_ENV) or WARNED_WITHOUT_KEY:
+        return
+    WARNED_WITHOUT_KEY.append(True)
+    logging.getLogger("sieve").warning("sieve: %s isn't set: pseudonyms are keyed with the tenant name, which isn't "
+                                       "secret, so a user ID can be found again by trying candidates", PSEUDONYM_KEY_ENV)
+
+
+# Keyed hash, so a user ID (maybe a TC number) can't be brute-forced back. Set SIEVE_PSEUDONYM_KEY in production.
 def pseudonym(value, tenant):
     if value is None:
         return None
+    warn_without_pseudonym_key()
     key = os.environ.get(PSEUDONYM_KEY_ENV, "") + tenant
     return hmac.new(key.encode("utf-8"), str(value).encode("utf-8"), hashlib.sha256).hexdigest()[:16]
 
@@ -213,9 +226,13 @@ class CefFormatter(logging.Formatter):
 # keeps a broken connection for good (every later event lost), has no timeout, and like any handler only writes a
 # failure to stderr. Here a failure is counted (failures) and said on the "sieve" logger, the 1st, 10th, 100th...
 # time; a broken connection is dropped so the next event connects again.
+#
+# tls: an ssl.SSLContext to send over TLS. Over plain TCP every event crosses the network readable: pseudonyms, rules,
+# and with log_excerpt the masked text.
 class SiemHandler(logging.handlers.SysLogHandler):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, tls=None, **kwargs):
         self.failures, self.warning, self.error, self.retry_at = 0, False, None, 0.0
+        self.tls = tls
         super().__init__(*args, **kwargs)
         if self.socket is None:  # the collector is down: the app starts anyway, and the first event tries again
             self.count_failure()
@@ -227,8 +244,9 @@ class SiemHandler(logging.handlers.SysLogHandler):
         if time.monotonic() < self.retry_at:
             return
         try:
-            self.socket = socket.create_connection(self.address, timeout=SEND_TIMEOUT)
-        except OSError as e:
+            sock = socket.create_connection(self.address, timeout=SEND_TIMEOUT)
+            self.socket = sock if self.tls is None else self.tls.wrap_socket(sock, server_hostname=self.address[0])
+        except OSError as e:  # ssl.SSLError too: a certificate that doesn't verify is a connection that failed
             self.error, self.retry_at = e, time.monotonic() + RETRY_AFTER
 
     def handleError(self, record):
@@ -253,7 +271,11 @@ class SiemHandler(logging.handlers.SysLogHandler):
 
 # TCP by default: over UDP a lost event leaves no trace but a gap in seq, and a large one can be cut off. Each event
 # ends with a NUL byte (SysLogHandler's append_nul): over TCP the collector has to split on it.
-def syslog_handler(host="localhost", port=514, fmt="cef", tcp=True):
-    handler = SiemHandler(address=(host, port), socktype=socket.SOCK_STREAM if tcp else socket.SOCK_DGRAM)
+# tls: over TLS, the collector's certificate checked against the system's CAs or cafile.
+def syslog_handler(host="localhost", port=514, fmt="cef", tcp=True, tls=False, cafile=None):
+    if tls and not tcp:
+        raise ValueError("TLS needs TCP")
+    context = ssl.create_default_context(cafile=cafile) if tls else None
+    handler = SiemHandler(address=(host, port), socktype=socket.SOCK_STREAM if tcp else socket.SOCK_DGRAM, tls=context)
     handler.setFormatter(CefFormatter() if fmt == "cef" else JsonFormatter())
     return handler
