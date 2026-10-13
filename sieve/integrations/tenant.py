@@ -348,7 +348,7 @@ class TenantGuardrail:
                                 window, clock)
         self.limiter = SessionLimiter(limits.get("max_flagged", 3), window, limits.get("cooldown_seconds", 900), clock)
         self.context_messages = limits.get("context_messages", 4)
-        self.conversation = ConversationWindow(self.context_messages, window, clock)
+        self.conversation = ConversationWindow(self.context_messages)
         # The same ML layer as for messages, so its shadow mode and "off" apply to documents and tool arguments too.
         ml = next((layer for layer in self.guard.check_layers if layer.name == MLInjectionLayer.name), None)
         self.tools = ToolGuard(policy.tools, policy.allowed_hosts, ml_layer=ml, use_ml=ml is not None)
@@ -441,23 +441,49 @@ class TenantGuardrail:
         return {rule_id for f in findings if fired(f) and not f.shadow and not (flagged_only and f.action == ALLOW)
                 for rule_id, _ in rule_ids(f) if self.enforced_rule(rule_id, f.check)}
 
-    # Rules that fire on the last few messages joined but on none of them alone. A layer that fails on the joined
-    # text is a layer_error like any other, for on_error to decide; the other layers still run.
+    # The message joined with what came before it: with each earlier message on its own (its start and its end
+    # separately), and with the last two, three... messages in a row. Each with the rules its messages fired alone.
+    # The history was only ever joined whole: a harmless message between the halves watered the attack down, and a
+    # message that had fired the rule earlier hid every later split of it.
+    def split_candidates(self, history, current):
+        own = self.local_rules(current.findings)
+        candidates = {}
+
+        def add(texts, rules):
+            joined = "\n".join(texts + [current.text])[-self.guard.max_check_chars:]
+            candidates[joined] = candidates.get(joined, rules) & rules  # the same text: the fewest rules seen
+
+        for pieces, rules in history:
+            for piece in pieces:
+                add([piece], rules | own)
+        for k in range(1, len(history) + 1):
+            last = history[-k:]
+            add(["\n".join(pieces) for pieces, _ in last], frozenset().union(own, *(rules for _, rules in last)))
+        return candidates
+
+    # Rules that fire on the message joined with earlier ones but on none of them alone. A layer that fails on a
+    # joined text is a layer_error like any other, for on_error to decide; the other layers still run.
     def split_attack(self, session, result):
         history = self.conversation.history(session)
         if self.context_messages < 2 or not history:
             return []
 
-        joined = "\n".join([text for text, _ in history] + [result.text])[-self.guard.max_check_chars:]
-        joined_findings, errors = [], []
+        candidates = self.split_candidates(history, result)
+        texts = list(candidates)
+        findings, errors = [[] for _ in texts], []
         for layer in self.guard.check_layers:
             try:
-                joined_findings += layer.check(joined)
+                if hasattr(layer, "check_many"):  # the ML layer: one batch for the second stage
+                    for found, more in zip(findings, layer.check_many(texts)[0]):
+                        found += more
+                else:
+                    for found, text in zip(findings, texts):
+                        found += layer.check(text)
             except Exception as e:
                 errors.append(error_finding(layer.name, e))
 
-        seen = set().union(*(rules for _, rules in history)) | self.local_rules(result.findings)
-        new = sorted(self.local_rules(joined_findings, flagged_only=True) - seen)
+        new = sorted({rule for text, found in zip(texts, findings)
+                      for rule in self.local_rules(found, flagged_only=True) - candidates[text]})
         if not new:
             return errors
         # Joining messages can pair words that were never meant together, so review, never block.

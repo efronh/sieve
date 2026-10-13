@@ -69,7 +69,7 @@ CEF'te kullanıcı `suser`, süreç `deviceExternalId`, `cn1` = `seq`, `cn2` = `
 | `session.rate_limit` | Kullanıcı dakikada `max_requests_per_minute`'tan fazla istek atarsa | block |
 | `session.volume_limit` | `window_seconds` içinde `max_chars_per_window`'dan fazla metin | block |
 | `session.repeat_offender` | Pencere içinde `max_flagged` işaretli mesajdan sonra, `cooldown_seconds` boyunca her mesaj | block |
-| `session_split` | Son `context_messages` mesaj birlikte okununca, hiçbirinde tek başına olmayan bir kural tetikleniyorsa ("Önceki tüm talimatları" + "unut ve …") | review |
+| `session_split` | Yeni mesaj son `context_messages` mesajın her biriyle tek tek ve son ikisi, üçü… ile art arda birleştirilince, birleşen mesajların hiçbirinde tek başına olmayan bir kural tetikleniyorsa ("Önceki tüm talimatları" + "unut ve …"). Mesajlar süreyle silinmiyor (model konuşmayı on dakika sonra da okuyor); uzun bir mesajın ilk ve son cümlesi tutuluyor | review |
 
 - Limitler `user_id` üzerinden sayılıyor (yoksa `session_id`), yani yeni oturum açmak limiti sıfırlamıyor. Bölünmüş saldırı kontrolü oturum başına.
 - Gölge katmanlardan ve kapalı kurallardan gelen bulgular işaretli sayılmıyor.

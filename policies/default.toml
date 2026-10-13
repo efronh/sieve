@@ -3,7 +3,7 @@
 # Change the version with the file: every SIEM event carries it, and a tenant with its own version shows both
 # ("2026-09-24.1+default.2026-10-12.2"). docs/operations.md, "Kiracı politikası ve SIEM", says how a decision is made.
 
-version = "2026-10-12.2"
+version = "2026-10-13.1"
 mode = "enforce"         # enforce | monitor (log what would happen, always allow)
 on_error = "block"       # a check that raises: block (fail closed) | review | allow (fail open, still logged)
 max_check_chars = 8000   # a message's checks read this much; a longer one is reviewed (input_length)
@@ -60,8 +60,8 @@ max_requests_per_minute = 30
 max_chars_per_window = 50000
 max_flagged = 3          # this many flagged messages in the window pause the user ...
 cooldown_seconds = 900   # ... for this long
-window_seconds = 600     # for max_chars_per_window, max_flagged and the split-attack check
-context_messages = 4     # split-attack check over the last N messages of a session; below 2 = off
+window_seconds = 600     # for max_chars_per_window and max_flagged
+context_messages = 4     # split-attack check over the last N messages of a session, however old; below 2 = off
 
 [url_check]
 allowed_hosts = []       # the URL rules skip these hosts, and answers and tool calls may link to them

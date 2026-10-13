@@ -8,7 +8,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Optional
 
-from sieve.actions import BLOCK, REVIEW, Finding, error_finding, failed, worst_action
+from sieve.actions import ACTION_ORDER, BLOCK, REVIEW, Finding, error_finding, failed, worst_action
 from sieve.checks.code_payloads import CodePayloadLayer
 from sieve.checks.prompt_injection import PromptInjectionLayer
 from sieve.checks.tampering import TamperingLayer
@@ -57,6 +57,20 @@ LLM_MIN_ML = 0.2
 # The LLM reads the start and the end of a long message; local layers read up to MAX_CHECK_CHARS.
 LLM_MAX_CHARS = 3000
 CACHE_SIZE = 2048
+# The layers that score how much of a text is an attack (the injection rules, ML) also read a message's sentences, on
+# their own and two at a time up to SENTENCE_REACH apart. Read whole, an attack with ordinary sentences around it was
+# scored with them: 800 characters on each side let 71 of the 79 attacks the plain check catches through, and so did
+# four sentences between its halves. A document is read by sentence already (documents.py).
+SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+MAX_SENTENCES = 200
+SENTENCE_REACH = 3
+# A window of a few words is noise to the ML layer: "Aslında tam olarak değil." alone scored 0.89, over its threshold.
+MIN_WINDOW_WORDS = 5
+# Runs of this many words, a run starting every WORD_STRIDE words: sentences need their full stops, and an attack
+# written on after an ordinary sentence with none between them was read as part of it.
+WINDOW_WORDS = (10, 20)
+WORD_STRIDE = 5
+WINDOW_SECOND_STAGE = 64
 
 # Order matters: secrets first (a connection string looks like an e-mail),
 # then longer, more specific numbers; expiry date and CVV right after the card,
@@ -159,6 +173,33 @@ def head_and_tail(text, limit=LLM_MAX_CHARS):
     return f"{text[:half]}\n[...]\n{text[-half:]}"
 
 
+# A message's sentences, pairs of them up to SENTENCE_REACH apart, and runs of words; nothing for a message short
+# enough to be one of them.
+def sentence_windows(text):
+    sentences = [s.strip() for line in text.splitlines() for s in SENTENCE_END.split(line) if s.strip()]
+    sentences = sentences[:MAX_SENTENCES]
+    pairs = [f"{sentences[i]} {sentences[j]}" for i in range(len(sentences))
+             for j in range(i + 1, min(i + SENTENCE_REACH + 1, len(sentences)))]
+    words = text.split()
+    runs = [" ".join(words[i:i + size]) for size in WINDOW_WORDS if len(words) > size
+            for i in range(0, len(words) - size + WORD_STRIDE, WORD_STRIDE)]
+    windows = (sentences if len(sentences) > 1 else []) + pairs + runs
+    return list(dict.fromkeys(w for w in windows if len(w.split()) >= MIN_WINDOW_WORDS and w != text.strip()))
+
+
+def read_windows(layer, windows):
+    if hasattr(layer, "check_many"):  # the ML layer: one batch for its second stage
+        return layer.check_many(windows, WINDOW_SECOND_STAGE)[0]
+    return [layer.check(window) for window in windows]
+
+
+# The layer's finding for the whole message, or for a window if that one says more: a worse action, or the same
+# action with a higher score.
+def strongest(whole, windows):
+    found = [*whole, *(f for window in windows for f in window)]
+    return [max(found, key=lambda f: (ACTION_ORDER[f.action], f.probability))] if found else whole
+
+
 # Skip the LLM injection check when it can't change the outcome.
 def needs_llm(findings, min_ml=LLM_MIN_ML):
     if min_ml is None:
@@ -227,11 +268,15 @@ class Guardrail:
             findings.append(Finding("input_length", 1.0, REVIEW, [f"{len(cleaned)} chars"]))
 
         # One layer failing doesn't stop the others, so the event still shows what they found.
+        windows = sentence_windows(cleaned[:self.max_check_chars])
         for layer in self.check_layers:
             source = text if getattr(layer, "needs_raw_text", False) else cleaned
             start = time.perf_counter()
             try:
-                findings += layer.check(source[:self.max_check_chars])
+                found = layer.check(source[:self.max_check_chars])
+                if windows and getattr(layer, "reads_sentences", False):
+                    found = strongest(found, read_windows(layer, windows))
+                findings += found
             except Exception as e:
                 findings.append(error_finding(layer.name, e))
             add(timings, layer.name, start)

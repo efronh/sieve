@@ -175,6 +175,7 @@ def linear_scorer(model):
 # shadow=True reports what it would do but always allows.
 class MLInjectionLayer:
     name = "prompt_injection_ml"
+    reads_sentences = True  # pipeline.Guardrail also reads a message's sentences with it
 
     # cascade=None: on unless SIEVE_CASCADE=0 (the tests set it).
     def __init__(self, path=MODEL_PATH, review_at=None, block_at=BLOCK_AT, shadow=False, cascade=None):

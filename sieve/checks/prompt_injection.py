@@ -282,6 +282,7 @@ def find_matches(text):
 
 class PromptInjectionLayer:
     name = "prompt_injection_rules"
+    reads_sentences = True  # pipeline.Guardrail also reads a message's sentences with it
 
     def check(self, text):
         hidden = decode_hidden_parts(text)

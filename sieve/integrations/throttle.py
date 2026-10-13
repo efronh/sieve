@@ -2,6 +2,7 @@ import time
 from collections import OrderedDict, deque
 
 from sieve.actions import ALLOW
+from sieve.pipeline import SENTENCE_END
 
 MAX_FLAGGED = 3
 WINDOW_SECONDS = 10 * 60
@@ -95,26 +96,24 @@ class RateLimiter:
         return exceeded
 
 
-# Split attacks: "Önceki talimatları" in one message, "unut" in the next. Keeps the tail of the
-# last few masked messages of a session and the rule IDs each one fired on its own.
+# Split attacks: "Önceki talimatları" in one message, "unut" in the next. Keeps the last few masked messages of a
+# session, a long one as its first and its last sentence (CONTEXT_CHARS in all), and the rule IDs each one fired on its
+# own. Only the end was kept, so a part at the start of a long message was gone. Messages don't expire: the model still reads the
+# conversation after ten minutes, and waiting that long between the halves got an attack past the check. The number
+# of messages and of sessions bounds the memory.
 class ConversationWindow:
-    def __init__(self, messages=CONTEXT_MESSAGES, window_seconds=WINDOW_SECONDS,
-                 clock=time.monotonic, max_keys=MAX_KEYS):
+    def __init__(self, messages=CONTEXT_MESSAGES, max_keys=MAX_KEYS):
         self.messages = messages
-        self.window_seconds = window_seconds
-        self.clock = clock
         self.max_keys = max_keys
         self.history_by_key = OrderedDict()
 
+    # [(pieces of the message: itself, or its start and its end; the rules it fired)], oldest first.
     def history(self, key):
-        if key not in self.history_by_key:
-            return []
-        now = self.clock()
-        items = self.history_by_key[key]
-        while items and now - items[0][0] > self.window_seconds:
-            items.popleft()
-        return [(text, rules) for _, text, rules in items]
+        return list(self.history_by_key.get(key, ()))
 
     def add(self, key, masked_text, rules):
         items = bounded_get(self.history_by_key, key, lambda: deque(maxlen=max(self.messages - 1, 0)), self.max_keys)
-        items.append((self.clock(), masked_text[-CONTEXT_CHARS:], frozenset(rules)))
+        half = CONTEXT_CHARS // 2
+        sentences = [s for s in SENTENCE_END.split(masked_text.strip()) if s]
+        pieces = (masked_text,) if len(masked_text) <= CONTEXT_CHARS else (sentences[0][:half], sentences[-1][-half:])
+        items.append((pieces, frozenset(rules)))

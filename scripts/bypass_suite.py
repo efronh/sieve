@@ -7,7 +7,8 @@
 #   python -m scripts.bypass_suite --baseline check   # the CI gate: fails if an attack is newly let through
 #   python -m scripts.bypass_suite --baseline update  # rewrites corpus/bypass_baseline.json
 # Each rewrite of each attack ends kept (as strict as the plain one), downgraded (block to review) or lost (allowed).
-# scripts/bypass_channels.py adds the same for the model's answers and tool calls.
+# scripts/bypass_channels.py adds the same for the model's answers and tool calls, scripts/bypass_sessions.py for an
+# attack spread over a conversation.
 # The base attacks are the corpus's plain-text ones that the plain check flags (PI-*, MT-MEM, PI-IND), and four
 # intents written for the translations below. Written knowing the decoders: white-box, like the OBF-* records.
 import argparse
@@ -22,7 +23,7 @@ import sys
 import urllib.parse
 from collections import Counter, defaultdict
 
-from scripts import bypass_channels
+from scripts import bypass_channels, bypass_sessions
 from scripts.replay import load
 from sieve.actions import ACTION_ORDER, ALLOW
 from sieve.integrations.tenant import TenantGuardrail, load_policy
@@ -73,6 +74,23 @@ def turkish_upper(text):
 
 def spaces(text, space):
     return text.replace(" ", space)
+
+
+ORDINARY = ["Kartımın son ödeme tarihi ne zaman?", "Teşekkürler, anladım.", "Şubeniz cumartesi açık mı?",
+            "Kredi kartı aidatı ne kadar?", "Faturamı nereden görebilirim?", "Tamam, devam edelim."]
+
+
+def ordinary(n):
+    return " ".join(ORDINARY[i % len(ORDINARY)] for i in range(n))
+
+
+def padding(chars):
+    return ordinary(chars // 25)[:chars].rsplit(" ", 1)[0]
+
+
+def between_halves(text, sentences):
+    words = text.split()
+    return f"{' '.join(words[:len(words) // 2])} {ordinary(sentences)} {' '.join(words[len(words) // 2:])}"
 
 
 CYRILLIC_LOOKALIKES = dict(zip("aceijopsxyABCEHIJKMOPSTXY", "асеіјорѕхуАВСЕНІЈКМОРЅТХУ"))
@@ -155,6 +173,15 @@ REWRITES = {
     "script": {
         "turkish_in_cyrillic": lambda t: letters(t, TURKISH_CYRILLIC),
         "turkish_in_greek": lambda t: letters(t.lower(), TURKISH_GREEK),
+    },
+    # The attack among ordinary sentences in one message: around it, or cut in two with sentences between.
+    "structure": {
+        "padded_around": lambda t: f"{padding(800)} {t} {padding(800)}",
+        "padded_before": lambda t: f"{padding(2500)} {t}",
+        "one_sentence_between_halves": lambda t: between_halves(t, 1),
+        "two_sentences_between_halves": lambda t: between_halves(t, 2),
+        "four_sentences_between_halves": lambda t: between_halves(t, 4),
+        "halves_far_apart": lambda t: between_halves(t, 30),
     },
 }
 
@@ -371,7 +398,7 @@ def run(guard):
             continue
         for i, t in in_documents:
             rows.append(("document", name, i, reference[i], guard.check_document(place(t)).action))
-    return len(bases), caught, in_documents, rows + bypass_channels.rows(REWRITES)
+    return len(bases), caught, in_documents, rows + bypass_sessions.rows(caught, plain) + bypass_channels.rows(REWRITES)
 
 
 def summarize(rows):
@@ -389,8 +416,8 @@ def report(base_count, caught, in_documents, table):
     print(f"{base_count} base attacks, {len(caught)} caught when written plainly, {len(in_documents)} of them also on "
           "a visible line of a document; each rewritten every way below.")
     print("kept: as strict as plain; downgraded: block became review; lost: allowed (a bypass)\n")
-    for family in ("encoding", "unicode", "script", "language", "document", "exfiltration", "leak", "personal_data",
-                   "tool"):
+    for family in ("encoding", "unicode", "script", "structure", "language", "document", "session", "exfiltration", "leak",
+                   "personal_data", "tool"):
         names = [n for f, n in table if f == family]
         totals = sum((table[(family, n)] for n in names), Counter())
         print(f"{family}: {totals['lost']} lost of {sum(totals.values())}")
