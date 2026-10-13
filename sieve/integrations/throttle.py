@@ -1,5 +1,5 @@
 import time
-from collections import OrderedDict, defaultdict, deque
+from collections import OrderedDict, deque
 
 from sieve.actions import ALLOW
 
@@ -16,15 +16,18 @@ LIMITED_REPLY = "Çok sayıda engellenen mesaj nedeniyle bu oturum kısa bir sü
 
 # A session that keeps getting flagged is probing the guardrail: after a few
 # flagged messages in a short window, stop spending tokens on it for a while.
+# Least recently used sessions are dropped, as in the other limiters: these two kept every session that was ever
+# flagged, and one flagged message from each of millions of IDs grew them without end.
 class SessionLimiter:
     def __init__(self, max_flagged=MAX_FLAGGED, window_seconds=WINDOW_SECONDS,
-                 cooldown_seconds=COOLDOWN_SECONDS, clock=time.monotonic):
+                 cooldown_seconds=COOLDOWN_SECONDS, clock=time.monotonic, max_keys=MAX_KEYS):
         self.max_flagged = max_flagged
         self.window_seconds = window_seconds
         self.cooldown_seconds = cooldown_seconds
         self.clock = clock
-        self.flagged = defaultdict(deque)
-        self.limited_until = {}
+        self.max_keys = max_keys
+        self.flagged = OrderedDict()
+        self.limited_until = OrderedDict()
 
     def is_limited(self, session):
         until = self.limited_until.get(session)
@@ -39,11 +42,12 @@ class SessionLimiter:
         if action == ALLOW:
             return
         now = self.clock()
-        times = self.flagged[session]
+        times = bounded_get(self.flagged, session, deque, self.max_keys)
         times.append(now)
         while times and now - times[0] > self.window_seconds:
             times.popleft()
         if len(times) >= self.max_flagged:
+            bounded_get(self.limited_until, session, float, self.max_keys)
             self.limited_until[session] = now + self.cooldown_seconds
             times.clear()
 

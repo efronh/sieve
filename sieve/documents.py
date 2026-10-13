@@ -21,7 +21,16 @@ from sieve.ml.injection import MLInjectionLayer, warn_without_ml
 from sieve.pipeline import LAYERS, clean, mask
 from sieve.timing import add
 
+# A document is read this far; the rest is cut, from the checks, the event and what wrap() gives the model alike, and
+# the document is reviewed. wrap() used to give the model all of it, so an instruction past the limit was never read.
 MAX_DOCUMENT_CHARS = 200_000
+# Parts one check sends to the ML layer's second stage (BERTurk): a document's, or a tool call's over all its
+# arguments. The corpus's documents need at most 7. Past it, TF-IDF alone decides the rest, and the document is
+# reviewed: 1,600 unsure sentences took 28 seconds, one at a time.
+MAX_SECOND_STAGE = 64
+BUDGET_CHECK = "check_budget"
+# Flagged parts masked for the reviewer: each is masked whole, so a document flagged everywhere cost a second more.
+MAX_EXCERPTS = 20
 # JSON or hidden HTML nested deeper than this isn't opened further: thousands of levels crashed the parser
 # with a RecursionError. What's below goes unchecked, so the document is reviewed, like an overlong one.
 MAX_NESTING = 64
@@ -64,6 +73,12 @@ MARKS = "ˆ¦¤‡◊"
 # Every space but a line break, and the blank letters (Hangul fillers, braille blank) that read as one: with
 # only " " and tab, "talimatları unut" or "\v" between words reached the model without a mark.
 SPACES = re.compile(r"(?:[^\S\n]|[ᅟᅠㅤﾠ⠀᠎])+")
+
+
+# Second-stage calls left for one check.
+class Budget:
+    def __init__(self, calls=MAX_SECOND_STAGE):
+        self.calls = calls
 
 
 @dataclass
@@ -239,6 +254,7 @@ class DocumentGuard:
     # document's, so a tool call can't use them without review.
     def wrap(self, text, source="belge", keep_hidden=False, keep_personal_data=False, vault=None):
         source = re.sub(r"\W", "", source) or "belge"
+        text = text[:MAX_DOCUMENT_CHARS]  # what check() read, and no more
         if not keep_hidden:
             text = START_TAG.sub(links_only, without_hidden(text, " ")[1])
         if keep_personal_data:
@@ -263,23 +279,41 @@ class DocumentGuard:
         finally:
             add(timings, layer.name, start)
 
-    def check_part(self, part, timings=None):
-        timings = {} if timings is None else timings
-        cleaned = clean(part)
-        findings = []
-        for layer in self.part_layers + ([self.ml_layer] if self.ml_layer is not None and len(cleaned) >= MIN_ML_CHARS
-                                         else []):
-            findings += self.run_layer(layer, cleaned, timings)
-        return findings
-
-    # A check that fails blocks the document: leave it out of the prompt.
-    def check(self, text):
+    # (the ML layer's findings for each cleaned part, findings about the layer itself). The parts go to it together,
+    # so its second stage runs once for all, within the budget; a layer without check_many gets them one by one.
+    def ml_findings(self, cleaned, timings, budget):
+        layer = self.ml_layer
+        each = [[] for _ in cleaned]
+        if layer is None:
+            return each, []
+        read = [i for i, part in enumerate(cleaned) if len(part) >= MIN_ML_CHARS]
+        if not hasattr(layer, "check_many"):
+            for i in read:
+                each[i] = self.run_layer(layer, cleaned[i], timings)
+            return each, []
+        start = time.perf_counter()
         try:
-            return self.run(text)
+            results, unread = layer.check_many([cleaned[i] for i in read], budget.calls)
+        except Exception as e:
+            return each, [error_finding(layer.name, e)]
+        finally:
+            add(timings, layer.name, start)
+        for i, found in zip(read, results):
+            each[i] = found
+        budget.calls -= sum(1 for found in results for f in found if f.level == "tfidf+bert")
+        if not unread:
+            return each, []
+        return each, [Finding(BUDGET_CHECK, 1.0, REVIEW, [f"{unread} parts past the second stage's {MAX_SECOND_STAGE}"])]
+
+    # A check that fails blocks the document: leave it out of the prompt. budget: the second-stage calls left, shared
+    # by every argument of a tool call; a document of its own gets a full one.
+    def check(self, text, budget=None):
+        try:
+            return self.run(text, Budget() if budget is None else budget)
         except Exception as e:
             return DocumentResult(BLOCK, [error_finding("document", e)])
 
-    def run(self, text):
+    def run(self, text, budget):
         findings, timings = [], {}
         if len(text) > MAX_DOCUMENT_CHARS:
             findings.append(Finding("input_length", 1.0, REVIEW, [f"{len(text)} chars"]))
@@ -294,12 +328,17 @@ class DocumentGuard:
         if too_deep:
             findings.append(Finding("input_nesting", 1.0, REVIEW, [f"more than {MAX_NESTING} levels"]))
 
+        cleaned = [clean(part) for part, _ in parts]
+        ml, about_ml = self.ml_findings(cleaned, timings, budget)
+        findings += about_ml
         flagged_parts = []
         hidden_flagged = False
-        for part, hidden in parts:
-            part_findings = self.check_part(part, timings)
+        for (part, hidden), cleaned_part, ml_part in zip(parts, cleaned, ml):
+            part_findings = [f for layer in self.part_layers for f in self.run_layer(layer, cleaned_part, timings)]
+            part_findings += ml_part
             if worst_action(part_findings) != ALLOW:
-                flagged_parts.append(mask(part, self.masking_layers)[:EXCERPT_CHARS])
+                if len(flagged_parts) < MAX_EXCERPTS:
+                    flagged_parts.append(mask(part, self.masking_layers)[:EXCERPT_CHARS])
                 # A check that failed on hidden text is for on_error, not a sign of an instruction in it.
                 checked = [f for f in part_findings if f.check != ERROR_CHECK]
                 hidden_flagged = hidden_flagged or (hidden and worst_action(checked) != ALLOW)

@@ -1,6 +1,7 @@
 import copy
 import hashlib
 import re
+import threading
 import time
 import unicodedata
 from collections import OrderedDict
@@ -29,6 +30,12 @@ INVISIBLE_CHARS = re.compile(
 ANSI_CODES = re.compile(r"(?:\x1b|\\x1b)\[[0-9;]*[a-zA-Z]")
 TAG_FIRST, TAG_LAST = 0xE0020, 0xE007E
 MAX_CHECK_CHARS = 8000
+# A message is masked whole, since the model gets all of it; past this it's blocked unread. Masking costs up to about
+# 5 µs a character (a long run of digits), so 1 MB kept a check busy for seconds, and a server with one worker stalled.
+# A user tracked by the session limits can't send more in 10 minutes anyway (max_chars_per_window).
+MAX_INPUT_CHARS = 50_000
+# What this user may see (user_data), masked to be compared with an answer or a tool argument, is read this far.
+MAX_USER_DATA_CHARS = 50_000
 # The paid LLM injection check only runs when local layers are unsure (see needs_llm).
 LLM_MIN_ML = 0.2
 # The LLM reads the start and the end of a long message; local layers read up to MAX_CHECK_CHARS.
@@ -99,6 +106,18 @@ def clean(text):
     return INVISIBLE_CHARS.sub("", text)
 
 
+# The first limit characters of texts, the last one cut where the limit falls. What's left out isn't known to be the
+# user's own, which flags more, not less.
+def first_chars(texts, limit=MAX_USER_DATA_CHARS):
+    kept = []
+    for text in texts:
+        if limit <= 0:
+            break
+        kept.append(text[:limit])
+        limit -= len(text)
+    return kept
+
+
 def mask(text, layers=LAYERS):
     text = clean(text)
     for layer in layers:
@@ -136,30 +155,42 @@ def needs_llm(findings, min_ml=LLM_MIN_ML):
 
 class Guardrail:
     def __init__(self, masking_layers=LAYERS, check_layers=None, llm_layer=None, max_check_chars=MAX_CHECK_CHARS,
-                 llm_min_ml=LLM_MIN_ML, llm_max_chars=LLM_MAX_CHARS, cache_size=CACHE_SIZE):
+                 llm_min_ml=LLM_MIN_ML, llm_max_chars=LLM_MAX_CHARS, cache_size=CACHE_SIZE, max_input_chars=None):
         self.masking_layers = masking_layers
         self.check_layers = default_check_layers() if check_layers is None else check_layers
         self.llm_layer = llm_layer
         self.max_check_chars = max_check_chars
+        self.max_input_chars = max(MAX_INPUT_CHARS, max_check_chars) if max_input_chars is None else max_input_chars
         self.llm_min_ml = llm_min_ml
         self.llm_max_chars = llm_max_chars
         self.cache_size = cache_size
         self.cache = OrderedDict()
+        self.cache_lock = threading.Lock()  # the checks may run side by side; the cache's order can't
 
     def check(self, text):
         start = time.perf_counter()
+        if len(text) > self.max_input_chars:
+            return GuardrailResult("", BLOCK, [Finding("input_too_large", 1.0, BLOCK, [f"{len(text)} chars"])],
+                                   timings={"masking": since(start)})
         key = hashlib.sha256(text.encode("utf-8")).hexdigest()
-        if key in self.cache:
-            self.cache.move_to_end(key)
-            result = copy.deepcopy(self.cache[key])  # a copy, so a caller editing findings can't change the cache
+        with self.cache_lock:
+            cached = self.cache.get(key)
+            if cached is not None:
+                self.cache.move_to_end(key)
+        if cached is not None:
+            result = copy.deepcopy(cached)  # a copy, so a caller editing findings can't change the cache
             result.timings = {"cache": since(start)}
             return result
 
         result = self.run(text)
-        if self.cache_size and not failed(result.findings):  # a failed check may work on the next try
-            self.cache[key] = copy.deepcopy(result)
-            if len(self.cache) > self.cache_size:
-                self.cache.popitem(last=False)
+        # A failed check may work on the next try. A message longer than the checks read is rarely sent twice, and
+        # 2,048 of 50,000 characters each would be hundreds of megabytes.
+        if self.cache_size and not failed(result.findings) and len(text) <= self.max_check_chars:
+            stored = copy.deepcopy(result)
+            with self.cache_lock:
+                self.cache[key] = stored
+                if len(self.cache) > self.cache_size:
+                    self.cache.popitem(last=False)
         return result
 
     def run(self, text):

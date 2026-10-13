@@ -1,8 +1,10 @@
 # Per-tenant TOML policy (layers, modes, rule exceptions); decisions go to siem.py.
 #   guard = TenantGuardrail(load_policy("example_bank"))
+import functools
 import json
 import logging
 import re
+import threading
 import time
 import tomllib
 import uuid
@@ -12,7 +14,7 @@ from pathlib import Path
 
 from sieve.actions import ACTION_ORDER, ALLOW, BLOCK, ERROR_CHECK, REVIEW, Finding, action_for, error_finding, worst_action
 from sieve.checks.indirect import IndirectInjectionLayer
-from sieve.documents import DocumentGuard, DocumentResult
+from sieve.documents import BUDGET_CHECK, MAX_DOCUMENT_CHARS, DocumentGuard, DocumentResult
 from sieve.integrations.siem import count_decision, emit, fired, to_event
 from sieve.integrations.throttle import MAX_KEYS, ConversationWindow, RateLimiter, SessionLimiter, bounded_get
 from sieve.ml.injection import MLInjectionLayer, unavailable_reason
@@ -22,7 +24,7 @@ from sieve.pipeline import LAYERS, Guardrail, GuardrailResult, default_check_lay
 from sieve.rules import RULES, rule_ids
 from sieve.timing import add, since
 from sieve.tools import CHECK as TOOL_CHECK
-from sieve.tools import ToolGuard, ToolResult, spec_problems
+from sieve.tools import MAX_ARGUMENT_CHARS, ToolGuard, ToolResult, spec_problems
 from sieve.vault import Vault
 
 POLICY_DIR = POLICIES
@@ -53,9 +55,10 @@ SESSION_KEYS = {"max_requests_per_minute", "max_chars_per_window", "max_flagged"
 SESSION_MINIMUM = {"max_requests_per_minute": 1, "max_chars_per_window": 1, "max_flagged": 1, "cooldown_seconds": 1,
                    "window_seconds": 1, "context_messages": 0}
 URL_CHECK_KEYS = {"allowed_hosts"}
-# A host name with at least one dot, nothing else: "com" or "" let every link through in answers and tool arguments,
-# where a subdomain of an allowed host is allowed too, and a scheme, a path or a "*" never matched anything.
-HOST_NAME = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", re.IGNORECASE)
+# A host name is labels with dots between, two at least: "com" or "" let every link through in answers and tool
+# arguments, where a subdomain of an allowed host is allowed too, and a scheme, a path or a "*" never matched anything.
+# One label at a time: the whole name in one pattern backtracked, 8,000 characters of "1111!" took 0.4 s.
+HOST_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", re.IGNORECASE)
 # Message layers, which a Guardrail passed to TenantGuardrail must have unless the policy turns them off.
 MESSAGE_LAYERS = ("tampering", "prompt_injection_rules", "code_payloads", "url_check", "prompt_injection_ml")
 SESSION_CHECKS = {"session", "session_split"}  # both follow the "session" layer mode
@@ -119,13 +122,18 @@ def session_problems(session):
     return problems
 
 
+def is_host_name(host):
+    labels = host.split(".") if isinstance(host, str) else []
+    return len(labels) >= 2 and all(HOST_LABEL.fullmatch(label) for label in labels)
+
+
 def url_check_problems(url_check):
     problems = [f"unknown url_check key {k!r}" for k in url_check if k not in URL_CHECK_KEYS]
     hosts = url_check.get("allowed_hosts", [])
     if not isinstance(hosts, list):
         return problems + ["[url_check] allowed_hosts must be a list of host names"]
     return problems + [f"[url_check] allowed host {h!r} must be a host name like \"www.ornekbank.com.tr\"" for h in hosts
-                       if not (isinstance(h, str) and HOST_NAME.fullmatch(h))]
+                       if not is_host_name(h)]
 
 
 # Typos in a policy must fail loudly: a misspelled rule ID would silently keep the rule on.
@@ -299,14 +307,29 @@ def as_allowed(finding, **flags):
                    would_action=finding.action, **flags)
 
 
+# The layer whose mode a finding follows: the split check's is the session's, and parts the ML layer's second stage
+# had no budget for are the ML layer's, so a policy with it in shadow isn't reviewed for them.
 def layer_of(check):
+    if check == BUDGET_CHECK:
+        return MLInjectionLayer.name
     return "session" if check in SESSION_CHECKS else check
+
+
+# One call at a time per guard. The session state is shared: 8 threads at once got 3% of messages blocked by a check
+# that raised mid-update, and two transfers could both pass a max_total meant for one.
+def one_at_a_time(method):
+    @functools.wraps(method)
+    def locked(self, *args, **kwargs):
+        with self.lock:
+            return method(self, *args, **kwargs)
+    return locked
 
 
 class TenantGuardrail:
     # system_prompt (and an optional fixed canary) are for the answer check: give the model guard.system_prompt.
     def __init__(self, policy, guardrail=None, clock=time.monotonic, system_prompt="", canary=None):
         self.policy = policy
+        self.lock = threading.RLock()
         if guardrail is not None:
             # A layer the policy runs but the Guardrail doesn't have would never be asked: fail loudly instead.
             have = {layer.name for layer in guardrail.check_layers}
@@ -348,6 +371,7 @@ class TenantGuardrail:
 
     # A document as the model should get it (DocumentGuard.wrap), masked with the policy's layers; with lettered
     # labels, its values join the session's vault as a document's.
+    @one_at_a_time
     def wrap(self, text, session_id=None, **wrap_args):
         return self.documents.wrap(text, vault=self.vault(session_id), **wrap_args)
 
@@ -474,6 +498,7 @@ class TenantGuardrail:
         return result
 
     # request_id: the input check's (result.request_id), so the SIEM can join a request's events.
+    @one_at_a_time
     def check_tool(self, name, args, user_data=None, session_id=None, user_id=None, request_id=None):
         try:
             return self.run_tool(name, args, user_data, session_id, user_id, request_id)
@@ -481,6 +506,7 @@ class TenantGuardrail:
             failure = self.failed(e, "tool", session_id, user_id, request_id)
             return ToolResult(BLOCK, failure.findings, [f"the check failed: {type(e).__name__}"])
 
+    @one_at_a_time
     def check_document(self, text, session_id=None, user_id=None, request_id=None):
         try:
             return self.run_document(text, session_id, user_id, request_id)
@@ -490,6 +516,7 @@ class TenantGuardrail:
     # The model's answer, checked by OutputGuard and then the policy, like a message. Masking and link
     # cleaning always apply; the policy decides whether the answer is shown, reviewed or replaced. An
     # answer whose check failed is never shown, whatever on_error says: there's no checked text to show.
+    @one_at_a_time
     def check_output(self, answer, user_data=None, session_id=None, user_id=None, request_id=None):
         try:
             return self.run_output(answer, user_data, session_id, user_id, request_id)
@@ -510,6 +537,7 @@ class TenantGuardrail:
 
     # A message starts a request: without a request_id from the app, it gets one (result.request_id) to pass on to the
     # document, tool and answer checks of the same request.
+    @one_at_a_time
     def check(self, text, session_id=None, user_id=None, direction="input", request_id=None):
         if request_id is None and direction == "input":
             request_id = uuid.uuid4().hex
@@ -533,8 +561,8 @@ class TenantGuardrail:
         timings = dict(result.timings)
         decision = findings, action, _ = self.decide(self.used(label_findings + result.findings), timings, DOCUMENTS)
         call = f"{name} {json.dumps(args, ensure_ascii=False, sort_keys=True, default=str)}"
-        self.log("tool", call, lambda: mask(call, self.guard.masking_layers), decision, start, timings, session_id,
-                 user_id, request_id)
+        self.log("tool", call, lambda: mask(call[:MAX_ARGUMENT_CHARS], self.guard.masking_layers), decision, start,
+                 timings, session_id, user_id, request_id)
         # The arguments as checked, unless the call is blocked: shadow or monitor mode can let through a call
         # ToolGuard itself blocked.
         return ToolResult(action, findings, result.reasons, timings, None if action == BLOCK else args)
@@ -545,8 +573,9 @@ class TenantGuardrail:
         result = self.documents.check(text)
         timings = dict(result.timings)
         decision = findings, action, _ = self.decide(self.used(result.findings), timings, DOCUMENTS)
-        self.log("document", text, lambda: mask(text, self.guard.masking_layers), decision, start, timings, session_id,
-                 user_id, request_id)
+        # The event's text is what the check read: masking all of a 1 MB document took seconds more.
+        self.log("document", text, lambda: mask(text[:MAX_DOCUMENT_CHARS], self.guard.masking_layers), decision, start,
+                 timings, session_id, user_id, request_id)
         return DocumentResult(action, findings, result.flagged_parts, timings)
 
     def run(self, text, session_id=None, user_id=None, direction="input", request_id=None):

@@ -201,7 +201,7 @@ def test_deeply_nested_arguments_are_blocked_not_a_crash():
         deep = [deep]
     tools = ToolGuard({"f": {"params": {"x": "str"}}})
     result = tools.check("f", {"x": deep})
-    assert result.action == "block" and result.reasons == ["arguments nested more than 64 levels"]
+    assert result.action == "block" and "arguments nested more than 64 levels" in result.reasons
 
 
 def test_from_user_without_user_data_fails_closed(guard):

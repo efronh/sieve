@@ -21,6 +21,9 @@ SHINGLE_WORDS = 5
 LEAK_REVIEW_SHINGLES = 1
 LEAK_BLOCK_SHINGLES = 3
 MIN_DATA_LENGTH = 16
+# An answer is read and shown this far; the rest is cut and the answer reviewed. A model told by a document to write
+# a long run of digits made masking alone take seconds, and nothing bounded it.
+MAX_ANSWER_CHARS = 50_000
 
 LINK_TARGET = r"\(\s*<?((?:[^()\s>]|\([^()\s]*\))+)>?[^)]*\)"
 # A label may hold one level of brackets, as Markdown allows: "![a [b] c](url)" is an image, and it went
@@ -336,11 +339,14 @@ class OutputGuard:
             return OutputResult(SAFE_REPLY, BLOCK, [error_finding("output", e)], answer=SAFE_REPLY)
 
     def run(self, answer, user_data=None):
-        from sieve.pipeline import LAYERS
+        from sieve.pipeline import LAYERS, first_chars
 
         # Every check runs, also after a block, so a policy can put any of them in shadow mode.
         findings, timings = [], {}
         start = time.perf_counter()
+        if len(answer) > MAX_ANSWER_CHARS:
+            findings.append(Finding("output_length", 1.0, REVIEW, [f"{len(answer)} chars"]))
+            answer = answer[:MAX_ANSWER_CHARS]
         if self.canary_leaked(answer):
             findings.append(Finding("canary", 1.0, BLOCK, ["system_prompt_leak"]))
         timings["canary"], start = since(start), time.perf_counter()
@@ -362,8 +368,7 @@ class OutputGuard:
         if values:
             findings.append(Finding("output_masking", 0.0, ALLOW, ["personal_data_masked"]))
         if values and user_data is not None:
-            if isinstance(user_data, str):
-                user_data = [user_data]
+            user_data = first_chars([user_data] if isinstance(user_data, str) else user_data)
             known = [data_key(v) for text in user_data for v in mask_and_collect(text, layers)[1]]
             if any(not any(same_data(data_key(v), k) for k in known) for v in values):
                 findings.append(Finding("output_masking", 1.0, REVIEW, ["new_personal_data"]))

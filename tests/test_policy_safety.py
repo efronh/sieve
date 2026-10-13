@@ -22,10 +22,13 @@ def raising(*args, **kwargs):
     raise RuntimeError("broken")
 
 
-# A layer the policy turns off isn't built at all, so there's nothing of it to break.
+# A layer the policy turns off isn't built at all, so there's nothing of it to break. The ML layer reads a document's
+# parts all at once (check_many).
 def break_check(layer):
     if layer is not None:
         layer.check = raising
+        if hasattr(layer, "check_many"):
+            layer.check_many = raising
 
 
 def tenant(**overrides):

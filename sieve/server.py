@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import signal
+import socket
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -25,7 +26,15 @@ API_KEY_ENV = "SIEVE_API_KEY"
 MAX_BODY = 1_000_000  # bytes: a document is read up to 200,000 characters
 CHECK_TIMEOUT = 5.0  # s a check may take before the answer is block
 MAX_PENDING = 64  # requests waiting or running; past it, 503 and the app's own fail-closed path
-SOCKET_TIMEOUT = 10  # s for a client to send its request, so a slow one can't hold a thread
+SOCKET_TIMEOUT = 10  # s a client may leave between two pieces of its request
+# s for the whole request to arrive. The socket timeout counts per read, so a client sending a byte every few seconds
+# held its connection, and a thread, for as long as it liked.
+READ_SECONDS = 20
+# Connections open at once. Each gets a thread; past this a new one is answered 503 and closed before one is started,
+# so slow clients can't make the process start threads without end.
+MAX_CONNECTIONS = 128
+BUSY = (b"HTTP/1.0 503 Service Unavailable\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
+        b'{"error": {"code": "busy", "message": "too many connections; treat as block"}}')
 
 logger = logging.getLogger("sieve.server")
 
@@ -129,11 +138,61 @@ class Service:
         return {"system_prompt": self.guard.system_prompt, "document_instructions": self.guard.documents.instructions}
 
 
+class Server(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(self, address, handler, max_connections=MAX_CONNECTIONS):
+        super().__init__(address, handler)
+        self.connections = threading.BoundedSemaphore(max_connections)
+
+    def process_request(self, request, client_address):
+        if not self.connections.acquire(blocking=False):
+            try:
+                request.sendall(BUSY)
+            except OSError:
+                pass
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self.connections.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.connections.release()
+
+    # A client that went away, or ran out of time, isn't an error worth a traceback.
+    def handle_error(self, request, client_address):
+        logger.info("sieve: connection ended with %s", sys.exc_info()[0].__name__)
+
+
 class Handler(BaseHTTPRequestHandler):
     service = None  # set by make_server
     timeout = SOCKET_TIMEOUT
+    read_seconds = READ_SECONDS
     server_version = "sieve"
     sys_version = ""
+
+    # Past read_seconds without the whole request, the connection is closed under the read.
+    def setup(self):
+        super().setup()
+        self.deadline = threading.Timer(self.read_seconds, self.give_up)
+        self.deadline.daemon = True
+        self.deadline.start()
+
+    def give_up(self):
+        try:
+            self.connection.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+
+    def finish(self):
+        self.deadline.cancel()
+        super().finish()
 
     def send_json(self, status, body, request_id=None):
         data = json.dumps(body, ensure_ascii=False).encode("utf-8")
@@ -162,6 +221,7 @@ class Handler(BaseHTTPRequestHandler):
         logger.info("%s %s %s", self.command, self.path.split("?")[0], args[1] if len(args) > 1 else "")
 
     def do_GET(self):
+        self.deadline.cancel()  # the request is in; what's left is the answer
         path = self.path.split("?")[0]
         if path == "/healthz":
             return self.send_json(200, {"status": "ok"})
@@ -185,6 +245,8 @@ class Handler(BaseHTTPRequestHandler):
             body = validate(self.read_body(), *ENDPOINTS[path])
         except BadRequest as e:
             return self.send_error_json(e.status, e.code, str(e))
+        finally:
+            self.deadline.cancel()
         if not self.service.slots.acquire(blocking=False):
             return self.send_error_json(503, "busy", "too many checks waiting; treat as block")
         try:
@@ -204,18 +266,22 @@ class Handler(BaseHTTPRequestHandler):
             raise BadRequest(411, "length_required", "send a Content-Length")
         if int(length) > MAX_BODY:
             raise BadRequest(413, "too_large", f"the body is limited to {MAX_BODY} bytes")
+        body = self.rfile.read(int(length))
+        if len(body) < int(length):
+            raise BadRequest(400, "bad_request", "the body ended early")
+        # Nesting thousands of levels deep raises RecursionError and a number of thousands of digits ValueError, which
+        # used to drop the connection without an answer.
         try:
-            return json.loads(self.rfile.read(int(length)).decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
+            return json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError, RecursionError):
             raise BadRequest(400, "bad_json", "the body isn't valid UTF-8 JSON") from None
 
 
-def make_server(guard, host="127.0.0.1", port=8080, api_key=None, check_timeout=CHECK_TIMEOUT, max_pending=MAX_PENDING):
+def make_server(guard, host="127.0.0.1", port=8080, api_key=None, check_timeout=CHECK_TIMEOUT, max_pending=MAX_PENDING,
+                max_connections=MAX_CONNECTIONS, read_seconds=READ_SECONDS):
     service = Service(guard, api_key, check_timeout, max_pending)
-    handler = type("SieveHandler", (Handler,), {"service": service})
-    server = ThreadingHTTPServer((host, port), handler)
-    server.daemon_threads = True
-    return server
+    handler = type("SieveHandler", (Handler,), {"service": service, "read_seconds": read_seconds})
+    return Server((host, port), handler, max_connections)
 
 
 def siem_handler(target):

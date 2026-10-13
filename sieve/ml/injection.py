@@ -201,8 +201,12 @@ class MLInjectionLayer:
         if not self.cascade:
             return p1, action_for(p1, self.review_at, self.block_at), "tfidf"
 
+        return self.cascade_action(p1, lambda: float(self.stage.predict([text])[0]))
+
+    # (score, action, which model answered) for a TF-IDF score; second_stage gives BERTurk's when it's needed.
+    def cascade_action(self, p1, second_stage):
         c = self.cascade
-        p, flagged, used_second = cascade_decision(p1, c["low"], c["high"], lambda: float(self.stage.predict([text])[0]))
+        p, flagged, used_second = cascade_decision(p1, c["low"], c["high"], second_stage)
         if flagged is None:
             action = action_for(p, self.review_at, self.block_at)
         else:
@@ -212,9 +216,28 @@ class MLInjectionLayer:
     def probability(self, text):
         return self.decide(text)[0]
 
-    def check(self, text):
-        p, action, level = self.decide(text)
-
+    def finding(self, p, action, level):
         if self.shadow:
-            return [Finding(self.name, p, ALLOW, [f"would_{action}"], level=level, shadow=True)]
-        return [Finding(self.name, p, action, level=level)]
+            return Finding(self.name, p, ALLOW, [f"would_{action}"], level=level, shadow=True)
+        return Finding(self.name, p, action, level=level)
+
+    def check(self, text):
+        return [self.finding(*self.decide(text))]
+
+    # The findings for many texts (a document's parts), as check() gives them one by one, with the second stage run
+    # once for all the texts it's needed for: one at a time it took 17-20 ms a text, and a 50,000-character document
+    # of unsure sentences 28 seconds. At most limit texts get it (None: all); past that, TF-IDF alone decides them,
+    # with the cascade's threshold. Returns (a list of findings per text, how many texts the second stage didn't read).
+    def check_many(self, texts, limit=None):
+        firsts = [self.tfidf_probability(t) for t in texts]
+        if not self.cascade:
+            return [[self.finding(p, action_for(p, self.review_at, self.block_at), "tfidf")] for p in firsts], 0
+
+        c = self.cascade
+        unsure = [i for i, p in enumerate(firsts) if c["low"] <= p <= c["high"]]
+        read = unsure if limit is None else unsure[:limit]
+        seconds = dict(zip(read, map(float, self.stage.predict([texts[i] for i in read])))) if read else {}
+        unread = set(unsure) - set(seconds)
+        results = [[self.finding(p1, action_for(p1, self.review_at, self.block_at), "tfidf") if i in unread
+                    else self.finding(*self.cascade_action(p1, lambda: seconds[i]))] for i, p1 in enumerate(firsts)]
+        return results, len(unread)

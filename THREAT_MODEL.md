@@ -375,18 +375,21 @@ Of 12 benign answers, 1 is a false alarm: a branch's landline (`0312 555 12 34`)
 **Attack.** Inputs built to cost CPU, memory or LLM calls: huge messages, deeply nested JSON, pathological regex input, floods of requests.
 
 **Controls.**
-- Size limits: checks read the first 8,000 characters (more means review), documents up to 200,000 (more is cut and reviewed).
+- Size limits, before any work that costs: a message over 50,000 characters is blocked unread (`input_too_large`); checks read its first 8,000 (more means review). A document is read up to 200,000 characters, and the rest is cut from the checks, the event and `wrap()` alike (reviewed, `input_length`). A tool call over 50,000 characters, keys and values together, is blocked unread. An answer is cut at 50,000 and reviewed (`output_length`). User data is read up to 50,000.
+- The ML layer's second stage (BERTurk) reads a document's unsure parts in one batch, at most 64 per check, a tool call's arguments together; past that, TF-IDF alone decides and the document is reviewed (`check_budget`).
 - Decoding goes two levels deep.
 - Per-user rate limits: 30 requests per minute, 50,000 characters per 10 minutes.
 - A decision cache.
 - The paid LLM runs only when local layers are unsure, and reads at most 3,000 characters.
-- Session state is capped at 50,000 keys.
+- Session state is capped at 50,000 keys, the flagged-session counts too.
+- A guard runs one call at a time (a lock), so threads can't interleave its session state or a tool's running totals.
+- The HTTP server takes at most 128 connections and 20 seconds for a whole request to arrive; JSON it can't parse is a 400.
 - HTML is read in linear time: nothing inside a tag is scanned past the next `<`, and closing tags are looked up, not searched for.
 - Every pattern and every entry point is fuzzed for inputs whose cost grows faster than their length (`python -m scripts.fuzz_slow_inputs`).
 - Every result and SIEM event carries the time each stage took (`timings`, `timings_ms`); `python -m scripts.benchmark_latency` measures them on normal traffic and the corpus.
 - JSON and hidden HTML are opened 64 levels deep at most. A document nested deeper is reviewed (`input_nesting`), since what's below goes unchecked; tool arguments nested deeper are blocked, since every parameter is a scalar anyway.
 
-**Evidence.** Unit tests for the inputs that used to crash, and for 28 inputs that used to take from seconds to minutes ([`tests/test_slow_inputs.py`](tests/test_slow_inputs.py), and the HTML ones in `tests/test_documents.py`): each must finish in under 2 or 3 seconds. The fuzzer finds no pattern and no entry point whose time grows faster than its input.
+**Evidence.** Unit tests for the inputs that used to crash, and for 28 inputs that used to take from seconds to minutes ([`tests/test_slow_inputs.py`](tests/test_slow_inputs.py), and the HTML ones in `tests/test_documents.py`): each must finish in under 2 or 3 seconds. [`tests/test_resource_limits.py`](tests/test_resource_limits.py) sends 1 MB of the costliest shape to every entry point, fills the second stage's budget, runs 16 threads against one guard, and holds connections open and trickles a request byte by byte against the server. The fuzzer finds no pattern and no entry point whose time grows faster than its input.
 
 **Fixed.** I found this crash while writing this file: JSON nested a few thousand levels deep raised `RecursionError` in `DocumentGuard.check` and in `ToolGuard.check`. While fixing it, I found a second one: HTML comments inside hidden `div`s, 1,500 levels deep. Both now get a decision instead of an exception, and an attack ten levels deep is still read and blocked.
 
@@ -394,12 +397,16 @@ Reading HTML attributes (TH-04), I found the hidden-HTML pattern was quadratic: 
 
 Fuzzing every pattern then found more, and the worst wasn't a pattern. Masking reads the whole message, and for every lookalike digit (`ı`, `l`, `|`, `o`…) it walked out to both ends of its word again, so one long word cost its length squared: 2,000 `ı` took 1.5 seconds and 8,000 kept `Guardrail.check` busy for over 20. Each word is read once now. Eight patterns rescanned the text from every start: `URL_PASSWORD` in masking; four code rules, which see a tool argument whole (`sql_comment_bypass`, `sql_stacked_query`, `shell_pipe_to_shell`, `template_injection`); `fake_system_line`; and the Markdown link, image and reference patterns in `OutputGuard`, whose HTML tag pattern did the same. 100 KB of `a-` took over 5 seconds in `URL_PASSWORD`, 50 KB of one letter over 5 in the code rules, 400 KB of `<a ` over 15 in `OutputGuard`. Each now starts only where a match can begin, or stops at the last character a match can end on. No decision on the corpus changed. On random inputs the old and new rules and masking agree; `OutputGuard` now keeps the blank lines before a reference it removes, and reads `![a [b](url)` as the link it is in CommonMark rather than as an image.
 
+**Fixed.** Measuring every entry point at the server's 1 MB body showed no input whose cost was bounded except by the body. Masking reads everything the model gets, at up to 13 µs a character on a run of digits: 1 MB took 13 seconds as a message, an answer or a tool call, and a document's event masked all of it although the check read 200,000 characters. `wrap()` gave the model the whole document, so an instruction past 200,000 characters reached it unread, with only a review. The ML layer's second stage ran once per unsure sentence at 17 to 20 ms: a 12,000-character document of them took 7 seconds, 50,000 characters 28. With one worker, one such request held up every check behind it. Now each entry point has the limits above; masking tries a window's number as a slice and its real digits as a difference instead of joining and summing every window again (2.7 times faster, the same output on 20,000 random texts and the PII corpus); the second stage reads a document's parts in one batch (1,600 unsure sentences: 0.28 seconds) within a budget. No record of the corpus changes its decision, with or without BERTurk. At 1 MB every entry point now takes at most 1.2 seconds on this machine, a document the most.
+
+Concurrency had its own failures. `TenantGuardrail` had no lock: from 8 threads at once, 102 of 3,200 messages were blocked by a check that raised mid-update (`policy: RuntimeError`), and two calls to a `ToolGuard` could both read a `max_total` before either was recorded, so 8 threads moved 1,020 to 1,040 against a limit of 1,000. The session limiter kept every session ever flagged, unbounded. The server started a thread for every connection, with no limit, and its socket timeout counts per read, so a client sending a byte every few seconds held one for as long as it liked; JSON nested too deep or a number too long to read dropped the connection without an answer. Each is fixed and tested.
+
 **Residual risk.**
-- Masking reads the whole message, with no size cap before it. It's linear, but a long run of digits costs about 13 µs a character, since every window is tried as a number: 200 KB of digits takes about 3 seconds.
-- A document is one ML call per sentence: 158,000 characters of support tickets were 3,771 parts and took 8.3 seconds in the default setup.
+- Masking is linear but costs up to about 5 µs a character: a 200,000-character document takes about a second to mask for its event and again for `wrap()`.
+- On a CPU, BERTurk's batch is slower than on this machine's GPU; 64 parts bound how much slower.
 - The fuzzer only tries runs of repeated pieces. A pattern that's slow on some other shape would pass it.
 - Rate limits apply only when the app passes a session or user ID, and only within one process.
-- Over HTTP one check runs at a time per process, since a tenant's session state isn't thread-safe, and a request's waiting time counts toward its deadline. A slow input delays the checks behind it, and they're answered with block when their time runs out: the server doesn't fall over, but it stops letting messages through until the slow check ends. Past 64 waiting requests the answer is 503.
+- Over HTTP one check runs at a time per process, since a tenant's session state is shared, and a request's waiting time counts toward its deadline. A slow input delays the checks behind it, and they're answered with block when their time runs out: the server doesn't fall over, but it stops letting messages through until the slow check ends. Past 64 waiting requests the answer is 503.
 
 ### TH-12 Probing the guardrail
 
