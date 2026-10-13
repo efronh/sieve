@@ -286,7 +286,6 @@ reply = guarded_reply(user_message, ask_model, TenantGuardrail(policy, system_pr
 - Better generalisation: more varied Turkish training data (never the sealed set), measured on the sealed set.
 - Names and addresses (NER), and a check for harmful content in answers.
 - A Docker image.
-- A CI run with the BERTurk stage, not only TF-IDF.
 
 ## Layout
 
@@ -328,6 +327,7 @@ python -m scripts.evaluate_pipeline  # the default Guardrail() on the held-out s
 python -m scripts.evaluate_documents # DocumentGuard on attacks hidden in documents
 python -m scripts.replay             # the attack corpus, per entry point, family, carrier and source
 python -m scripts.replay --baseline check   # the CI gate
+python -m scripts.replay --baseline check --cascade   # the same with BERTurk, as CI's second job
 python -m scripts.replay --holdout   # the sealed held-out set, counts only
 python -m scripts.fuzz_slow_inputs  # inputs whose cost grows faster than their length
 python -m scripts.evaluate_masking  # masking on the labelled personal-data set

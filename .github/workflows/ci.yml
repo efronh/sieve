@@ -30,3 +30,30 @@ jobs:
           name: replay-${{ matrix.python-version }}
           path: results/replay.json
           if-no-files-found: ignore
+
+  # The default setup, as shipped: TF-IDF, then BERTurk when TF-IDF is unsure. The job above has no torch, so it
+  # checks TF-IDF alone and skips the tests that need sentence-transformers; this one runs them and replays corpus/
+  # against corpus/baseline_cascade.json.
+  cascade:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      # CPU wheels: the default torch wheel brings CUDA libraries, a few GB a runner can't use.
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install -e ".[dev,ml]" "anyjev @ git+https://github.com/nokia-applied-research/AnyJev.git@149e7f71949c08b57492ef7025b67a763c600a0f"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-dbmdz-bert-base-turkish-cased
+      - run: pytest
+      - run: python -m scripts.replay --baseline check --cascade
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: replay-cascade
+          path: results/replay.json
+          if-no-files-found: ignore

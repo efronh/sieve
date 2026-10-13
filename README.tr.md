@@ -286,7 +286,6 @@ reply = guarded_reply(user_message, ask_model, TenantGuardrail(policy, system_pr
 - Daha iyi genelleme: daha çeşitli Türkçe eğitim verisi (mühürlü set asla değil), sonucu mühürlü sette ölçmek.
 - İsim ve adres (NER), cevaplarda zararlı içerik kontrolü.
 - Bir Docker imajı.
-- CI'da sadece TF-IDF değil, BERTurk aşamasıyla da bir çalışma.
 
 ## Dizin yapısı
 
@@ -328,6 +327,7 @@ python -m scripts.evaluate_pipeline  # varsayılan Guardrail() test setinde
 python -m scripts.evaluate_documents # dokümanlara gizlenmiş saldırılarda DocumentGuard
 python -m scripts.replay             # saldırı korpusu: giriş noktası, aile, taşıyıcı ve kaynağa göre
 python -m scripts.replay --baseline check   # CI kapısı
+python -m scripts.replay --baseline check --cascade   # aynısı BERTurk'le, CI'ın ikinci işi
 python -m scripts.replay --holdout   # mühürlü held-out set, sadece sayı
 python -m scripts.fuzz_slow_inputs  # maliyeti uzunluğundan hızlı büyüyen girdiler
 python -m scripts.evaluate_masking  # etiketli kişisel veri setinde maskeleme

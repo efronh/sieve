@@ -53,7 +53,7 @@ Every component, what it reads, what it keeps, and what it passes on. Sieve runs
 **What the model sees of Sieve.** Three values, on purpose: the canary, which `OutputGuard` looks for in the answer, and `wrap()`'s boundary and mark, which tell the model where a document starts and ends. The model can repeat any of them, so none is relied on as a secret. A leaked canary is what gets the answer blocked; a leaked boundary is no use to a document, since `wrap()` takes it out (TH-04). Nothing that depends on the request gets in: no score, no rule, no decision. The prompt is what a guard with no checks at all would give (with lettered labels, the same text with the session's letters), under the same system prompt for every request, so a model that repeats its context can't tell anyone which rule fired. The user sees the answer or one fixed message (`BLOCKED_MESSAGE`, `SAFE_REPLY`): the decision, not its reason (TH-12).
 
 **Tests.** [`tests/test_isolation.py`](tests/test_isolation.py) sends the whole corpus through every entry point, the way an app calls them (messages and answers through `guarded_reply`):
-- a Python audit hook sees no file, socket or subprocess opened while the checks run (TF-IDF alone, as in CI);
+- a Python audit hook sees no file, socket or subprocess opened while the checks run (TF-IDF alone, as the tests run);
 - a word added to every input never shows up in a finding, a `reason`, or an event without an excerpt;
 - every prompt equals what a guard without checks gives, and every call gets the same system prompt;
 - a blocked user always gets the same text.
@@ -130,7 +130,7 @@ Each control below works only if the app does its part. If an assumption breaks,
 
 "Unit tests" means the control has tests in `tests/`, but no attack set it is scored against. "Corpus groups" are independent test groups in [`corpus/`](corpus) (section 7).
 
-Unless a number says otherwise, it's for the default setup: rules, TF-IDF, and BERTurk when TF-IDF is unsure. CI runs TF-IDF alone, and numbers from it say so.
+Unless a number says otherwise, it's for the default setup: rules, TF-IDF, and BERTurk when TF-IDF is unsure. CI runs both: TF-IDF alone, and the default setup with BERTurk. Numbers from TF-IDF alone say so.
 
 ### TH-01 Direct prompt injection
 
@@ -146,7 +146,7 @@ The corpus adds 57 attacks in the TH-01 families, so each has 15 groups with the
 - 10 of 15 PI-SOC;
 - 4 of 9 PI-ACT.
 
-With TF-IDF alone, as in CI, it's 40 of 57. What gets through is social engineering with no attack words (urgency, guilt, a homework pretext, consent claimed for a spouse) and plain forbidden requests ("raise my daily limit to 1,000,000 TL", "list the branch managers' mobile numbers"). 15 banking messages that use the same words ("önceki talimatımı unutun", "sistem mesajı", "rol yapma oyunu") give no false alarm.
+With TF-IDF alone, as in CI's first job, it's 40 of 57. What gets through is social engineering with no attack words (urgency, guilt, a homework pretext, consent claimed for a spouse) and plain forbidden requests ("raise my daily limit to 1,000,000 TL", "list the branch managers' mobile numbers"). 15 banking messages that use the same words ("önceki talimatımı unutun", "sistem mesajı", "rol yapma oyunu") give no false alarm.
 
 **The sealed held-out set** ([`holdout/`](holdout/README.md)) has 444 attacks and 379 benign messages from three outside datasets, which no one who changes the rules has read. The replay reports it in counts only. With the default setup:
 
@@ -499,11 +499,12 @@ The corpus is in [`corpus/`](corpus), one JSONL file per family. `python -m scri
 
 The loader rejects unknown fields, families, carriers and actions, so a typo can't skew the counts.
 
-**CI gate.** `python -m scripts.replay --baseline check` runs in CI after the tests, on every split, with TF-IDF alone (CI doesn't install BERTurk). It compares each decision with [`corpus/baseline.json`](corpus/baseline.json) and fails when:
+**CI gate.** `python -m scripts.replay --baseline check` runs in CI after the tests, on every split, twice: in one job with TF-IDF alone (no torch installed), against [`corpus/baseline.json`](corpus/baseline.json), and in another with the default setup, BERTurk included (`--cascade`, CPU), against [`corpus/baseline_cascade.json`](corpus/baseline_cascade.json). The two differ on 206 of 2,652 records: with BERTurk, 139 attacks that TF-IDF alone lets through are stopped and 5 normal records fewer are flagged, but 61 attacks that TF-IDF alone stops get through and 1 more normal record is flagged. So each setup has its own baseline. On this corpus the CPU and the M4's GPU decide every record the same. Each job compares every decision with its baseline and fails when:
 - an attack that passed in the baseline no longer passes;
 - the share of test attacks passing at an entry point drops below its floor (65% for messages and documents, 75% for tool calls, 80% for chains and conversations, 70% for model answers);
 - the ML layer didn't load;
-- the model file isn't the one the baseline was made with.
+- the model file isn't the one the baseline was made with;
+- BERTurk ran for one baseline and not the other (a missing `[ml]` extra would otherwise look like 139 regressions).
 
 New false alarms, new records and attacks that now pass are reported but don't fail; there's no hard false-alarm gate yet, since 494 benign documents would make it flaky. An intended change is committed together with `--baseline update`.
 
