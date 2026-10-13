@@ -240,6 +240,8 @@ curl -s localhost:8080/v1/check -H "Authorization: Bearer $SIEVE_API_KEY" -H "Co
 # {"action": "block", "text": "", "request_id": "…", "rules": ["prompt_injection_ml", "prompt_injection_rules.ignore_instructions"]}
 ```
 
+Tarayıcıda denemek için `--ui` sunucunun `http://127.0.0.1:8080/` adresinde bir sayfa da vermesini sağlıyor: bir mesaj, doküman, tool çağrısı ya da cevap gönderip kararı, modele ya da kullanıcıya gidecek hali, her katmanın bulgusunu ve süreleri görmek; sunucunun kararlarını sayılar olarak izlemek (hiçbir metin tutulmuyor); değerlendirmeyi grafikleriyle okumak. `SIEVE_API_KEY=... python -m sieve.server --tenant demo --ui` tool örnekleri için örnek tool'larla geliyor ([docs/api.md](docs/api.md#sayfa---ui)).
+
 ## Sieve neyi garanti ediyor, neyi etmiyor
 
 Tespit bir oran, yukarıda ölçüldü. Bunlar ise her seferinde geçerli ve testler bunları kontrol ediyor:
@@ -343,6 +345,7 @@ python -m scripts.evaluate_masking  # etiketli kişisel veri setinde maskeleme
 python -m scripts.evaluate_masking_loss  # maskelemenin götürmemesi gerekenler: yanlış maske, birleşen değer, gereken değer
 python -m scripts.benchmark_latency # aşama başına süre ve kontrollerin isteğe eklediği süre
 SIEVE_API_KEY=... python -m sieve.server   # 127.0.0.1:8080'de HTTP API (docs/api.md)
+SIEVE_API_KEY=... python -m sieve.server --tenant demo --ui   # ve http://127.0.0.1:8080/ adresinde sayfa
 ```
 
 Scriptleri repo kökünden çalıştırın. macOS'ta repoyu iCloud'a senkronize bir klasörde tutmayın: iCloud `.venv/*.pth` dosyalarını gizli yapabiliyor, Python 3.13 gizli `.pth` dosyalarını atlıyor ve editable kurulum sessizce bozuluyor.

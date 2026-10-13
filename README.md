@@ -240,6 +240,8 @@ curl -s localhost:8080/v1/check -H "Authorization: Bearer $SIEVE_API_KEY" -H "Co
 # {"action": "block", "text": "", "request_id": "…", "rules": ["prompt_injection_ml", "prompt_injection_rules.ignore_instructions"]}
 ```
 
+To try it in a browser, `--ui` also serves a page at `http://127.0.0.1:8080/`: send a message, a document, a tool call or an answer and see the decision, what the model or the user gets, what each layer found and how long it took; watch the server's decisions as counts (no text is kept); and read the evaluation with its charts. `SIEVE_API_KEY=... python -m sieve.server --tenant demo --ui` has example tools for the tool-call examples ([docs/api.md](docs/api.md#sayfa---ui)).
+
 ## What Sieve guarantees, and what it doesn't
 
 Detection is a rate, measured above. These hold every time, and tests check them:
@@ -343,6 +345,7 @@ python -m scripts.evaluate_masking  # masking on the labelled personal-data set
 python -m scripts.evaluate_masking_loss  # what masking takes that it shouldn't: wrong masks, merged values, needed values
 python -m scripts.benchmark_latency # time per stage, and what the checks add to a request
 SIEVE_API_KEY=... python -m sieve.server   # the HTTP API on 127.0.0.1:8080 (docs/api.md)
+SIEVE_API_KEY=... python -m sieve.server --tenant demo --ui   # and the page at http://127.0.0.1:8080/
 ```
 
 Run scripts from the repo root. Don't keep the repo in an iCloud-synced folder on macOS: iCloud can mark `.venv/*.pth` files hidden, Python 3.13 skips hidden `.pth` files, and the editable install silently stops working.

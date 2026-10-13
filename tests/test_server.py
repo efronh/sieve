@@ -1,5 +1,6 @@
 import http.client
 import json
+import re
 import threading
 import time
 import tomllib
@@ -9,7 +10,7 @@ import pytest
 from scripts.replay import TOOLS
 from sieve import Guardrail
 from sieve.integrations.tenant import TenantGuardrail, load_policy
-from sieve.server import main, make_server
+from sieve.server import UI_DIR, main, make_server
 
 KEY = "test-key-7f3a"
 TC = "10000000146"
@@ -228,3 +229,77 @@ def test_the_server_stops_cleanly_on_sigterm():
     _, rest = server.communicate(timeout=10)
     assert server.returncode == 0 and "sieve: stopped" in rest
     assert any("SIEVE_PSEUDONYM_KEY isn't set" in line for line in lines) == ("SIEVE_PSEUDONYM_KEY" not in env)
+
+
+def fetch(server, path, key=None):
+    conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=10)
+    conn.request("GET", path, headers={"Authorization": f"Bearer {key}"} if key else {})
+    response = conn.getresponse()
+    answer = response.status, response.read(), response.headers
+    conn.close()
+    return answer
+
+
+@pytest.fixture(scope="module")
+def ui_server(guard):
+    server = serve(guard, ui=True)
+    yield server
+    server.shutdown()
+
+
+def test_the_page_is_off_unless_asked_for(server):
+    assert fetch(server, "/")[0] == 404 and fetch(server, "/ui/app.js")[0] == 404 and fetch(server, "/ui/results.json")[0] == 404
+
+
+def test_the_page_is_served_with_a_strict_policy(ui_server):
+    status, body, headers = fetch(ui_server, "/")
+    assert status == 200 and headers["Content-Type"].startswith("text/html") and b"/ui/app.js" in body
+    assert "script-src 'self'" in headers["Content-Security-Policy"] and "frame-ancestors 'none'" in headers["Content-Security-Policy"]
+    assert headers["X-Frame-Options"] == "DENY" and headers["X-Content-Type-Options"] == "nosniff"
+    assert fetch(ui_server, "/ui/app.js")[2]["Content-Type"].startswith("text/javascript")
+    assert fetch(ui_server, "/ui/app.css")[2]["Content-Type"].startswith("text/css")
+
+
+@pytest.mark.parametrize("path", ["/ui/../server.py", "/ui/%2e%2e/server.py", "/ui/index.html", "/ui/", "/ui/missing.svg", "/app.js"])
+def test_only_the_listed_files_are_served(ui_server, path):
+    assert fetch(ui_server, path)[0] == 404
+
+
+def test_the_evaluation_is_summaries_only(ui_server):
+    status, body, _ = fetch(ui_server, "/ui/results.json")
+    data = json.loads(body)
+    assert status == 200 and {"sealed", "families", "models", "latency"} <= set(data)
+    assert "rows" not in body.decode() and "PI-OVR-001" not in body.decode()
+
+
+def test_stats_need_the_key_and_keep_no_text_or_id(ui_server):
+    assert fetch(ui_server, "/v1/stats")[0] == 401
+    call(ui_server, "/v1/check", {"text": ATTACK, "session_id": "stats-session", "user_id": "stats-user"})
+    status, body, _ = fetch(ui_server, "/v1/stats", key=KEY)
+    stats = json.loads(body)
+    assert status == 200 and stats["tenant"] == "default" and stats["mode"] == "enforce"
+    assert any(d["direction"] == "input" and d["action"] == "block" for d in stats["decisions"])
+    assert stats["recent"][0]["rules"] and any(r["rule"] == "prompt_injection_rules.ignore_instructions" for r in stats["rules"])
+    for secret in (TC, "talimatları", "stats-session", "stats-user"):
+        assert secret not in body.decode()
+    assert call(ui_server, "/v1/stats", {})[0] == 405
+
+
+def test_detail_shows_each_layer_and_the_time_it_took(server):
+    status, body, _ = call(server, "/v1/check", {"text": f"{ATTACK} (detail)", "detail": True})  # not a cached one
+    layers = {f["check"]: f for f in body["detail"]["findings"]}
+    assert status == 200 and layers["prompt_injection_rules"]["action"] == "block"
+    assert any(r["title"] == "Ignore previous instructions" for r in layers["prompt_injection_rules"]["rules"])
+    assert layers["tampering"]["rules"] == []  # a layer that found nothing names no rule
+    assert "masking" in body["detail"]["timings_ms"] and body["text"] == ""
+    assert "detail" not in call(server, "/v1/check", {"text": "Merhaba"})[1]
+    assert call(server, "/v1/check", {"text": "Merhaba", "detail": "yes"})[0] == 400
+
+
+# The page shows attack text: it goes in as text, and nothing on the page runs that the CSP didn't allow.
+def test_the_page_never_writes_data_as_html():
+    script = (UI_DIR / "app.js").read_text(encoding="utf-8")
+    for sink in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function"):
+        assert sink not in script
+    page = (UI_DIR / "index.html").read_text(encoding="utf-8")
+    assert "<script>" not in page and not re.search(r"<[^>]*\s(style|on\w+)\s*=", page)

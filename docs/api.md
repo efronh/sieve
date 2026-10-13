@@ -14,6 +14,7 @@ SIEVE_API_KEY=... python -m sieve.server --tenant example_bank --system-prompt p
 | `--timeout` | `5` | Bir kontrolün saniye cinsinden süresi; aşarsa cevap block |
 | `--siem` | `stdout` | `stdout` (satır başına bir JSON olay), `host:port` (TCP syslog, JSON) ya da `none` |
 | `--insecure-no-auth` | kapalı | Anahtarsız çalıştırma; sadece yerel test için |
+| `--ui` | kapalı | `/` adresinde bir sayfa: kontrol denemek, kararları izlemek, değerlendirmeyi okumak ([aşağıda](#sayfa---ui)) |
 
 `SIEVE_API_KEY` yoksa sunucu başlamıyor; `SIEVE_PSEUDONYM_KEY` yoksa uyarı veriyor. SIGTERM'de çalışan kontrolü bitirip temiz kapanıyor (systemd, Kubernetes ve `docker stop` böyle durduruyor). Sadece standart kütüphane kullanıyor (`http.server`): güvenilmesi gereken bir web framework'ü yok ([TH-13](../THREAT_MODEL.md#th-13-model-and-training-data-integrity)).
 
@@ -21,7 +22,7 @@ SIEVE_API_KEY=... python -m sieve.server --tenant example_bank --system-prompt p
 
 Her istek `Content-Type: application/json`, `Authorization: Bearer <SIEVE_API_KEY>` (`/healthz` hariç) ve en fazla 1.000.000 baytlık bir gövdeyle. Bilinmeyen bir alan, eksik ya da yanlış tipte bir alan 400; yazım hatası sessizce yok sayılmıyor.
 
-Ortak, isteğe bağlı alanlar: `session_id`, `user_id` (oturum limitleri ve tool toplamları buna göre), `request_id` (bir isteğin olaylarını SIEM'de birleştiriyor).
+Ortak, isteğe bağlı alanlar: `session_id`, `user_id` (oturum limitleri ve tool toplamları buna göre), `request_id` (bir isteğin olaylarını SIEM'de birleştiriyor), `detail` (`true` ise cevapta her katmanın bulgusu ve aşama süreleri; aşağıda).
 
 ### `POST /v1/check` — kullanıcının mesajı (B1)
 
@@ -77,9 +78,39 @@ Ortak, isteğe bağlı alanlar: `session_id`, `user_id` (oturum limitleri ve too
 
 Modele verilecek sistem promptu (canary ile) ve dokümanlar için açıklama. Sunucu her başladığında canary ve sınır yeniden üretiliyor; uygulama bunları sunucu başladıktan sonra almalı.
 
+### `"detail": true`
+
+Dört kontrolün cevabına `detail` ekliyor: her katmanın bulgusu (hiçbir şey bulmayanlar da, ML skoru görünsün diye), skoru, kararı, kuralları ve başlıkları, bir de aşama başına süre.
+
+```json
+"detail": {"findings": [{"check": "prompt_injection_rules", "score": 1.0, "action": "block",
+                         "rules": [{"rule": "prompt_injection_rules.ignore_instructions", "title": "Ignore previous instructions", "detail": null}]},
+                        {"check": "prompt_injection_ml", "score": 0.97, "action": "review", "rules": [...]}],
+           "timings_ms": {"masking": 0.44, "prompt_injection_rules": 0.2, "prompt_injection_ml": 0.67, "policy": 0.05}}
+```
+
+Skorlar ve kurallar uygulamanın, `rules` gibi: kullanıcıya gösterilmemeli, bir saldırgan hangi kuralı tetiklediğini öğrenmesin ([TH-12](../THREAT_MODEL.md#th-12-probing-the-guardrail)). Önbellekten gelen bir sonucun süresi `cache`.
+
+### `GET /v1/stats`
+
+Sunucunun başladığından beri verdiği kararlar: yön ve karar başına sayılar, en çok tetiklenen 20 kural, son 50 kararın zamanı, yönü, kararı, kuralları ve süresi, zaman aşımları. Kiracı, politika sürümü ve mod da var. Metin, kullanıcı, oturum ve istek ID'si yok: kararları saklayan ve birleştiren yer SIEM. Süreç başına, bellekte; yeniden başlayınca sıfırlanıyor. Anahtar istiyor.
+
 ### `GET /healthz`
 
 `{"status": "ok"}`; anahtar istemiyor, başka bir şey söylemiyor.
+
+## Sayfa (`--ui`)
+
+`--ui` ile sunucu `/` adresinde bir sayfa da veriyor, üç sekme:
+- **Try a check:** dört sınırdan birini seçip bir mesaj, doküman, tool çağrısı ya da cevap gönderiyor (`detail` ile); kararı, modele ya da kullanıcıya gidecek hali, her katmanın bulgusunu ve süreleri gösteriyor. Örnekler hazır; tool örnekleri `policies/demo.toml`'daki iki tool'la çalışıyor.
+- **Decisions:** `GET /v1/stats`, beş saniyede bir.
+- **Evaluation:** `results/` altındaki sonuçların özeti (`/ui/results.json`: mühürlü set, aile karşılaştırması, dedektörler, süreler; hiçbir kayıt değil) ve README'deki grafikler.
+
+```bash
+SIEVE_API_KEY=... python -m sieve.server --tenant demo --ui
+```
+
+Sayfa ve dosyaları anahtarsız; kendileri veri taşımıyor, gösterdikleri API'den anahtarla geliyor. Anahtar sayfadaki alana yazılıyor ve sadece o sekmenin `sessionStorage`'ında duruyor. Sayfa saldırı metni gösterdiği için her şeyi metin olarak yazıyor, hiçbir zaman HTML olarak değil; bir test `innerHTML` ve benzerlerini arıyor. Sadece sabit bir listedeki dosyalar veriliyor (`/`, `/ui/app.js`, `/ui/app.css`, `/ui/results.json` ve dört SVG): başka bir yol 404. Başlıklar: `Content-Security-Policy` (sadece sunucunun kendi dosyaları, satır içi script yok, çerçeveye konamaz), `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `nosniff`. Varsayılan kapalı: bir üretim API'sinde fazladan bir HTML yüzeyi olmasın.
 
 ## Hatalar
 

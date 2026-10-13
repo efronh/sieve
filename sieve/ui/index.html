@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sieve</title>
+<link rel="stylesheet" href="/ui/app.css">
+<script src="/ui/app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><strong>Sieve</strong> <span id="tenant" class="muted"></span></div>
+  <nav class="tabs" role="tablist" aria-label="Views">
+    <button type="button" role="tab" id="tab-try" aria-controls="try" aria-selected="true">Try a check</button>
+    <button type="button" role="tab" id="tab-decisions" aria-controls="decisions" aria-selected="false">Decisions</button>
+    <button type="button" role="tab" id="tab-evaluation" aria-controls="evaluation" aria-selected="false">Evaluation</button>
+  </nav>
+  <label class="key">API key <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="SIEVE_API_KEY"></label>
+</header>
+
+<main>
+<section id="try" role="tabpanel" aria-labelledby="tab-try">
+  <div class="grid">
+    <form id="check-form" class="card" novalidate>
+      <div class="row">
+        <label>Boundary
+          <select id="entry">
+            <option value="check">A message from the user</option>
+            <option value="document">A document the model reads</option>
+            <option value="tool">A tool call the model makes</option>
+            <option value="output">An answer from the model</option>
+          </select>
+        </label>
+        <label>Example <select id="example"></select></label>
+      </div>
+      <label class="for-text">Text <textarea id="text" rows="9" spellcheck="false"></textarea></label>
+      <div class="for-tool row">
+        <label>Tool <input id="tool-name" spellcheck="false"></label>
+      </div>
+      <label class="for-tool">Arguments (JSON) <textarea id="tool-args" rows="6" spellcheck="false"></textarea></label>
+      <label class="for-user-data">The user's own data, one value a line <textarea id="user-data" rows="2" spellcheck="false"></textarea></label>
+      <label>Session <input id="session" spellcheck="false" placeholder="optional: the same ID keeps a conversation"></label>
+      <div class="row end">
+        <span id="form-error" class="error" role="alert"></span>
+        <button type="submit" class="primary">Check</button>
+      </div>
+    </form>
+    <div id="result" class="card" aria-live="polite">
+      <p class="muted">Pick a boundary and an example, or write your own, then check it. Nothing you send is stored: the server keeps counts only.</p>
+    </div>
+  </div>
+</section>
+
+<section id="decisions" role="tabpanel" aria-labelledby="tab-decisions" hidden>
+  <div class="row between">
+    <p id="decisions-note" class="muted"></p>
+    <button type="button" id="refresh">Refresh</button>
+  </div>
+  <div id="tiles" class="tiles"></div>
+  <div class="grid">
+    <div class="card"><h2>By boundary</h2><div id="by-boundary"></div></div>
+    <div class="card"><h2>Rules that fired</h2><div id="rules"></div></div>
+  </div>
+  <div class="card"><h2>Last decisions</h2><div id="recent"></div></div>
+</section>
+
+<section id="evaluation" role="tabpanel" aria-labelledby="tab-evaluation" hidden>
+  <div id="eval-tiles" class="tiles"></div>
+  <div class="card">
+    <h2>Against the baseline, family by family</h2>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="/ui/family_comparison-dark.svg">
+      <img src="/ui/family_comparison.svg" alt="Attacks caught per family: Sieve against the DeBERTa baseline at Sieve's false-alarm rate. The numbers are in the table below.">
+    </picture>
+    <div id="families"></div>
+  </div>
+  <div class="card">
+    <h2>Moving the ML threshold</h2>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="/ui/threshold_sweep-dark.svg">
+      <img src="/ui/threshold_sweep.svg" alt="Attacks caught and normal records flagged against the ML threshold, for four sets.">
+    </picture>
+  </div>
+  <div class="grid">
+    <div class="card"><h2>Detectors at 1% false alarms</h2><div id="models"></div></div>
+    <div class="card"><h2>Time per check</h2><div id="latency"></div></div>
+  </div>
+</section>
+</main>
+</body>
+</html>

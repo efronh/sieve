@@ -3,6 +3,7 @@
 # Standard library only: no web framework to trust (THREAT_MODEL TH-13). One check runs at a time per process, since
 # a tenant's session state isn't thread-safe; for more, run more processes, and know session limits are per process.
 # A check that runs out of time is answered with block and logged (fail closed); it finishes in the background.
+# --ui also serves a page at / to try checks, watch the decisions and read the evaluation (sieve/ui/, docs/api.md).
 import argparse
 import hmac
 import json
@@ -11,15 +12,19 @@ import os
 import signal
 import sys
 import threading
+import time
+from collections import Counter, deque
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as CheckTimeout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 from sieve.actions import ALLOW, BLOCK
 from sieve.integrations.siem import PSEUDONYM_KEY_ENV, JsonFormatter, syslog_handler
 from sieve.integrations.tenant import TenantGuardrail, load_policy
 from sieve.output import SAFE_REPLY
-from sieve.rules import rule_ids
+from sieve.paths import RESULTS
+from sieve.rules import rule_ids, rule_info
 
 API_KEY_ENV = "SIEVE_API_KEY"
 MAX_BODY = 1_000_000  # bytes: a document is read up to 200,000 characters
@@ -30,13 +35,27 @@ SOCKET_TIMEOUT = 10  # s for a client to send its request, so a slow one can't h
 logger = logging.getLogger("sieve.server")
 
 WHO = {"session_id": str, "user_id": str, "request_id": str}
+OPTIONAL = WHO | {"detail": bool}  # detail: every finding with its score and rules, and the time each stage took
 # path -> (required fields, optional fields), each with its type.
 ENDPOINTS = {
-    "/v1/check": ({"text": str}, WHO),
-    "/v1/document": ({"text": str}, WHO | {"source": str}),
-    "/v1/tool": ({"name": str, "args": dict}, WHO | {"user_data": list}),
-    "/v1/output": ({"answer": str}, WHO | {"user_data": list}),
+    "/v1/check": ({"text": str}, OPTIONAL),
+    "/v1/document": ({"text": str}, OPTIONAL | {"source": str}),
+    "/v1/tool": ({"name": str, "args": dict}, OPTIONAL | {"user_data": list}),
+    "/v1/output": ({"answer": str}, OPTIONAL | {"user_data": list}),
 }
+DIRECTIONS = {"/v1/check": "input", "/v1/document": "document", "/v1/tool": "tool", "/v1/output": "output"}
+UI_DIR = Path(__file__).parent / "ui"
+# What --ui serves without a key: a fixed list, so no path reaches any other file. The page holds no data; what it
+# shows comes from the API with the key, and from results/, which is in the repository anyway.
+UI_FILES = {"/": (UI_DIR / "index.html", "text/html; charset=utf-8"),
+            "/ui/app.js": (UI_DIR / "app.js", "text/javascript; charset=utf-8"),
+            "/ui/app.css": (UI_DIR / "app.css", "text/css; charset=utf-8")}
+UI_FILES |= {f"/ui/{name}": (RESULTS / name, "image/svg+xml") for name in
+             ("family_comparison.svg", "family_comparison-dark.svg", "threshold_sweep.svg", "threshold_sweep-dark.svg")}
+# Nothing but the server's own files, no inline script, no framing: the page shows attack text, as text.
+UI_HEADERS = {"Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; "
+                                         "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+              "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff"}
 
 
 class BadRequest(Exception):
@@ -68,10 +87,78 @@ def flagged_rules(findings):
     return sorted({rule_id for f in findings if f.action != ALLOW for rule_id, _ in rule_ids(f)})
 
 
+# With "detail": true, what each layer reported (allowed findings too, for the ML score) and how long each stage took.
+# A layer that found nothing names no rule.
+def detail(result):
+    findings = [{"check": f.check, "score": round(float(f.probability), 4), "action": f.action,
+                 "rules": [{"rule": rule_id, "title": rule_info(rule_id).title, "detail": extra}
+                           for rule_id, extra in rule_ids(f)] if f.matches or f.action != ALLOW else []}
+                for f in result.findings]
+    return {"findings": findings, "timings_ms": {k: round(v, 3) for k, v in (result.timings or {}).items()}}
+
+
+# What the server has decided since it started, for GET /v1/stats: counts, the rules that fired, the last decisions.
+# No text, no user, session or request ID: the SIEM is where decisions are kept and joined.
+class Stats:
+    RECENT = 50
+
+    def __init__(self, clock=time.time):
+        self.clock, self.started = clock, clock()
+        self.lock = threading.Lock()
+        self.decisions, self.rules, self.timeouts = Counter(), Counter(), 0
+        self.recent = deque(maxlen=self.RECENT)
+
+    def record(self, direction, action, rules, ms, timed_out=False):
+        with self.lock:
+            self.decisions[direction, action] += 1
+            self.rules.update(rules)
+            self.timeouts += timed_out
+            self.recent.appendleft({"at": round(self.clock()), "direction": direction, "action": action,
+                                    "rules": rules, "ms": round(ms, 1)})
+
+    def snapshot(self):
+        with self.lock:
+            return {"since": round(self.started), "timeouts": self.timeouts,
+                    "decisions": [{"direction": d, "action": a, "count": n} for (d, a), n in sorted(self.decisions.items())],
+                    "rules": [{"rule": r, "title": rule_info(r).title, "count": n} for r, n in self.rules.most_common(20)],
+                    "recent": list(self.recent)}
+
+
+# The evaluation's headline numbers from results/, for the page's evaluation tab: summaries only, never a record.
+def evaluation(directory=RESULTS):
+    def read(name):
+        try:
+            return json.loads((directory / name).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+
+    out = {}
+    if holdout := read("holdout.json"):
+        out["sealed"] = {source: {k: r[k] for k in ("attacks", "flagged", "benign", "false_alarms", "blocked")}
+                         for source, r in holdout["summary"].items()}
+    if families := read("family_comparison.json"):
+        out["families"] = {name: {"sieve": r["sieve"]["rate"], "baseline": r["matched"]["rate"],
+                                  "shipped": r["shipped"]["rate"], "records": r["records"]}
+                           for name, r in families["families"].items()}
+        out["false_alarms"] = {entry: {key: r[key]["rate"] for key in ("sieve", "matched", "shipped")} | {"of": r["sieve"]["of"]}
+                               for entry, r in families["false_alarms"].items()}
+    if models := read("compare_models.json"):
+        out["models"] = {name: {"recall": r["at_1pct"]["recall"], "holdout_recall": r["at_1pct"]["holdout_recall"],
+                                "holdout_false_alarm": r["at_1pct"]["holdout_false_alarm"], "ms": r["latency_ms"]}
+                         for name, r in models.items()}
+    if latency := read("latency.json"):
+        out["latency"] = {name: {"median": r["total"]["median"], "p99": r["total"]["p99"]}
+                          for name, r in latency["summaries"].items()}
+    if sweep := read("threshold_sweep.json"):
+        out["shipped_threshold"] = sweep["shipped_review_at"]
+    return out
+
+
 class Service:
-    def __init__(self, guard, api_key, check_timeout=CHECK_TIMEOUT, max_pending=MAX_PENDING):
-        self.guard, self.api_key = guard, api_key
+    def __init__(self, guard, api_key, check_timeout=CHECK_TIMEOUT, max_pending=MAX_PENDING, ui=False):
+        self.guard, self.api_key, self.ui = guard, api_key, ui
         self.check_timeout = check_timeout
+        self.stats = Stats()
         self.worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sieve-check")
         self.slots = threading.BoundedSemaphore(max_pending)
 
@@ -85,17 +172,20 @@ class Service:
     # block, with a layer_error event that says timeout. One still queued is cancelled; one running finishes alone.
     def run(self, path, body):
         who = {k: body.get(k) for k in WHO}
-        direction = {"/v1/check": "input", "/v1/document": "document", "/v1/tool": "tool", "/v1/output": "output"}[path]
+        direction = DIRECTIONS[path]
         if direction == "input" and who["request_id"] is None:
             who["request_id"] = os.urandom(16).hex()
+        start = time.perf_counter()
         future = self.worker.submit(self.check, path, body, who)
         try:
-            return future.result(timeout=self.check_timeout)
+            answer, timed_out = future.result(timeout=self.check_timeout), False
         except CheckTimeout:
             future.cancel()
             failed = self.guard.failed(TimeoutError(), direction, who["session_id"], who["user_id"], who["request_id"],
                                        where="timeout")
-            return self.answer_failed(path, failed, who)
+            answer, timed_out = self.answer_failed(path, failed, who), True
+        self.stats.record(direction, answer["action"], answer["rules"], (time.perf_counter() - start) * 1000, timed_out)
+        return answer
 
     def check(self, path, body, who):
         guard = self.guard
@@ -103,17 +193,19 @@ class Service:
             r = guard.check(body["text"], **who)
             # Nothing to send when it's blocked: an app that forgets to look at action has no text to pass on.
             text = "" if r.action == BLOCK else r.text
-            return {"action": r.action, "text": text, "request_id": r.request_id, "rules": flagged_rules(r.findings)}
-        if path == "/v1/document":
+            answer = {"action": r.action, "text": text, "request_id": r.request_id, "rules": flagged_rules(r.findings)}
+        elif path == "/v1/document":
             r = guard.check_document(body["text"], **who)
             wrapped = None if r.action == BLOCK else guard.wrap(body["text"], who["session_id"],
                                                                 source=body.get("source", "belge"))
-            return {"action": r.action, "wrapped": wrapped, "rules": flagged_rules(r.findings)}
-        if path == "/v1/tool":
+            answer = {"action": r.action, "wrapped": wrapped, "rules": flagged_rules(r.findings)}
+        elif path == "/v1/tool":
             r = guard.check_tool(body["name"], body["args"], body.get("user_data"), **who)
-            return {"action": r.action, "args": r.args, "reasons": r.reasons, "rules": flagged_rules(r.findings)}
-        r = guard.check_output(body["answer"], body.get("user_data"), **who)
-        return {"action": r.action, "text": r.text, "rules": flagged_rules(r.findings)}
+            answer = {"action": r.action, "args": r.args, "reasons": r.reasons, "rules": flagged_rules(r.findings)}
+        else:
+            r = guard.check_output(body["answer"], body.get("user_data"), **who)
+            answer = {"action": r.action, "text": r.text, "rules": flagged_rules(r.findings)}
+        return answer | ({"detail": detail(r)} if body.get("detail") else {})
 
     @staticmethod
     def answer_failed(path, failed, who):
@@ -127,6 +219,10 @@ class Service:
 
     def prompt(self):
         return {"system_prompt": self.guard.system_prompt, "document_instructions": self.guard.documents.instructions}
+
+    def status(self):
+        policy = self.guard.policy
+        return {"tenant": policy.tenant, "policy_version": policy.version, "mode": policy.mode} | self.stats.snapshot()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -158,6 +254,21 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def send_file(self, path):
+        file, content_type = UI_FILES[path]
+        try:
+            data = file.read_bytes()
+        except OSError:
+            return self.send_error_json(404, "not_found", "no such file")
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-cache")
+        for name, value in UI_HEADERS.items():
+            self.send_header(name, value)
+        self.end_headers()
+        self.wfile.write(data)
+
     def log_message(self, format, *args):  # the request line, never a body or a query string
         logger.info("%s %s %s", self.command, self.path.split("?")[0], args[1] if len(args) > 1 else "")
 
@@ -165,18 +276,22 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0]
         if path == "/healthz":
             return self.send_json(200, {"status": "ok"})
+        if self.service.ui and path in UI_FILES:
+            return self.send_file(path)
+        if self.service.ui and path == "/ui/results.json":
+            return self.send_json(200, evaluation())
         if path in ENDPOINTS:
             return self.send_error_json(405, "method_not_allowed", "use POST", allow="POST")
-        if path != "/v1/prompt":
+        if path not in ("/v1/prompt", "/v1/stats"):
             return self.send_error_json(404, "not_found", "no such endpoint")
         if not self.service.authorized(self.headers.get("Authorization")):
             return self.send_error_json(401, "unauthorized", "a valid API key is required")
-        self.send_json(200, self.service.prompt())
+        self.send_json(200, self.service.prompt() if path == "/v1/prompt" else self.service.status())
 
     def do_POST(self):
         path = self.path.split("?")[0]
         if path not in ENDPOINTS:
-            allow = "GET" if path in ("/healthz", "/v1/prompt") else None
+            allow = "GET" if path in ("/healthz", "/v1/prompt", "/v1/stats") else None
             return self.send_error_json(405 if allow else 404, "method_not_allowed" if allow else "not_found",
                                         "use GET" if allow else "no such endpoint", allow=allow)
         if not self.service.authorized(self.headers.get("Authorization")):
@@ -210,8 +325,9 @@ class Handler(BaseHTTPRequestHandler):
             raise BadRequest(400, "bad_json", "the body isn't valid UTF-8 JSON") from None
 
 
-def make_server(guard, host="127.0.0.1", port=8080, api_key=None, check_timeout=CHECK_TIMEOUT, max_pending=MAX_PENDING):
-    service = Service(guard, api_key, check_timeout, max_pending)
+def make_server(guard, host="127.0.0.1", port=8080, api_key=None, check_timeout=CHECK_TIMEOUT, max_pending=MAX_PENDING,
+                ui=False):
+    service = Service(guard, api_key, check_timeout, max_pending, ui)
     handler = type("SieveHandler", (Handler,), {"service": service})
     server = ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
@@ -236,6 +352,7 @@ def main(argv=None):
     parser.add_argument("--timeout", type=float, default=CHECK_TIMEOUT, help="seconds a check may take before block")
     parser.add_argument("--siem", default="stdout", help="stdout (JSON lines), host:port (syslog over TCP) or none")
     parser.add_argument("--insecure-no-auth", action="store_true", help="run without an API key (local tests only)")
+    parser.add_argument("--ui", action="store_true", help="also serve a page at / to try checks and watch decisions")
     args = parser.parse_args(argv)
 
     api_key = os.environ.get(API_KEY_ENV)
@@ -253,13 +370,14 @@ def main(argv=None):
 
     system_prompt = open(args.system_prompt, encoding="utf-8").read() if args.system_prompt else ""
     guard = TenantGuardrail(load_policy(args.tenant), system_prompt=system_prompt)
-    server = make_server(guard, args.host, args.port, api_key or None, args.timeout)
+    server = make_server(guard, args.host, args.port, api_key or None, args.timeout, ui=args.ui)
     # A service manager (systemd, Kubernetes, docker stop) stops it with SIGTERM: finish the check that's running and
     # exit cleanly. As PID 1 in a container there's no default handler at all, and it would be killed 10 seconds later.
     # shutdown() waits for serve_forever, so it can't run on that thread.
     signal.signal(signal.SIGTERM, lambda signum, frame: threading.Thread(target=server.shutdown).start())
-    logger.info("sieve: serving tenant %r on %s:%d%s", args.tenant, args.host, server.server_address[1],
-                "" if api_key else " WITHOUT AUTHENTICATION")
+    logger.info("sieve: serving tenant %r on %s:%d%s%s", args.tenant, args.host, server.server_address[1],
+                "" if api_key else " WITHOUT AUTHENTICATION", f", the page at http://{args.host}:{server.server_address[1]}/"
+                if args.ui else "")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
