@@ -43,14 +43,6 @@ const EXAMPLES = {
 const PATHS = { check: "/v1/check", document: "/v1/document", tool: "/v1/tool", output: "/v1/output" };
 const ACTIONS = { allow: ["✓", "Allowed"], review: ["!", "Sent to review"], block: ["✕", "Blocked"] };
 
-// The key stays in this tab only, and only if the browser lets the page keep it.
-function savedKey() {
-  try { return sessionStorage.getItem("sieve-key") || ""; } catch { return ""; }
-}
-function saveKey(value) {
-  try { sessionStorage.setItem("sieve-key", value); } catch { /* the field still holds it */ }
-}
-
 async function api(path, body) {
   const headers = { "Content-Type": "application/json" };
   const key = $("#key").value.trim();
@@ -59,7 +51,7 @@ async function api(path, body) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = data.error || {};
-    throw new Error(response.status === 401 ? "The server wants its API key (SIEVE_API_KEY) in the field above."
+    throw new Error(response.status === 401 ? "The server wants a key in the field above: the page's (SIEVE_UI_KEY) or the app's."
       : `${response.status} ${error.code || ""}: ${error.message || "the request failed"}`);
   }
   return data;
@@ -294,8 +286,8 @@ function showTenant() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  $("#key").value = savedKey();
-  $("#key").addEventListener("change", () => { saveKey($("#key").value.trim()); showTenant(); });
+  // The key lives in the field only: nothing stores it, and a reload asks for it again.
+  $("#key").addEventListener("change", showTenant);
   for (const name of TABS) $(`#tab-${name}`).addEventListener("click", () => show(name));
   $("#entry").addEventListener("change", () => setEntry($("#entry").value));
   $("#example").addEventListener("change", () => useExample($("#entry").value, Number($("#example").value || -1)));

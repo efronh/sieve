@@ -26,7 +26,12 @@ from sieve.output import SAFE_REPLY
 from sieve.paths import RESULTS
 from sieve.rules import rule_ids, rule_info
 
-API_KEY_ENV = "SIEVE_API_KEY"
+API_KEY_ENV = "SIEVE_API_KEY"  # the app's key; "new,old" while the app moves to a new one
+UI_KEY_ENV = "SIEVE_UI_KEY"  # the page's key: checks and stats, not the prompt, and its sessions are its own
+MIN_KEY_CHARS = 32  # python -c "import secrets; print(secrets.token_urlsafe(32))" gives 43
+APP, UI = "app", "ui"
+UI_PREFIX = "ui:"  # session and user IDs from the page's key, so they never reach an app user's limits or history
+LOOPBACK = ("127.0.0.1", "localhost", "::1")
 MAX_BODY = 1_000_000  # bytes: a document is read up to 200,000 characters
 CHECK_TIMEOUT = 5.0  # s a check may take before the answer is block
 MAX_PENDING = 64  # requests waiting or running; past it, 503 and the app's own fail-closed path
@@ -107,6 +112,17 @@ class Stats:
         self.lock = threading.Lock()
         self.decisions, self.rules, self.timeouts = Counter(), Counter(), 0
         self.recent = deque(maxlen=self.RECENT)
+        self.refused, self.warned_at = 0, None
+
+    # A request with a missing or wrong key. Counted, and logged at most once a minute; never locked out, since that
+    # would let anyone lock the app out with wrong keys, and a key of 32 random characters can't be guessed anyway.
+    def refuse(self):
+        with self.lock:
+            self.refused += 1
+            now = time.monotonic()
+            if self.warned_at is None or now - self.warned_at >= 60:
+                self.warned_at = now
+                logger.warning("sieve: %d requests with a missing or wrong key so far", self.refused)
 
     def record(self, direction, action, rules, ms, timed_out=False):
         with self.lock:
@@ -118,7 +134,7 @@ class Stats:
 
     def snapshot(self):
         with self.lock:
-            return {"since": round(self.started), "timeouts": self.timeouts,
+            return {"since": round(self.started), "timeouts": self.timeouts, "refused": self.refused,
                     "decisions": [{"direction": d, "action": a, "count": n} for (d, a), n in sorted(self.decisions.items())],
                     "rules": [{"rule": r, "title": rule_info(r).title, "count": n} for r, n in self.rules.most_common(20)],
                     "recent": list(self.recent)}
@@ -155,18 +171,30 @@ def evaluation(directory=RESULTS):
 
 
 class Service:
-    def __init__(self, guard, api_key, check_timeout=CHECK_TIMEOUT, max_pending=MAX_PENDING, ui=False):
-        self.guard, self.api_key, self.ui = guard, api_key, ui
+    # api_key: the app's key, or several while it moves to a new one; None runs without keys (local tests only).
+    # ui_key: the page's own key, if any.
+    def __init__(self, guard, api_key, check_timeout=CHECK_TIMEOUT, max_pending=MAX_PENDING, ui=False, ui_key=None):
+        self.guard, self.ui = guard, ui
+        self.app_keys = [k.encode() for k in ([api_key] if isinstance(api_key, str) else api_key or [])]
+        self.ui_key = ui_key.encode() if ui_key else None
         self.check_timeout = check_timeout
         self.stats = Stats()
         self.worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sieve-check")
         self.slots = threading.BoundedSemaphore(max_pending)
 
-    def authorized(self, header):
-        if self.api_key is None:
-            return True
+    # Whose key the request carries: the app's, the page's, or nobody's (None, counted). Every key is compared, in
+    # constant time, so how long it takes doesn't say which one was close.
+    def role(self, header):
+        if not self.app_keys:
+            return APP
         scheme, _, token = (header or "").partition(" ")
-        return scheme == "Bearer" and hmac.compare_digest(token.encode(), self.api_key.encode())
+        token = token.encode()
+        app = any([hmac.compare_digest(token, key) for key in self.app_keys])
+        ui = self.ui_key is not None and hmac.compare_digest(token, self.ui_key)
+        if scheme == "Bearer" and (app or ui):
+            return APP if app else UI
+        self.stats.refuse()
+        return None
 
     # Runs the check on the one worker, waiting at most check_timeout. A check that didn't finish is a failed check:
     # block, with a layer_error event that says timeout. One still queued is cancelled; one running finishes alone.
@@ -284,8 +312,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_error_json(405, "method_not_allowed", "use POST", allow="POST")
         if path not in ("/v1/prompt", "/v1/stats"):
             return self.send_error_json(404, "not_found", "no such endpoint")
-        if not self.service.authorized(self.headers.get("Authorization")):
+        role = self.service.role(self.headers.get("Authorization"))
+        if role is None:
             return self.send_error_json(401, "unauthorized", "a valid API key is required")
+        if path == "/v1/prompt" and role != APP:  # the prompt and its canary are the app's
+            return self.send_error_json(403, "forbidden", "this key can't read the prompt")
         self.send_json(200, self.service.prompt() if path == "/v1/prompt" else self.service.status())
 
     def do_POST(self):
@@ -294,12 +325,15 @@ class Handler(BaseHTTPRequestHandler):
             allow = "GET" if path in ("/healthz", "/v1/prompt", "/v1/stats") else None
             return self.send_error_json(405 if allow else 404, "method_not_allowed" if allow else "not_found",
                                         "use GET" if allow else "no such endpoint", allow=allow)
-        if not self.service.authorized(self.headers.get("Authorization")):
+        role = self.service.role(self.headers.get("Authorization"))
+        if role is None:
             return self.send_error_json(401, "unauthorized", "a valid API key is required")
         try:
             body = validate(self.read_body(), *ENDPOINTS[path])
         except BadRequest as e:
             return self.send_error_json(e.status, e.code, str(e))
+        if role == UI:
+            body |= {k: UI_PREFIX + body[k] for k in ("session_id", "user_id") if body.get(k) is not None}
         if not self.service.slots.acquire(blocking=False):
             return self.send_error_json(503, "busy", "too many checks waiting; treat as block")
         try:
@@ -326,8 +360,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def make_server(guard, host="127.0.0.1", port=8080, api_key=None, check_timeout=CHECK_TIMEOUT, max_pending=MAX_PENDING,
-                ui=False):
-    service = Service(guard, api_key, check_timeout, max_pending, ui)
+                ui=False, ui_key=None):
+    service = Service(guard, api_key, check_timeout, max_pending, ui, ui_key)
     handler = type("SieveHandler", (Handler,), {"service": service})
     server = ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
@@ -343,6 +377,23 @@ def siem_handler(target):
     return syslog_handler(host, int(port), "json")
 
 
+# The keys from the environment, checked before anything listens. An error names the variable, never the key.
+def keys(parser, insecure, host):
+    app = [k.strip() for k in os.environ.get(API_KEY_ENV, "").split(",") if k.strip()]
+    ui = os.environ.get(UI_KEY_ENV, "").strip() or None
+    if insecure and host not in LOOPBACK:
+        parser.error("--insecure-no-auth only listens on a loopback address (127.0.0.1, ::1)")
+    if not app and not insecure:
+        parser.error(f"set {API_KEY_ENV}, or pass --insecure-no-auth for a local test")
+    for name, key in [(API_KEY_ENV, k) for k in app] + ([(UI_KEY_ENV, ui)] if ui else []):
+        if len(key) < MIN_KEY_CHARS:
+            parser.error(f"{name}: a key needs at least {MIN_KEY_CHARS} characters; make one with "
+                         "python -c \"import secrets; print(secrets.token_urlsafe(32))\"")
+    if ui and ui in app:
+        parser.error(f"{UI_KEY_ENV} must differ from {API_KEY_ENV}: the page's key can't read the prompt")
+    return app, ui
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="python -m sieve.server")
     parser.add_argument("--tenant", default="default", help="policies/<tenant>.toml over policies/default.toml")
@@ -355,9 +406,7 @@ def main(argv=None):
     parser.add_argument("--ui", action="store_true", help="also serve a page at / to try checks and watch decisions")
     args = parser.parse_args(argv)
 
-    api_key = os.environ.get(API_KEY_ENV)
-    if not api_key and not args.insecure_no_auth:
-        parser.error(f"set {API_KEY_ENV}, or pass --insecure-no-auth for a local test")
+    app_keys, ui_key = keys(parser, args.insecure_no_auth, args.host)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s", stream=sys.stderr)
     events = logging.getLogger("sieve.siem")
     events.propagate = False
@@ -370,13 +419,16 @@ def main(argv=None):
 
     system_prompt = open(args.system_prompt, encoding="utf-8").read() if args.system_prompt else ""
     guard = TenantGuardrail(load_policy(args.tenant), system_prompt=system_prompt)
-    server = make_server(guard, args.host, args.port, api_key or None, args.timeout, ui=args.ui)
+    if args.ui and app_keys and not ui_key:
+        logger.warning("sieve: the page takes the app's key, which also reads the prompt; set %s to give it its own",
+                       UI_KEY_ENV)
+    server = make_server(guard, args.host, args.port, app_keys or None, args.timeout, ui=args.ui, ui_key=ui_key)
     # A service manager (systemd, Kubernetes, docker stop) stops it with SIGTERM: finish the check that's running and
     # exit cleanly. As PID 1 in a container there's no default handler at all, and it would be killed 10 seconds later.
     # shutdown() waits for serve_forever, so it can't run on that thread.
     signal.signal(signal.SIGTERM, lambda signum, frame: threading.Thread(target=server.shutdown).start())
     logger.info("sieve: serving tenant %r on %s:%d%s%s", args.tenant, args.host, server.server_address[1],
-                "" if api_key else " WITHOUT AUTHENTICATION", f", the page at http://{args.host}:{server.server_address[1]}/"
+                "" if app_keys else " WITHOUT AUTHENTICATION", f", the page at http://{args.host}:{server.server_address[1]}/"
                 if args.ui else "")
     try:
         server.serve_forever()

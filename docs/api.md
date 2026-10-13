@@ -13,10 +13,33 @@ SIEVE_API_KEY=... python -m sieve.server --tenant example_bank --system-prompt p
 | `--host`, `--port` | `127.0.0.1`, `8080` | Dışarı açmak için `--host 0.0.0.0`, önünde TLS yapan bir reverse proxy ile |
 | `--timeout` | `5` | Bir kontrolün saniye cinsinden süresi; aşarsa cevap block |
 | `--siem` | `stdout` | `stdout` (satır başına bir JSON olay), `host:port` (TCP syslog, JSON) ya da `none` |
-| `--insecure-no-auth` | kapalı | Anahtarsız çalıştırma; sadece yerel test için |
+| `--insecure-no-auth` | kapalı | Anahtarsız çalıştırma; sadece yerel test için, sadece `127.0.0.1`/`::1`'de |
 | `--ui` | kapalı | `/` adresinde bir sayfa: kontrol denemek, kararları izlemek, değerlendirmeyi okumak ([aşağıda](#sayfa---ui)) |
 
-`SIEVE_API_KEY` yoksa sunucu başlamıyor; `SIEVE_PSEUDONYM_KEY` yoksa uyarı veriyor. SIGTERM'de çalışan kontrolü bitirip temiz kapanıyor (systemd, Kubernetes ve `docker stop` böyle durduruyor). Sadece standart kütüphane kullanıyor (`http.server`): güvenilmesi gereken bir web framework'ü yok ([TH-13](../THREAT_MODEL.md#th-13-model-and-training-data-integrity)).
+`SIEVE_API_KEY` yoksa ya da 32 karakterden kısaysa sunucu başlamıyor ([Anahtarlar](#anahtarlar)); `SIEVE_PSEUDONYM_KEY` yoksa uyarı veriyor. SIGTERM'de çalışan kontrolü bitirip temiz kapanıyor (systemd, Kubernetes ve `docker stop` böyle durduruyor). Sadece standart kütüphane kullanıyor (`http.server`): güvenilmesi gereken bir web framework'ü yok ([TH-13](../THREAT_MODEL.md#th-13-model-and-training-data-integrity)).
+
+## Anahtarlar
+
+İki anahtar var, ikisi de ortamdan, sunucu dinlemeye başlamadan kontrol ediliyor:
+
+| | Kimin | Ne yapabilir |
+|---|---|---|
+| `SIEVE_API_KEY` | Uygulamanın | Her şey: dört kontrol, `GET /v1/prompt`, `GET /v1/stats` |
+| `SIEVE_UI_KEY` | Sayfayı kullanan kişinin (isteğe bağlı) | Dört kontrol ve `GET /v1/stats`. `GET /v1/prompt` 403: sistem promptu ve canary uygulamanın. Gönderdiği `session_id` ve `user_id` `ui:` önekiyle ayrı tutuluyor, yani gerçek bir kullanıcının oturum limitlerine ve geçmişine dokunamıyor |
+
+**Üretmek.** Her anahtar en az 32 karakter, yoksa sunucu başlamıyor; iki anahtar aynıysa da. Rastgele üretin, elle seçmeyin:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+**Dağıtmak.** Anahtar repoya, loglara, bir komut satırına ya da bir sohbete girmiyor. Sunucuya ve uygulamaya aynı yerden, ortam değişkeni olarak veriliyor: bir secret manager (Vault, AWS Secrets Manager, Azure Key Vault), Kubernetes `Secret`, Docker secret, ya da systemd `EnvironmentFile` (sahibi servisin kullanıcısı, `chmod 600`). Uygulamanın anahtarı sadece uygulamada; sayfayı kullanacak kişiye `SIEVE_UI_KEY` veriliyor, uygulamanınki asla. `--ui` açık ve `SIEVE_UI_KEY` yoksa sunucu bunu uyarıyla söylüyor.
+
+**Döndürmek.** `SIEVE_API_KEY` virgülle ayrılmış birden fazla anahtar alıyor: önce `SIEVE_API_KEY=yeni,eski` ile yeniden başlatın, uygulamaları yeni anahtara geçirin, sonra `SIEVE_API_KEY=yeni` ile bir kez daha. Arada iki anahtar da geçerli, hiçbir istek reddedilmiyor. Sızdığından şüphelenilen bir anahtar hemen çıkarılıyor.
+
+**Yanlış anahtar.** Cevap 401. Her ret `GET /v1/stats`'ta `refused` olarak sayılıyor ve dakikada en fazla bir kez `sieve.server` logunda uyarı oluyor. Kilitleme yok: yanlış anahtarla gelen istekler gerçek uygulamayı da kilitleyebilirdi, 32 rastgele karakter de tahminle bulunamaz. Anahtarlar sabit sürede karşılaştırılıyor, hepsi her seferinde; süre hangisine yaklaşıldığını söylemiyor.
+
+**Taşımak.** Sunucu TLS yapmıyor; anahtar düz HTTP'de gidiyor. Varsayılan `127.0.0.1` bu yüzden. Dışarı açılacaksa önünde TLS yapan bir reverse proxy olmalı, sayfa açılacaksa proxy'de bir de SSO.
 
 ## İstek
 
@@ -93,7 +116,7 @@ Skorlar ve kurallar uygulamanın, `rules` gibi: kullanıcıya gösterilmemeli, b
 
 ### `GET /v1/stats`
 
-Sunucunun başladığından beri verdiği kararlar: yön ve karar başına sayılar, en çok tetiklenen 20 kural, son 50 kararın zamanı, yönü, kararı, kuralları ve süresi, zaman aşımları. Kiracı, politika sürümü ve mod da var. Metin, kullanıcı, oturum ve istek ID'si yok: kararları saklayan ve birleştiren yer SIEM. Süreç başına, bellekte; yeniden başlayınca sıfırlanıyor. Anahtar istiyor.
+Sunucunun başladığından beri verdiği kararlar: yön ve karar başına sayılar, en çok tetiklenen 20 kural, son 50 kararın zamanı, yönü, kararı, kuralları ve süresi, zaman aşımları. Kiracı, politika sürümü ve mod da var, bir de yanlış anahtarla gelen isteklerin sayısı (`refused`). Metin, kullanıcı, oturum ve istek ID'si yok: kararları saklayan ve birleştiren yer SIEM. Süreç başına, bellekte; yeniden başlayınca sıfırlanıyor. İki anahtardan biri gerekiyor.
 
 ### `GET /healthz`
 
@@ -107,10 +130,10 @@ Sunucunun başladığından beri verdiği kararlar: yön ve karar başına sayı
 - **Evaluation:** `results/` altındaki sonuçların özeti (`/ui/results.json`: mühürlü set, aile karşılaştırması, dedektörler, süreler; hiçbir kayıt değil) ve README'deki grafikler.
 
 ```bash
-SIEVE_API_KEY=... python -m sieve.server --tenant demo --ui
+SIEVE_API_KEY=... SIEVE_UI_KEY=... python -m sieve.server --tenant demo --ui
 ```
 
-Sayfa ve dosyaları anahtarsız; kendileri veri taşımıyor, gösterdikleri API'den anahtarla geliyor. Anahtar sayfadaki alana yazılıyor ve sadece o sekmenin `sessionStorage`'ında duruyor. Sayfa saldırı metni gösterdiği için her şeyi metin olarak yazıyor, hiçbir zaman HTML olarak değil; bir test `innerHTML` ve benzerlerini arıyor. Sadece sabit bir listedeki dosyalar veriliyor (`/`, `/ui/app.js`, `/ui/app.css`, `/ui/results.json` ve dört SVG): başka bir yol 404. Başlıklar: `Content-Security-Policy` (sadece sunucunun kendi dosyaları, satır içi script yok, çerçeveye konamaz), `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `nosniff`. Varsayılan kapalı: bir üretim API'sinde fazladan bir HTML yüzeyi olmasın.
+Sayfa ve dosyaları anahtarsız; kendileri veri taşımıyor, gösterdikleri API'den anahtarla geliyor. Anahtar sayfadaki alana yazılıyor, `SIEVE_UI_KEY` tercihen ([Anahtarlar](#anahtarlar)); sadece o alanda, bellekte duruyor, hiçbir yere kaydedilmiyor, sayfa yenilenince yeniden soruluyor. Sayfa saldırı metni gösterdiği için her şeyi metin olarak yazıyor, hiçbir zaman HTML olarak değil; bir test `innerHTML` ve benzerlerini arıyor. Sadece sabit bir listedeki dosyalar veriliyor (`/`, `/ui/app.js`, `/ui/app.css`, `/ui/results.json` ve dört SVG): başka bir yol 404. Başlıklar: `Content-Security-Policy` (sadece sunucunun kendi dosyaları, satır içi script yok, çerçeveye konamaz), `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `nosniff`. Varsayılan kapalı: bir üretim API'sinde fazladan bir HTML yüzeyi olmasın.
 
 ## Hatalar
 
@@ -122,6 +145,7 @@ Sayfa ve dosyaları anahtarsız; kendileri veri taşımıyor, gösterdikleri API
 |---|---|---|
 | 400 | `bad_request`, `bad_json` | Gövde JSON nesnesi değil, alan bilinmiyor, eksik ya da yanlış tipte |
 | 401 | `unauthorized` | Anahtar yok ya da yanlış |
+| 403 | `forbidden` | Sayfanın anahtarıyla `GET /v1/prompt` |
 | 404 / 405 | `not_found`, `method_not_allowed` | Yol ya da metot yanlış |
 | 411 / 413 / 415 | `length_required`, `too_large`, `unsupported_media_type` | `Content-Length` yok, gövde büyük, JSON değil |
 | 503 | `busy` | Bekleyen ya da çalışan 64 istek var |

@@ -29,7 +29,7 @@ The starting assumption: **the model is not a security boundary.** Anything an a
 | B5 | LLM → tool | A tool call | [`ToolGuard.check`](sieve/tools.py), `TenantGuardrail.check_tool` | Allowlist, types, limits, "did the user give this value", confirmation, rules on string arguments |
 | B6 | Sieve → logs | Decision events | [`siem.py`](sieve/integrations/siem.py), [`traffic_log.py`](sieve/integrations/traffic_log.py) | No raw text: masked-text hash, keyed pseudonyms, optional masked excerpt |
 
-The same entry points are served over HTTP by [`sieve/server.py`](sieve/server.py) ([docs/api.md](docs/api.md)), for an app that can't import Sieve. Its caller is the app, authenticated with an API key; it's not meant to be reachable by users.
+The same entry points are served over HTTP by [`sieve/server.py`](sieve/server.py) ([docs/api.md](docs/api.md)), for an app that can't import Sieve. Its caller is the app, authenticated with an API key; it's not meant to be reachable by users. The page it can serve (`--ui`) takes a key of its own, which can't read the system prompt and whose sessions are kept apart from the app's users ([docs/api.md](docs/api.md#anahtarlar)).
 
 ### Who sees what
 
