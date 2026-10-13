@@ -58,7 +58,10 @@ ML katmanı mesajı sadece review'a gönderiyor, tek başına engellemiyor. Yani
 
 ML katmanı 0,76'da review'a gönderiyor; bu, çapraz doğrulamada normal mesajların %1'ini işaretleyen threshold. Politika onu oynatabiliyor (`[thresholds.prompt_injection_ml]`), mesajlarda, dokümanlarda ve tool argümanlarında aynı şekilde. `python -m scripts.threshold_sweep` her seti bir kez çalıştırıp 0,01'den 0,999'a her threshold'u hesaplıyor ([results/threshold_sweep.json](results/threshold_sweep.json)). Diğer katmanların işaretledikleri her threshold'da işaretli kalıyor.
 
-![ML threshold'una göre işaretlenen saldırılar ve normal kayıtlar, set başına](results/threshold_sweep.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="results/threshold_sweep-dark.svg">
+  <img alt="ML threshold'una göre yakalanan saldırılar ve işaretlenen normal kayıtlar, aşağıdaki tablodaki dört set için" src="results/threshold_sweep.svg">
+</picture>
 
 | ML threshold'u | Çapraz doğrulama (763 saldırı, 2.486 normal) | TCPI test bölümü (30, 90) | Mühürlü `deepset_tr` (258, 345) | Corpus test dokümanları (1.231, 494) |
 |---|---|---|---|---|
@@ -113,6 +116,11 @@ ML'in mesaj olarak işaretlediği saldırılar (30'da 22), 1.000 karakterlik bir
 #### Baseline'a karşı, aile aile
 
 Aynı test kayıtları, [Dedektörlerin karşılaştırması](#dedektörlerin-karşılaştırması)'ndaki baseline olan protectai'nin DeBERTa v3 dedektöründen geçiyor; her sınırın taşıdığı metni okuyor: bir mesaj, konuşmanın her mesajı, üst üste binen parçalar halinde bir doküman, bir tool çağrısının string argümanları, bir cevap (`python -m scripts.compare_families`). Burada işaretlenen, ikisi için de herhangi bir şeyin işaretlenmesi demek, yani Sieve'in sütunu yukarıdaki "durdurulan"dan yüksek. Geldiği haliyle (0,5 skor) baseline normal olsun olmasın Türkçe metnin çoğunu işaretliyor, yani oradaki yakalama oranı pek bir şey söylemiyor. Sieve kadar normal kaydı işaretlediği eşikte neredeyse hiçbir şey yakalamıyor.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="results/family_comparison-dark.svg">
+  <img alt="Aile başına yakalanan saldırılar: Sieve ve Sieve'in yanlış alarm oranındaki DeBERTa baseline'ı; sayılar aşağıdaki tabloda" src="results/family_comparison.svg">
+</picture>
 
 | Aile | Saldırı | Kayıt (saldırı) | Sieve | Sieve'in yanlış alarm oranında baseline | Baseline olduğu gibi |
 |---|---|---|---|---|---|
@@ -323,6 +331,7 @@ python -m scripts.train_injection    # yeniden eğitir, CV ve test seti sonuçla
 python -m scripts.compare_models     # results/compare_models.json'u yeniden üretir
 python -m scripts.compare_families   # Sieve ve DeBERTa baseline'ı saldırı ailesine göre (önbellekteki model; ~15 dk)
 python -m scripts.threshold_sweep    # her sette 0,01'den 0,999'a her ML threshold'u, grafiğiyle (~6 dk)
+python -m scripts.charts             # README'deki grafikleri results/'tan yeniden çiziyor, açık ve koyu
 python -m scripts.evaluate_pipeline  # varsayılan Guardrail() test setinde
 python -m scripts.evaluate_documents # dokümanlara gizlenmiş saldırılarda DocumentGuard
 python -m scripts.replay             # saldırı korpusu: giriş noktası, aile, taşıyıcı ve kaynağa göre

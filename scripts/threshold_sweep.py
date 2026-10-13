@@ -8,14 +8,13 @@
 # Sets: the cross-validation the shipped threshold was chosen on (out-of-fold scores, train_injection.py's folds; the
 # other layers run on the same messages), TCPI's test split, the sealed held-out set (counts only, per source; it's
 # for reading, not for choosing a threshold, holdout/README.md), and the corpus's test records, messages and documents.
-#   python -m scripts.threshold_sweep    -> results/threshold_sweep.json, results/threshold_sweep.svg (~5 min)
+#   python -m scripts.threshold_sweep    -> results/threshold_sweep.json, and its chart (charts.py) (~5 min)
 import json
-import math
 import sys
-from html import escape
 
 import numpy as np
 
+from scripts.charts import SWEEP_PATH, sweep_chart
 from scripts.evaluate_pipeline import load as load_tcpi
 from scripts.replay import ALLOW, BLOCK, config, expand, load, load_holdout, outcome, wilson
 from scripts.train_injection import cross_validate_two_stages, load_rows
@@ -25,7 +24,6 @@ from sieve.paths import RESULTS, ROOT
 from sieve.pipeline import Guardrail
 
 RESULTS_PATH = RESULTS / "threshold_sweep.json"
-PLOT_PATH = RESULTS / "threshold_sweep.svg"
 GRID = [round(t, 2) for t in np.arange(0.01, 1.0, 0.01)] + [0.995, 0.999]
 SHOWN = (0.3, 0.5, 0.6, 0.7, None, 0.8, 0.9, 0.95, 0.99)  # None: the shipped threshold
 SEALED = {"sealed_close": ("pi1k", "patterns_tr"), "sealed_deepset": ("deepset_tr",), "sealed_user": ("user",)}
@@ -39,10 +37,6 @@ NAMES = {
     "corpus_messages": "Corpus test: messages",
     "corpus_documents": "Corpus test: documents",
 }
-COLORS = {"cross_validation": "#1f77b4", "customer_service": "#7f7f7f", "tcpi_test": "#2ca02c",
-          "sealed_close": "#ff7f0e", "sealed_deepset": "#d62728", "sealed_user": "#bcbd22",
-          "corpus_messages": "#9467bd", "corpus_documents": "#8c564b"}
-
 
 # The shipped ML layer, scoring without deciding: the sweep decides afterwards.
 class Scores:
@@ -127,56 +121,6 @@ def report(sets, shipped):
             print(f"  {t:9.2f}   {percent(a, result['attacks']):>18}   {percent(b, result['benign']):>18}   {blocked}{mark}")
 
 
-def svg_line(points, x, y, color, dash=""):
-    path = " ".join(f"{x(t):.1f},{y(v):.1f}" for t, v in points)
-    return f'<polyline points="{path}" fill="none" stroke="{color}" stroke-width="1.8"{dash}/>'
-
-
-# Two panels against the threshold: attacks flagged, normal records flagged (cut at 30%, where documents and the
-# look-alike messages go past it, so the messages' few percent stay readable). Hand-written SVG, no plotting library.
-def plot(sets, shipped, path=PLOT_PATH):
-    left, top, width, height, gap = 60, 44, 380, 260, 90
-    panels = (("Attacks flagged", 1, "attacks", 1.0, 5), ("Normal records flagged", 2, "benign", 0.3, 6))
-    legend_rows = math.ceil(len(sets) / 4)
-    total_w, total_h = left + 2 * width + gap + 50, top + height + 50 + legend_rows * 20
-    out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{total_w}" height="{total_h}" '
-           f'viewBox="0 0 {total_w} {total_h}" font-family="Helvetica, Arial, sans-serif" font-size="12">',
-           f'<rect width="{total_w}" height="{total_h}" fill="#ffffff"/>']
-    for i, (title, column, of, y_top, ticks) in enumerate(panels):
-        x0 = left + i * (width + gap)
-
-        def x(t, x0=x0):
-            return x0 + t * width
-
-        def y(v, y_top=y_top):
-            return top + height - v / y_top * height
-
-        out.append(f'<text x="{x0}" y="{top - 16}" font-size="14" font-weight="bold" fill="#222">{title}</text>')
-        for k in range(ticks + 1):
-            v = y_top * k / ticks
-            out.append(f'<line x1="{x0}" y1="{y(v):.1f}" x2="{x0 + width}" y2="{y(v):.1f}" stroke="#e5e5e5"/>')
-            out.append(f'<text x="{x0 - 6}" y="{y(v) + 4:.1f}" text-anchor="end" fill="#555">{v:.0%}</text>')
-        for t in (0, 0.2, 0.4, 0.6, 0.8, 1.0):
-            out.append(f'<text x="{x(t):.1f}" y="{top + height + 16}" text-anchor="middle" fill="#555">{t:.1f}</text>')
-        out.append(f'<text x="{x0 + width / 2}" y="{top + height + 34}" text-anchor="middle" fill="#333">'
-                   'ML threshold</text>')
-        out.append(f'<line x1="{x(shipped):.1f}" y1="{top}" x2="{x(shipped):.1f}" y2="{top + height}" stroke="#333" '
-                   'stroke-dasharray="4 3"/>')
-        out.append(f'<text x="{x(shipped):.1f}" y="{top - 4}" text-anchor="middle" fill="#333">shipped {shipped:.2f}</text>')
-        out.append(f'<rect x="{x0}" y="{top}" width="{width}" height="{height}" fill="none" stroke="#999"/>')
-        for name, r in sets.items():
-            if r[of]:
-                points = [(p[0], min(p[column] / r[of], y_top)) for p in r["curve"]]
-                out.append(svg_line(points, x, y, COLORS[name]))
-    for i, name in enumerate(sets):
-        lx, ly = left + (i % 4) * 235, top + height + 60 + (i // 4) * 20
-        out.append(f'<line x1="{lx}" y1="{ly - 4}" x2="{lx + 22}" y2="{ly - 4}" stroke="{COLORS[name]}" '
-                   'stroke-width="2.5"/>')
-        out.append(f'<text x="{lx + 30}" y="{ly}" fill="#222">{escape(NAMES[name])}</text>')
-    out.append("</svg>")
-    path.write_text("\n".join(out) + "\n", encoding="utf-8")
-
-
 def main():
     guard = Guardrail(cache_size=0)
     ml = next((layer for layer in guard.check_layers if layer.name == MLInjectionLayer.name), None)
@@ -211,14 +155,14 @@ def main():
         sets[name] = curve(through(check, scores, mine), grid, blocks)
 
     report(sets, shipped)
-    plot(sets, shipped)
+    sweep_chart(sets, shipped)
     with open(RESULTS_PATH, "w", encoding="utf-8") as f:
         json.dump({"sieve": config(ml), "shipped_review_at": shipped, "cascade_band": [ml.cascade["low"], ml.cascade["high"]],
                    "columns": ["threshold", "attacks_flagged", "benign_flagged", "attacks_blocked", "benign_blocked"],
                    "sets": {name: {"what": NAMES[name]} | result for name, result in sets.items()}},
                   f, ensure_ascii=False, indent=1)
         f.write("\n")
-    print(f"\nwrote {RESULTS_PATH.relative_to(ROOT)}, {PLOT_PATH.relative_to(ROOT)}")
+    print(f"\nwrote {RESULTS_PATH.relative_to(ROOT)}, {SWEEP_PATH.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

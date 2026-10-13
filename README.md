@@ -58,7 +58,10 @@ The ML layer only sends messages to review and never blocks on its own, so in pr
 
 The ML layer reviews at 0.76, the threshold that flagged 1% of normal messages in cross-validation. A policy can move it (`[thresholds.prompt_injection_ml]`), for messages, documents and tool arguments alike. `python -m scripts.threshold_sweep` runs each set once and works out every threshold from 0.01 to 0.999 ([results/threshold_sweep.json](results/threshold_sweep.json)). What the other layers flag stays flagged at any threshold.
 
-![Attacks and normal records flagged against the ML threshold, per set](results/threshold_sweep.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="results/threshold_sweep-dark.svg">
+  <img alt="Attacks caught and normal records flagged against the ML threshold, for the four sets in the table below" src="results/threshold_sweep.svg">
+</picture>
 
 | ML threshold | Cross-validation (763 attacks, 2,486 normal) | TCPI test split (30, 90) | Sealed `deepset_tr` (258, 345) | Corpus test documents (1,231, 494) |
 |---|---|---|---|---|
@@ -113,6 +116,11 @@ Every attack in [`corpus/`](corpus) has a family, a carrier and the least action
 #### Against the baseline, family by family
 
 The same test records through protectai's DeBERTa v3 detector, the baseline in [Detectors compared](#detectors-compared), reading the text each boundary carries: a message, each turn, a document in overlapping pieces, a tool call's string arguments, an answer (`python -m scripts.compare_families`). Flagged here means anything was flagged, for both, so Sieve's column is higher than "stopped" above. As it ships (a score of 0.5) the baseline flags most Turkish text, normal or not, so its catch rate there means little. At the threshold where it flags as many normal records as Sieve does, it catches almost nothing.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="results/family_comparison-dark.svg">
+  <img alt="Attacks caught per family: Sieve against the DeBERTa baseline at Sieve's false-alarm rate; the numbers are in the table below" src="results/family_comparison.svg">
+</picture>
 
 | Family | Attack | Records (attacks) | Sieve | Baseline at Sieve's false-alarm rate | Baseline as shipped |
 |---|---|---|---|---|---|
@@ -323,6 +331,7 @@ python -m scripts.train_injection    # retrain, prints CV and held-out results
 python -m scripts.compare_models     # regenerates results/compare_models.json
 python -m scripts.compare_families   # Sieve and the DeBERTa baseline per attack family (cached model; ~15 min)
 python -m scripts.threshold_sweep    # every ML threshold from 0.01 to 0.999 on every set, with the chart (~6 min)
+python -m scripts.charts             # redraws the README's charts, light and dark, from results/
 python -m scripts.evaluate_pipeline  # the default Guardrail() on the held-out set
 python -m scripts.evaluate_documents # DocumentGuard on attacks hidden in documents
 python -m scripts.replay             # the attack corpus, per entry point, family, carrier and source
