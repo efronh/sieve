@@ -13,6 +13,7 @@ import os
 from scripts.charts import FAMILY_PATH, family_chart
 from scripts.replay import ALLOW, FAMILIES, config, entry_points, expand, load, run, wilson
 from sieve.documents import strings_in
+from sieve.ml.injection import REVISIONS
 from sieve.paths import RESULTS, ROOT
 
 os.environ.setdefault("HF_HUB_OFFLINE", "1")  # the cached model only; nothing is fetched
@@ -46,7 +47,8 @@ class Baseline:
     def __init__(self):
         from transformers import pipeline
 
-        self.pipe = pipeline("text-classification", model=BASELINE, device="mps", truncation=True, max_length=512)
+        self.pipe = pipeline("text-classification", model=BASELINE, revision=REVISIONS[BASELINE], device="mps", truncation=True,
+                             max_length=512)
         self.scores = {}
 
     def score(self, texts):

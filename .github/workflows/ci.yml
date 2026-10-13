@@ -48,7 +48,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
-          key: hf-dbmdz-bert-base-turkish-cased
+          key: hf-dbmdz-bert-base-turkish-cased-b6e1de16  # the revision REVISIONS pins
       - run: pytest
       - run: python -m scripts.replay --baseline check --cascade
       - if: always()

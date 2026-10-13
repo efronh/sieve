@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import logging
 import math
@@ -11,9 +12,20 @@ from sieve.checks.prompt_injection import decode_hidden_parts, normalize
 from sieve.paths import MODELS
 
 MODEL_PATH = MODELS / "prompt_injection_tr.joblib"
+# The shipped model file's SHA-256. joblib.load is pickle: a model file runs code as it loads. So the file is checked
+# against this before it's opened, and one that doesn't match isn't opened at all. train_injection.py rewrites it.
+MODEL_SHA256 = "7e8ad299b539a70c10d23706fbd3d3a89de79237132aabbc76395d3c8dbe5c93"
 DEFAULT_REVIEW_AT = 0.5
 BLOCK_AT = 1.01  # ML alone never blocks
 EMBEDDING_MODEL = "dbmdz/bert-base-turkish-cased"
+# Every Hugging Face model Sieve and its scripts load, pinned to the commit the results were measured with, so a model
+# changed or replaced upstream isn't picked up quietly. A name missing here loads unpinned.
+REVISIONS = {
+    "dbmdz/bert-base-turkish-cased": "b6e1de16c983e0f2c70664591ea3f22810072608",
+    "intfloat/multilingual-e5-small": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2": "e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
+    "protectai/deberta-v3-base-prompt-injection-v2": "90c9989b1a342275dd0d1a95aad283c04e075671",
+}
 
 logger = logging.getLogger("sieve")
 
@@ -65,7 +77,8 @@ class EmbeddingStage:
         if self._encoder is None:
             from sentence_transformers import SentenceTransformer
 
-            self._encoder = SentenceTransformer(self.encoder_name, device=best_device())
+            self._encoder = SentenceTransformer(self.encoder_name, device=best_device(),
+                                                revision=REVISIONS.get(self.encoder_name))
         return self._encoder
 
     def embed(self, texts):
@@ -96,10 +109,24 @@ def cascade_decision(p1, low, high, second_stage):
     return p, None, True
 
 
-def load_bundle(path):
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+# sha256: what the file must hash to before it's unpickled; the shipped model's own path checks MODEL_SHA256.
+def load_bundle(path, sha256=None):
     import joblib
     import sklearn
 
+    if sha256 is None and Path(path).resolve() == MODEL_PATH.resolve():
+        sha256 = MODEL_SHA256
+    if sha256 is not None and file_sha256(path) != sha256:
+        raise ValueError(f"{Path(path).name} doesn't match its pinned SHA-256, so it isn't loaded: a model file is "
+                         "pickle and runs code as it loads. If it was retrained, train_injection.py updates MODEL_SHA256")
     bundle = joblib.load(path)
     if not isinstance(bundle, dict):  # old files hold the bare pipeline
         bundle = {"model": bundle, "review_at": DEFAULT_REVIEW_AT, "sklearn_version": None}

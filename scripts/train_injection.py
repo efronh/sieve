@@ -1,5 +1,6 @@
 import csv
 import random
+import re
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
@@ -13,8 +14,9 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.pipeline import make_pipeline, make_union
 
+import sieve.ml.injection as injection
 from sieve.ml.augment import augment
-from sieve.ml.injection import EMBEDDING_MODEL, MODEL_PATH, EmbeddingStage, prepare
+from sieve.ml.injection import EMBEDDING_MODEL, MODEL_PATH, EmbeddingStage, file_sha256, prepare
 from sieve.pipeline import clean
 
 DATA_PATHS = [
@@ -274,6 +276,18 @@ def show_top_features(model, count=15):
     print("  " + ", ".join(repr(names[i]) for i in order[:count]))
 
 
+# The new model's SHA-256 into sieve/ml/injection.py, which checks the file against it before unpickling it. The change
+# shows in the diff, so a new model file is never committed without a reviewed hash to go with it.
+def pin_model_hash(path=MODEL_PATH, source=Path(injection.__file__)):
+    digest = file_sha256(path)
+    text, n = re.subn(r'^MODEL_SHA256 = "[0-9a-f]{64}"$', f'MODEL_SHA256 = "{digest}"', source.read_text(encoding="utf-8"),
+                      flags=re.MULTILINE)
+    if n != 1:
+        sys.exit(f"MODEL_SHA256 not found in {source}; set it to {digest} by hand")
+    source.write_text(text, encoding="utf-8")
+    return digest
+
+
 def main():
     rows = load_rows()
     print(f"{len(rows)} rows, {sum(r.label for r in rows)} attacks, {len({r.family for r in rows})} families, "
@@ -295,6 +309,7 @@ def main():
         "sklearn_version": sklearn.__version__,
         "cascade": cascade,
     }, MODEL_PATH)
+    print(f"\nMODEL_SHA256 in sieve/ml/injection.py is now {pin_model_hash()}")
 
     report_holdout(model, review_at)
     show_top_features(model)

@@ -12,7 +12,7 @@ from sklearn.model_selection import StratifiedGroupKFold
 
 from scripts import train_injection as ti
 from sieve.ml.augment import augment
-from sieve.ml.injection import best_device, prepare, with_hidden
+from sieve.ml.injection import REVISIONS, best_device, prepare, with_hidden
 from sieve.paths import RESULTS
 from sieve.pipeline import mask
 
@@ -58,7 +58,7 @@ class EmbeddingDetector:
 
         self.name = key
         model_name, self.prefix = EMBEDDING_MODELS[key]
-        self.encoder = SentenceTransformer(model_name, device="mps")
+        self.encoder = SentenceTransformer(model_name, device="mps", revision=REVISIONS.get(model_name))
         self.cache = {}
 
     def embed(self, texts):
@@ -91,7 +91,7 @@ class FineTunedDetector:
 
         self.name = key
         self.model_name = FINE_TUNED_MODELS[key]
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, revision=REVISIONS.get(self.model_name))
         self.device = best_device()
 
     def batches(self, texts, labels=None, shuffle_rng=None):
@@ -115,7 +115,8 @@ class FineTunedDetector:
                 texts.append(text)
                 labels.append(row.label)
 
-        self.model = AutoModelForSequenceClassification.from_pretrained(self.model_name, num_labels=2).to(self.device)
+        self.model = AutoModelForSequenceClassification.from_pretrained(self.model_name, num_labels=2,
+                                                                        revision=REVISIONS.get(self.model_name)).to(self.device)
         attacks = sum(labels)
         weights = torch.tensor([len(labels) / (2 * (len(labels) - attacks)), len(labels) / (2 * attacks)],
                                dtype=torch.float32, device=self.device)
@@ -199,7 +200,8 @@ class ZeroShotDetector:
 
         self.name = key
         model_name, self.positive = ZERO_SHOT_MODELS[key]
-        self.pipe = pipeline("text-classification", model=model_name, device="mps", truncation=True, max_length=512)
+        self.pipe = pipeline("text-classification", model=model_name, revision=REVISIONS.get(model_name), device="mps",
+                             truncation=True, max_length=512)
 
     def fit(self, rows, rng):
         return self

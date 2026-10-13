@@ -124,7 +124,7 @@ Each control below works only if the app does its part. If an assumption breaks,
 | [TH-10](#th-10-active-content-in-the-answer) | Active content in the answer | AT1–AT3 via the model | B4 | LLM05 | remove + review | 10 corpus groups (`OUT-ACTIVE`), 9 more dev |
 | [TH-11](#th-11-resource-exhaustion) | Resource exhaustion | AT1, AT2 | B1, B2, B5 | LLM10 | review or block, never crash | Unit tests for inputs that crashed or took minutes; a pattern fuzzer; a latency benchmark |
 | [TH-12](#th-12-probing-the-guardrail) | Probing the guardrail | AT1 | B1 | LLM01 | block after repeated flags | Unit tests; the corpus, for what a blocked user and the model get |
-| [TH-13](#th-13-model-and-training-data-integrity) | Model and training data integrity | AT4 | Load time | LLM03, LLM04 | — | No control for the model file |
+| [TH-13](#th-13-model-and-training-data-integrity) | Model and training data integrity | AT4 | Load time | LLM03, LLM04 | refuse to start | Unit tests: a planted pickle never runs, a changed model stops the guardrail, every model is pinned |
 | [TH-14](#th-14-policy-misconfiguration) | Policy misconfiguration | Operator error | Load time | — | fail at load | Unit tests |
 | [TH-15](#th-15-guard-failure) | Guard failure | Any | All | — | block (`on_error`) | Unit tests |
 
@@ -386,15 +386,18 @@ Of 12 benign answers, 1 is a false alarm: a branch's landline (`0312 555 12 34`)
 **Attack.** A swapped model file runs code when it loads, or a backdoored classifier lets one phrase through. A poisoned training set teaches the same.
 
 **Controls.**
+- The model file is checked against a SHA-256 pinned in the code (`MODEL_SHA256` in [`ml/injection.py`](sieve/ml/injection.py)) before it's unpickled; one that doesn't match isn't opened, and the guardrail doesn't start rather than run without its main detector. Retraining rewrites the pin, so a new model comes with a hash change in the same diff. A test plants a pickle that runs code and checks it never runs.
+- Every Hugging Face model Sieve and its scripts load (BERTurk, and the e5, MiniLM and DeBERTa models the comparisons use) is pinned to the commit the results were measured with (`REVISIONS`); a test fails when one isn't. CI's model cache is keyed on the same commit.
 - Training datasets are pinned to Hugging Face revisions in `data/raw/revisions.txt`.
 - scikit-learn is pinned, because the model file depends on its version.
 - AnyJev is pinned to a commit.
-- The README warns that the model is a pickle.
+
+**Found and fixed.** A swapped model file would have been unpickled, and BERTurk loaded whatever its repository held that day ([changelog](CHANGELOG.md#th-13-model-and-training-data-integrity)).
 
 **Residual risk.**
-- `joblib.load` is pickle: whoever can write `models/prompt_injection_tr.joblib` can run code in the app.
-- The model file has no hash check.
-- BERTurk is downloaded by name, without a pinned revision.
+- Whoever can change both the model file and the code can change the pin too: the check guards a model fetched or mounted separately from the code, not a repository the attacker can write to.
+- A backdoor trained in from poisoned data matches its own hash; the pins say the model is the one that was measured, not that its data was clean.
+- The optional LLM layer (`[llm]`) loads its model through AnyJev by name.
 - The other dependencies aren't locked.
 
 ### TH-14 Policy misconfiguration
