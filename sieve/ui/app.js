@@ -43,15 +43,19 @@ const EXAMPLES = {
 const PATHS = { check: "/v1/check", document: "/v1/document", tool: "/v1/tool", output: "/v1/output" };
 const ACTIONS = { allow: ["✓", "Allowed"], review: ["!", "Sent to review"], block: ["✕", "Blocked"] };
 
+const NEEDS_KEY = "Enter a key in the field above: the page's (SIEVE_UI_KEY) or the app's.";
+
+// Nothing that needs the key goes out without one: a request without it would only count as a refused one.
 async function api(path, body) {
   const headers = { "Content-Type": "application/json" };
   const key = $("#key").value.trim();
   if (key) headers.Authorization = `Bearer ${key}`;
+  else if (path !== "/ui/results.json") throw new Error(NEEDS_KEY);
   const response = await fetch(path, { method: body ? "POST" : "GET", headers, body: body ? JSON.stringify(body) : undefined });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = data.error || {};
-    throw new Error(response.status === 401 ? "The server wants a key in the field above: the page's (SIEVE_UI_KEY) or the app's."
+    throw new Error(response.status === 401 ? `That key isn't one the server knows. ${NEEDS_KEY}`
       : `${response.status} ${error.code || ""}: ${error.message || "the request failed"}`);
   }
   return data;

@@ -90,7 +90,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .scroll { overflow-x: auto; }
-td code { overflow-wrap: anywhere; }
+td:first-child code { white-space: nowrap; }  /* a layer's name stays whole; rules wrap */
+td { overflow-wrap: anywhere; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
 th { color: var(--secondary); font-weight: 600; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }

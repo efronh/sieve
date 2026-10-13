@@ -5,11 +5,13 @@
 # A check that runs out of time is answered with block and logged (fail closed); it finishes in the background.
 # --ui also serves a page at / to try checks, watch the decisions and read the evaluation (sieve/ui/, docs/api.md).
 import argparse
+import hashlib
 import hmac
 import json
 import logging
 import os
 import signal
+import ssl
 import sys
 import threading
 import time
@@ -18,6 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as CheckTimeout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from sieve.actions import ALLOW, BLOCK
 from sieve.integrations.siem import PSEUDONYM_KEY_ENV, JsonFormatter, syslog_handler
@@ -32,6 +35,8 @@ MIN_KEY_CHARS = 32  # python -c "import secrets; print(secrets.token_urlsafe(32)
 APP, UI = "app", "ui"
 UI_PREFIX = "ui:"  # session and user IDs from the page's key, so they never reach an app user's limits or history
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
+UI_RATE = 60  # checks a minute the page's key may make: the one worker is the app's first
+MAX_CONNECTIONS = 256  # open at once; past it a new one is closed at once, so idle sockets can't take every thread
 MAX_BODY = 1_000_000  # bytes: a document is read up to 200,000 characters
 CHECK_TIMEOUT = 5.0  # s a check may take before the answer is block
 MAX_PENDING = 64  # requests waiting or running; past it, 503 and the app's own fail-closed path
@@ -57,10 +62,19 @@ UI_FILES = {"/": (UI_DIR / "index.html", "text/html; charset=utf-8"),
             "/ui/app.css": (UI_DIR / "app.css", "text/css; charset=utf-8")}
 UI_FILES |= {f"/ui/{name}": (RESULTS / name, "image/svg+xml") for name in
              ("family_comparison.svg", "family_comparison-dark.svg", "threshold_sweep.svg", "threshold_sweep-dark.svg")}
-# Nothing but the server's own files, no inline script, no framing: the page shows attack text, as text.
+JSON = "application/json; charset=utf-8"
+# On every answer: not to be stored, sniffed, framed, referred to or loaded by another site.
+SECURITY_HEADERS = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY",
+                    "Referrer-Policy": "no-referrer", "Cross-Origin-Resource-Policy": "same-origin"}
+JSON_CSP = "default-src 'none'; frame-ancestors 'none'"  # an answer is data: nothing in it may run or load
+# The page shows attack text, as text: only the server's own files, no inline script, no framing, and Trusted Types,
+# so the browser itself refuses a string written as HTML.
 UI_HEADERS = {"Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; "
-                                         "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
-              "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff"}
+                                         "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; "
+                                         "require-trusted-types-for 'script'",
+              "Cross-Origin-Opener-Policy": "same-origin",
+              "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), clipboard-read=()"}
+HSTS = "max-age=31536000"  # with TLS: the browser stays on HTTPS
 
 
 class BadRequest(Exception):
@@ -170,13 +184,21 @@ def evaluation(directory=RESULTS):
     return out
 
 
+# Keys are compared as SHA-256 digests: the same length whatever was sent, so the time taken says nothing about it.
+def digest(key):
+    return hashlib.sha256(key.encode("utf-8")).digest()
+
+
 class Service:
     # api_key: the app's key, or several while it moves to a new one; None runs without keys (local tests only).
-    # ui_key: the page's own key, if any.
-    def __init__(self, guard, api_key, check_timeout=CHECK_TIMEOUT, max_pending=MAX_PENDING, ui=False, ui_key=None):
-        self.guard, self.ui = guard, ui
-        self.app_keys = [k.encode() for k in ([api_key] if isinstance(api_key, str) else api_key or [])]
-        self.ui_key = ui_key.encode() if ui_key else None
+    # ui_key: the page's own key, if any. allowed_hosts: the Host names it answers to, or None for any.
+    def __init__(self, guard, api_key, check_timeout=CHECK_TIMEOUT, max_pending=MAX_PENDING, ui=False, ui_key=None,
+                 allowed_hosts=None, tls=False, ui_rate=UI_RATE):
+        self.guard, self.ui, self.tls = guard, ui, tls
+        self.app_keys = [digest(k) for k in ([api_key] if isinstance(api_key, str) else api_key or [])]
+        self.ui_key = digest(ui_key) if ui_key else None
+        self.allowed_hosts = allowed_hosts
+        self.ui_rate, self.ui_calls, self.ui_lock = ui_rate, deque(), threading.Lock()
         self.check_timeout = check_timeout
         self.stats = Stats()
         self.worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sieve-check")
@@ -188,13 +210,24 @@ class Service:
         if not self.app_keys:
             return APP
         scheme, _, token = (header or "").partition(" ")
-        token = token.encode()
+        token = digest(token)
         app = any([hmac.compare_digest(token, key) for key in self.app_keys])
         ui = self.ui_key is not None and hmac.compare_digest(token, self.ui_key)
         if scheme == "Bearer" and (app or ui):
             return APP if app else UI
         self.stats.refuse()
         return None
+
+    # The page's key gets ui_rate checks a minute, so it can't keep the one worker from the app.
+    def ui_check_allowed(self):
+        with self.ui_lock:
+            now = time.monotonic()
+            while self.ui_calls and now - self.ui_calls[0] >= 60:
+                self.ui_calls.popleft()
+            if len(self.ui_calls) >= self.ui_rate:
+                return False
+            self.ui_calls.append(now)
+            return True
 
     # Runs the check on the one worker, waiting at most check_timeout. A check that didn't finish is a failed check:
     # block, with a layer_error event that says timeout. One still queued is cancelled; one running finishes alone.
@@ -259,28 +292,35 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "sieve"
     sys_version = ""
 
-    def send_json(self, status, body, request_id=None):
-        data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    # With TLS the handshake happens here, on the connection's own thread with its timeout, not in the loop that
+    # accepts connections, where a client that never finishes it would hold up every other one.
+    def setup(self):
+        super().setup()
+        if isinstance(self.connection, ssl.SSLSocket):
+            self.connection.do_handshake()
+
+    # Every answer goes out through here, so none leaves without the security headers.
+    def send(self, status, data, content_type, headers=()):
         self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        if request_id:
-            self.send_header("X-Request-ID", request_id)
+        for name, value in SECURITY_HEADERS.items():
+            self.send_header(name, value)
+        if self.service.tls:
+            self.send_header("Strict-Transport-Security", HSTS)
+        for name, value in headers:
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(data)
 
-    def send_error_json(self, status, code, message, allow=None):
-        data = json.dumps({"error": {"code": code, "message": message}}).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
-        if allow:
-            self.send_header("Allow", allow)
-        self.end_headers()
-        self.wfile.write(data)
+    def send_json(self, status, body, request_id=None):
+        headers = [("Content-Security-Policy", JSON_CSP)] + ([("X-Request-ID", request_id)] if request_id else [])
+        self.send(status, json.dumps(body, ensure_ascii=False).encode("utf-8"), JSON, headers)
+
+    def send_error_json(self, status, code, message, allow=None, retry_after=None):
+        headers = [("Content-Security-Policy", JSON_CSP)] + ([("Allow", allow)] if allow else [])
+        headers += [("Retry-After", str(retry_after))] if retry_after else []
+        self.send(status, json.dumps({"error": {"code": code, "message": message}}).encode("utf-8"), JSON, headers)
 
     def send_file(self, path):
         file, content_type = UI_FILES[path]
@@ -288,20 +328,26 @@ class Handler(BaseHTTPRequestHandler):
             data = file.read_bytes()
         except OSError:
             return self.send_error_json(404, "not_found", "no such file")
-        self.send_response(200)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-cache")
-        for name, value in UI_HEADERS.items():
-            self.send_header(name, value)
-        self.end_headers()
-        self.wfile.write(data)
+        self.send(200, data, content_type, UI_HEADERS.items())
 
     def log_message(self, format, *args):  # the request line, never a body or a query string
         logger.info("%s %s %s", self.command, self.path.split("?")[0], args[1] if len(args) > 1 else "")
 
+    # A server on a loopback address answers to loopback names only: a page on another site whose name an attacker
+    # points at 127.0.0.1 (DNS rebinding) gets nothing, not even the page.
+    def host_allowed(self):
+        if self.service.allowed_hosts is None:
+            return True
+        try:
+            name = urlsplit("//" + (self.headers.get("Host") or "")).hostname
+        except ValueError:
+            return False
+        return name in self.service.allowed_hosts
+
     def do_GET(self):
         path = self.path.split("?")[0]
+        if not self.host_allowed():
+            return self.send_error_json(421, "misdirected", "this server doesn't answer to that host name")
         if path == "/healthz":
             return self.send_json(200, {"status": "ok"})
         if self.service.ui and path in UI_FILES:
@@ -321,6 +367,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?")[0]
+        if not self.host_allowed():
+            return self.send_error_json(421, "misdirected", "this server doesn't answer to that host name")
         if path not in ENDPOINTS:
             allow = "GET" if path in ("/healthz", "/v1/prompt", "/v1/stats") else None
             return self.send_error_json(405 if allow else 404, "method_not_allowed" if allow else "not_found",
@@ -333,6 +381,9 @@ class Handler(BaseHTTPRequestHandler):
         except BadRequest as e:
             return self.send_error_json(e.status, e.code, str(e))
         if role == UI:
+            if not self.service.ui_check_allowed():
+                return self.send_error_json(429, "rate_limited", f"the page's key gets {self.service.ui_rate} checks a "
+                                            "minute", retry_after=60)
             body |= {k: UI_PREFIX + body[k] for k in ("session_id", "user_id") if body.get(k) is not None}
         if not self.service.slots.acquire(blocking=False):
             return self.send_error_json(503, "busy", "too many checks waiting; treat as block")
@@ -359,12 +410,56 @@ class Handler(BaseHTTPRequestHandler):
             raise BadRequest(400, "bad_json", "the body isn't valid UTF-8 JSON") from None
 
 
+# A thread per connection, at most max_connections at once: past that a new connection is closed straight away,
+# so idle sockets can't take every thread and all the memory.
+class Server(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(self, address, handler, max_connections=MAX_CONNECTIONS):
+        self.connections = threading.BoundedSemaphore(max_connections)
+        super().__init__(address, handler)
+
+    def process_request(self, request, client_address):
+        if not self.connections.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self.connections.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.connections.release()
+
+    # A dropped connection or a failed handshake: one line, not a traceback, and nothing the client sent.
+    def handle_error(self, request, client_address):
+        logger.info("sieve: a connection ended with %s", sys.exc_info()[0].__name__)
+
+
+def tls_context(cert, key):
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.load_cert_chain(cert, key)
+    return context
+
+
+# tls: (certificate chain, private key) to serve HTTPS. allowed_hosts: the Host names to answer to; by default the
+# loopback names on a loopback address, and any elsewhere.
 def make_server(guard, host="127.0.0.1", port=8080, api_key=None, check_timeout=CHECK_TIMEOUT, max_pending=MAX_PENDING,
-                ui=False, ui_key=None):
-    service = Service(guard, api_key, check_timeout, max_pending, ui, ui_key)
+                ui=False, ui_key=None, tls=None, allowed_hosts=None, max_connections=MAX_CONNECTIONS, ui_rate=UI_RATE):
+    if allowed_hosts:
+        allowed_hosts = {h.lower() for h in allowed_hosts}
+    elif host in LOOPBACK:
+        allowed_hosts = set(LOOPBACK)
+    service = Service(guard, api_key, check_timeout, max_pending, ui, ui_key, allowed_hosts or None, bool(tls), ui_rate)
     handler = type("SieveHandler", (Handler,), {"service": service})
-    server = ThreadingHTTPServer((host, port), handler)
-    server.daemon_threads = True
+    server = Server((host, port), handler, max_connections)
+    if tls:
+        server.socket = tls_context(*tls).wrap_socket(server.socket, server_side=True, do_handshake_on_connect=False)
     return server
 
 
@@ -377,14 +472,30 @@ def siem_handler(target):
     return syslog_handler(host, int(port), "json")
 
 
-# The keys from the environment, checked before anything listens. An error names the variable, never the key.
+# A secret from NAME or, better, NAME_FILE (a Docker or Kubernetes secret, a file only the service can read). Either
+# way it's taken out of the environment, so a child process doesn't inherit it. The environment the process started
+# with stays readable to its owner (ps eww, /proc/<pid>/environ); with NAME_FILE all it shows is the path.
+def secret(parser, name):
+    value, path = os.environ.pop(name, None), os.environ.pop(f"{name}_FILE", None)
+    if value and path:
+        parser.error(f"set {name} or {name}_FILE, not both")
+    if path:
+        try:
+            with open(path, encoding="utf-8") as f:
+                value = f.read()
+        except OSError as e:
+            parser.error(f"{name}_FILE: can't read it ({type(e).__name__})")
+    return (value or "").strip()
+
+
+# The keys, checked before anything listens. An error names the variable, never the key.
 def keys(parser, insecure, host):
-    app = [k.strip() for k in os.environ.get(API_KEY_ENV, "").split(",") if k.strip()]
-    ui = os.environ.get(UI_KEY_ENV, "").strip() or None
+    app = [k.strip() for k in secret(parser, API_KEY_ENV).split(",") if k.strip()]
+    ui = secret(parser, UI_KEY_ENV) or None
     if insecure and host not in LOOPBACK:
         parser.error("--insecure-no-auth only listens on a loopback address (127.0.0.1, ::1)")
     if not app and not insecure:
-        parser.error(f"set {API_KEY_ENV}, or pass --insecure-no-auth for a local test")
+        parser.error(f"set {API_KEY_ENV} or {API_KEY_ENV}_FILE, or pass --insecure-no-auth for a local test")
     for name, key in [(API_KEY_ENV, k) for k in app] + ([(UI_KEY_ENV, ui)] if ui else []):
         if len(key) < MIN_KEY_CHARS:
             parser.error(f"{name}: a key needs at least {MIN_KEY_CHARS} characters; make one with "
@@ -392,6 +503,16 @@ def keys(parser, insecure, host):
     if ui and ui in app:
         parser.error(f"{UI_KEY_ENV} must differ from {API_KEY_ENV}: the page's key can't read the prompt")
     return app, ui
+
+
+# Keys go over the network: plain HTTP is for a loopback address, or behind a proxy that does TLS, said out loud.
+def transport(parser, args):
+    if bool(args.tls_cert) != bool(args.tls_key):
+        parser.error("--tls-cert and --tls-key go together")
+    if args.host not in LOOPBACK and not args.tls_cert and not args.behind_proxy:
+        parser.error(f"plain HTTP on {args.host} would send keys in the clear: pass --tls-cert and --tls-key, or "
+                     "--behind-proxy if a proxy in front does TLS")
+    return (args.tls_cert, args.tls_key) if args.tls_cert else None
 
 
 def main(argv=None):
@@ -404,8 +525,15 @@ def main(argv=None):
     parser.add_argument("--siem", default="stdout", help="stdout (JSON lines), host:port (syslog over TCP) or none")
     parser.add_argument("--insecure-no-auth", action="store_true", help="run without an API key (local tests only)")
     parser.add_argument("--ui", action="store_true", help="also serve a page at / to try checks and watch decisions")
+    parser.add_argument("--tls-cert", help="a PEM certificate chain: serve HTTPS, TLS 1.2 or later")
+    parser.add_argument("--tls-key", help="the certificate's private key")
+    parser.add_argument("--behind-proxy", action="store_true", help="plain HTTP on a non-loopback address: a proxy in "
+                        "front does TLS")
+    parser.add_argument("--allowed-host", action="append", help="a Host name to answer to (repeat for more); on a "
+                        "loopback address the loopback names are the default")
     args = parser.parse_args(argv)
 
+    tls = transport(parser, args)
     app_keys, ui_key = keys(parser, args.insecure_no_auth, args.host)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s", stream=sys.stderr)
     events = logging.getLogger("sieve.siem")
@@ -422,14 +550,18 @@ def main(argv=None):
     if args.ui and app_keys and not ui_key:
         logger.warning("sieve: the page takes the app's key, which also reads the prompt; set %s to give it its own",
                        UI_KEY_ENV)
-    server = make_server(guard, args.host, args.port, app_keys or None, args.timeout, ui=args.ui, ui_key=ui_key)
+    try:
+        server = make_server(guard, args.host, args.port, app_keys or None, args.timeout, ui=args.ui, ui_key=ui_key,
+                             tls=tls, allowed_hosts=args.allowed_host)
+    except (OSError, ssl.SSLError) as e:  # a port in use, a certificate or key that can't be read or doesn't match
+        parser.error(f"can't start: {e}")
     # A service manager (systemd, Kubernetes, docker stop) stops it with SIGTERM: finish the check that's running and
     # exit cleanly. As PID 1 in a container there's no default handler at all, and it would be killed 10 seconds later.
     # shutdown() waits for serve_forever, so it can't run on that thread.
     signal.signal(signal.SIGTERM, lambda signum, frame: threading.Thread(target=server.shutdown).start())
-    logger.info("sieve: serving tenant %r on %s:%d%s%s", args.tenant, args.host, server.server_address[1],
-                "" if app_keys else " WITHOUT AUTHENTICATION", f", the page at http://{args.host}:{server.server_address[1]}/"
-                if args.ui else "")
+    scheme = "https" if tls else "http"
+    logger.info("sieve: serving tenant %r on %s://%s:%d%s%s", args.tenant, scheme, args.host, server.server_address[1],
+                "" if app_keys else " WITHOUT AUTHENTICATION", ", with the page at /" if args.ui else "")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

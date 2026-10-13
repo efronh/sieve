@@ -29,7 +29,7 @@ The starting assumption: **the model is not a security boundary.** Anything an a
 | B5 | LLM → tool | A tool call | [`ToolGuard.check`](sieve/tools.py), `TenantGuardrail.check_tool` | Allowlist, types, limits, "did the user give this value", confirmation, rules on string arguments |
 | B6 | Sieve → logs | Decision events | [`siem.py`](sieve/integrations/siem.py), [`traffic_log.py`](sieve/integrations/traffic_log.py) | No raw text: masked-text hash, keyed pseudonyms, optional masked excerpt |
 
-The same entry points are served over HTTP by [`sieve/server.py`](sieve/server.py) ([docs/api.md](docs/api.md)), for an app that can't import Sieve. Its caller is the app, authenticated with an API key; it's not meant to be reachable by users. The page it can serve (`--ui`) takes a key of its own, which can't read the system prompt and whose sessions are kept apart from the app's users ([docs/api.md](docs/api.md#anahtarlar)).
+The same entry points are served over HTTP by [`sieve/server.py`](sieve/server.py) ([docs/api.md](docs/api.md)), for an app that can't import Sieve. Its caller is the app, authenticated with an API key; it's not meant to be reachable by users. The page it can serve (`--ui`) takes a key of its own, which can't read the system prompt and whose sessions are kept apart from the app's users. Keys are 32 random characters or more, read from a file and taken out of the environment; plain HTTP is for a loopback address only, otherwise the server does TLS or is told a proxy does; on a loopback address it answers to loopback host names only, against DNS rebinding ([docs/api.md](docs/api.md#anahtarlar)).
 
 ### Who sees what
 
@@ -356,6 +356,7 @@ Of 12 benign answers, 1 is a false alarm: a branch's landline (`0312 555 12 34`)
 - A decision cache.
 - The paid LLM runs only when local layers are unsure, and reads at most 3,000 characters.
 - Session state is capped at 50,000 keys.
+- Over HTTP, at most 256 connections are open at once (more are closed straight away), 64 requests wait, and the page's key gets 60 checks a minute, so it can't keep the one worker from the app.
 - HTML is read in linear time: nothing inside a tag is scanned past the next `<`, and closing tags are looked up, not searched for.
 - Every pattern and every entry point is fuzzed for inputs whose cost grows faster than their length (`python -m scripts.fuzz_slow_inputs`).
 - Every result and SIEM event carries the time each stage took (`timings`, `timings_ms`); `python -m scripts.benchmark_latency` measures them on normal traffic and the corpus.

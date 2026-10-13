@@ -240,7 +240,7 @@ curl -s localhost:8080/v1/check -H "Authorization: Bearer $SIEVE_API_KEY" -H "Co
 # {"action": "block", "text": "", "request_id": "…", "rules": ["prompt_injection_ml", "prompt_injection_rules.ignore_instructions"]}
 ```
 
-To try it in a browser, `--ui` also serves a page at `http://127.0.0.1:8080/`: send a message, a document, a tool call or an answer and see the decision, what the model or the user gets, what each layer found and how long it took; watch the server's decisions as counts (no text is kept); and read the evaluation with its charts. `SIEVE_API_KEY=... SIEVE_UI_KEY=... python -m sieve.server --tenant demo --ui` has example tools for the tool-call examples. The page gets its own key, which can't read the system prompt and keeps its sessions apart from the app's users; keys are 32 random characters or more, and the app's can be rotated without downtime ([docs/api.md](docs/api.md#anahtarlar)).
+To try it in a browser, `--ui` also serves a page at `http://127.0.0.1:8080/`: send a message, a document, a tool call or an answer and see the decision, what the model or the user gets, what each layer found and how long it took; watch the server's decisions as counts (no text is kept); and read the evaluation with its charts. `SIEVE_API_KEY=... SIEVE_UI_KEY=... python -m sieve.server --tenant demo --ui` has example tools for the tool-call examples. The page gets its own key, which can't read the system prompt and keeps its sessions apart from the app's users; keys are 32 random characters or more, read from a file if you like, and the app's can be rotated without downtime. Off a loopback address the server does TLS itself or is told a proxy does ([docs/api.md](docs/api.md#anahtarlar)).
 
 ## What Sieve guarantees, and what it doesn't
 

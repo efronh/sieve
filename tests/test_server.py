@@ -1,9 +1,18 @@
+import argparse
 import http.client
 import json
+import os
 import re
+import shutil
+import signal
+import socket
+import ssl
+import subprocess
+import sys
 import threading
 import time
 import tomllib
+import warnings
 from types import SimpleNamespace
 
 import pytest
@@ -11,7 +20,7 @@ import pytest
 from scripts.replay import TOOLS
 from sieve import Guardrail
 from sieve.integrations.tenant import TenantGuardrail, load_policy
-from sieve.server import UI_DIR, main, make_server
+from sieve.server import UI_DIR, keys, main, make_server
 
 KEY = "test-app-key-7f3a-0123456789abcdef-xyz"  # 32 characters or more, as the server wants
 UI_KEY = "test-page-key-91c2-0123456789abcdef-xyz"
@@ -214,11 +223,6 @@ def test_the_access_log_has_no_body(server, caplog):
 
 # A service manager stops the server with SIGTERM; it finishes the running check and exits cleanly.
 def test_the_server_stops_cleanly_on_sigterm():
-    import os
-    import signal
-    import subprocess
-    import sys
-
     env = dict(os.environ, SIEVE_API_KEY=KEY, SIEVE_CASCADE="0")
     server = subprocess.Popen([sys.executable, "-m", "sieve.server", "--port", "0", "--siem", "none"],
                               stderr=subprocess.PIPE, text=True, env=env)
@@ -313,10 +317,13 @@ def test_the_page_never_writes_data_as_html():
     ({"SIEVE_API_KEY": f"{KEY},short"}, [], "at least 32 characters"),
     ({"SIEVE_API_KEY": KEY, "SIEVE_UI_KEY": "short-page-key"}, [], "SIEVE_UI_KEY: a key needs"),
     ({"SIEVE_API_KEY": KEY, "SIEVE_UI_KEY": KEY}, [], "must differ"),
-    ({}, ["--insecure-no-auth", "--host", "0.0.0.0"], "loopback"),
+    ({}, ["--insecure-no-auth", "--host", "0.0.0.0", "--behind-proxy"], "loopback"),
+    ({"SIEVE_API_KEY": KEY}, ["--host", "0.0.0.0"], "in the clear"),
+    ({"SIEVE_API_KEY": KEY}, ["--tls-cert", "cert.pem"], "go together"),
+    ({"SIEVE_API_KEY": KEY, "SIEVE_API_KEY_FILE": "key.txt"}, [], "not both"),
 ])
 def test_weak_or_misplaced_keys_stop_the_server_before_it_listens(monkeypatch, capsys, env, argv, problem):
-    for name in ("SIEVE_API_KEY", "SIEVE_UI_KEY"):
+    for name in ("SIEVE_API_KEY", "SIEVE_UI_KEY", "SIEVE_API_KEY_FILE", "SIEVE_UI_KEY_FILE"):
         monkeypatch.delenv(name, raising=False)
     for name, value in env.items():
         monkeypatch.setenv(name, value)
@@ -381,3 +388,112 @@ def test_wrong_keys_are_counted_and_logged_never_locked_out(guard, caplog):
         server.shutdown()
     assert stats["refused"] == 5
     assert sum("missing or wrong key" in r.message for r in caplog.records) == 1  # once a minute, not once a request
+
+
+
+def test_a_key_from_a_file_is_read_and_taken_out_of_the_environment(monkeypatch, tmp_path):
+    path = tmp_path / "key"
+    path.write_text(KEY + "\n", encoding="utf-8")
+    monkeypatch.setenv("SIEVE_API_KEY_FILE", str(path))
+    monkeypatch.setenv("SIEVE_UI_KEY", UI_KEY)
+    assert keys(argparse.ArgumentParser(), False, "127.0.0.1") == ([KEY], UI_KEY)
+    assert not {"SIEVE_API_KEY_FILE", "SIEVE_UI_KEY"} & set(os.environ)  # a child process can't inherit them
+
+
+def test_every_answer_carries_the_security_headers(server, ui_server):
+    for target, path, key in ((server, "/healthz", None), (server, "/v1/stats", "wrong"), (ui_server, "/v1/stats", KEY)):
+        _, _, headers = fetch(target, path, key)
+        assert headers["X-Content-Type-Options"] == "nosniff" and headers["X-Frame-Options"] == "DENY"
+        assert headers["Content-Security-Policy"] == "default-src 'none'; frame-ancestors 'none'"
+        assert headers["Cache-Control"] == "no-store" and headers["Cross-Origin-Resource-Policy"] == "same-origin"
+        assert "Strict-Transport-Security" not in headers  # only with TLS
+    _, _, headers = fetch(ui_server, "/")
+    assert "require-trusted-types-for 'script'" in headers["Content-Security-Policy"]
+    assert "camera=()" in headers["Permissions-Policy"] and headers["Cross-Origin-Opener-Policy"] == "same-origin"
+
+
+def request_with_host(server, host, path="/healthz"):
+    conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=10)
+    conn.putrequest("GET", path, skip_host=True)
+    conn.putheader("Host", host)
+    conn.endheaders()
+    status = conn.getresponse().status
+    conn.close()
+    return status
+
+
+def test_a_loopback_server_answers_to_loopback_names_only(ui_server):
+    port = ui_server.server_address[1]
+    for host in (f"127.0.0.1:{port}", f"localhost:{port}", "localhost", f"[::1]:{port}"):
+        assert request_with_host(ui_server, host) == 200
+    for host in (f"attacker.example:{port}", "attacker.example", "", "[bad"):
+        assert request_with_host(ui_server, host) == 421  # a rebound name gets nothing, not even the page
+        assert request_with_host(ui_server, host, "/") == 421
+
+
+def test_the_pages_key_is_rate_limited_and_the_apps_is_not(guard):
+    server = serve(guard, ui_key=UI_KEY, ui_rate=3)
+    try:
+        statuses = [call(server, "/v1/check", {"text": "Merhaba"}, key=UI_KEY)[0] for _ in range(4)]
+        status, body, headers = call(server, "/v1/check", {"text": "Merhaba"}, key=UI_KEY)
+        assert statuses == [200, 200, 200, 429] and body["error"]["code"] == "rate_limited" and headers["Retry-After"] == "60"
+        assert call(server, "/v1/check", {"text": "Merhaba"})[0] == 200
+    finally:
+        server.shutdown()
+
+
+def test_connections_past_the_cap_are_closed_at_once(guard):
+    server = serve(guard, max_connections=2)
+    port = server.server_address[1]
+    idle = [socket.create_connection(("127.0.0.1", port)) for _ in range(2)]
+    try:
+        time.sleep(0.2)
+        extra = socket.create_connection(("127.0.0.1", port))
+        extra.settimeout(5)
+        assert extra.recv(1) == b""  # closed, not left waiting for a thread
+        extra.close()
+    finally:
+        for s in idle:
+            s.close()
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        try:
+            if call(server, "/healthz", key=None)[0] == 200:
+                break
+        except (ConnectionError, http.client.HTTPException):
+            time.sleep(0.1)
+    else:
+        pytest.fail("the server didn't take connections again")
+    server.shutdown()
+
+
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="needs openssl to make a certificate")
+def test_https_serves_with_hsts_and_plain_http_gets_nothing(guard, tmp_path):
+    cert, key = tmp_path / "cert.pem", tmp_path / "key.pem"
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", str(key), "-out", str(cert),
+                    "-days", "1", "-subj", "/CN=localhost"], check=True, capture_output=True)
+    server = serve(guard, tls=(str(cert), str(key)))
+    port = server.server_address[1]
+    try:
+        context = ssl.create_default_context(cafile=str(cert))
+        context.check_hostname = False
+        conn = http.client.HTTPSConnection("127.0.0.1", port, context=context, timeout=10)
+        conn.request("GET", "/healthz")
+        response = conn.getresponse()
+        assert response.status == 200 and response.headers["Strict-Transport-Security"].startswith("max-age=")
+        assert response.version == 10 or response.version == 11
+        conn.close()
+        plain = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        with pytest.raises((ConnectionError, http.client.HTTPException, OSError)):
+            plain.request("GET", "/healthz")
+            plain.getresponse()
+        plain.close()
+        old = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        old.check_hostname, old.verify_mode = False, ssl.CERT_NONE
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)  # an old client, on purpose
+            old.maximum_version = ssl.TLSVersion.TLSv1_1
+        with pytest.raises((ssl.SSLError, OSError)):
+            http.client.HTTPSConnection("127.0.0.1", port, context=old, timeout=5).request("GET", "/healthz")
+    finally:
+        server.shutdown()
