@@ -48,6 +48,15 @@ ENDPOINTS = {
 }
 
 
+# A key twice in one object: Python keeps the last value, and a parser that keeps the first (several do) would run a
+# tool call with arguments Sieve never saw, when the app passes the model's JSON on as it came.
+def no_duplicate_keys(pairs):
+    keys = [k for k, _ in pairs]
+    if len(set(keys)) != len(keys):
+        raise BadRequest(400, "duplicate_key", "a key appears twice in one object")
+    return dict(pairs)
+
+
 class BadRequest(Exception):
     def __init__(self, status, code, message):
         super().__init__(message)
@@ -272,7 +281,7 @@ class Handler(BaseHTTPRequestHandler):
         # Nesting thousands of levels deep raises RecursionError and a number of thousands of digits ValueError, which
         # used to drop the connection without an answer.
         try:
-            return json.loads(body.decode("utf-8"))
+            return json.loads(body.decode("utf-8"), object_pairs_hook=no_duplicate_keys)
         except (UnicodeDecodeError, ValueError, RecursionError):
             raise BadRequest(400, "bad_json", "the body isn't valid UTF-8 JSON") from None
 

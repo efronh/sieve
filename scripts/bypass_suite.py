@@ -7,6 +7,7 @@
 #   python -m scripts.bypass_suite --baseline check   # the CI gate: fails if an attack is newly let through
 #   python -m scripts.bypass_suite --baseline update  # rewrites corpus/bypass_baseline.json
 # Each rewrite of each attack ends kept (as strict as the plain one), downgraded (block to review) or lost (allowed).
+# scripts/bypass_channels.py adds the same for the model's answers and tool calls.
 # The base attacks are the corpus's plain-text ones that the plain check flags (PI-*, MT-MEM, PI-IND), and four
 # intents written for the translations below. Written knowing the decoders: white-box, like the OBF-* records.
 import argparse
@@ -21,6 +22,7 @@ import sys
 import urllib.parse
 from collections import Counter, defaultdict
 
+from scripts import bypass_channels
 from scripts.replay import load
 from sieve.actions import ACTION_ORDER, ALLOW
 from sieve.integrations.tenant import TenantGuardrail, load_policy
@@ -369,7 +371,7 @@ def run(guard):
             continue
         for i, t in in_documents:
             rows.append(("document", name, i, reference[i], guard.check_document(place(t)).action))
-    return len(bases), caught, in_documents, rows
+    return len(bases), caught, in_documents, rows + bypass_channels.rows(REWRITES)
 
 
 def summarize(rows):
@@ -387,7 +389,8 @@ def report(base_count, caught, in_documents, table):
     print(f"{base_count} base attacks, {len(caught)} caught when written plainly, {len(in_documents)} of them also on "
           "a visible line of a document; each rewritten every way below.")
     print("kept: as strict as plain; downgraded: block became review; lost: allowed (a bypass)\n")
-    for family in ("encoding", "unicode", "script", "language", "document"):
+    for family in ("encoding", "unicode", "script", "language", "document", "exfiltration", "leak", "personal_data",
+                   "tool"):
         names = [n for f, n in table if f == family]
         totals = sum((table[(family, n)] for n in names), Counter())
         print(f"{family}: {totals['lost']} lost of {sum(totals.values())}")

@@ -349,6 +349,12 @@
   "INTENT-no_limits",
   "INTENT-reveal"
  ],
+ "personal_data/in_a_table": [
+  "TC"
+ ],
+ "tool/link_with_data/data_in_path": [
+  "link_with_data"
+ ],
  "unicode/letters_dotted": [
   "MT-MEM-011",
   "PI-ACT-002",

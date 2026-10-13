@@ -186,7 +186,9 @@ def transliterate(text):
     return TRANSLITERATED.sub(lambda m: TRANSLITERATION_MAP[m.group()], text.lower())
 
 
-def try_decode(decoder, token):
+# numbers: a decoded run of digits counts as text, for the answer check, where a TC number in base64 is the leak;
+# for instructions it's noise, as most random tokens that decode at all decode to digits and symbols.
+def try_decode(decoder, token, numbers=False):
     try:
         value = decoder(token)
         if isinstance(value, bytes):
@@ -195,14 +197,14 @@ def try_decode(decoder, token):
         return None
 
     # Line breaks are text too: a decoded "<|im_start|>system\n..." was thrown away as unprintable.
-    letters = sum(c.isalpha() or c.isspace() for c in value)
+    letters = sum(c.isalpha() or c.isspace() or (numbers and c.isdigit()) for c in value)
     printable = all(c.isprintable() or c in "\n\r\t" for c in value)
     if value and printable and letters >= MIN_LETTER_SHARE * len(value):
         return value
     return None
 
 
-def decode_hidden_parts(text, depth=DECODE_DEPTH):
+def decode_hidden_parts(text, depth=DECODE_DEPTH, numbers=False):
     found = []
 
     # Undone over the whole text at the first level only: a copy of the text each, and none repeats itself.
@@ -220,7 +222,7 @@ def decode_hidden_parts(text, depth=DECODE_DEPTH):
 
     for pattern, decoder in TOKEN_DECODERS:
         for token in pattern.findall(text):
-            value = try_decode(decoder, token)
+            value = try_decode(decoder, token, numbers)
             if value and value != token:
                 found.append(value)
 
@@ -231,7 +233,7 @@ def decode_hidden_parts(text, depth=DECODE_DEPTH):
 
     if depth > 0:
         for value in list(found):
-            found += decode_hidden_parts(value, depth - 1)
+            found += decode_hidden_parts(value, depth - 1, numbers)
     return found
 
 

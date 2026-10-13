@@ -100,6 +100,7 @@ RULES = {
     "output_links.redirect": Rule(OUT, 8, "Redirect or base address in the answer"),
     "output_masking.personal_data_masked": Rule(SID, 3, "Personal data masked in the answer"),
     "output_masking.new_personal_data": Rule(SID, 7, "Answer has personal data the user didn't give"),
+    "output_masking.encoded_personal_data": Rule(SID, 7, "Answer carries personal data encoded, where masking can't"),
 
     # checks/indirect.py, documents.py (plus the input rules above, run on each part of the document)
     "indirect_injection.addresses_the_model": Rule(PI, 6, "Document talks to the model reading it"),

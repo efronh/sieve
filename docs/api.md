@@ -89,7 +89,7 @@ Modele verilecek sistem promptu (canary ile) ve dokümanlar için açıklama. Su
 
 | Durum | `code` | Ne zaman |
 |---|---|---|
-| 400 | `bad_request`, `bad_json` | Gövde JSON nesnesi değil, okunamıyor (binlerce seviye iç içe, binlerce basamaklı sayı), alan bilinmiyor, eksik ya da yanlış tipte |
+| 400 | `bad_request`, `bad_json`, `duplicate_key` | Gövde JSON nesnesi değil, okunamıyor (binlerce seviye iç içe, binlerce basamaklı sayı), bir nesnede aynı anahtar iki kez var (modelin JSON'unu olduğu gibi geçiren uygulamanın ayrıştırıcısı ilkini, Sieve sonuncusunu okurdu), alan bilinmiyor, eksik ya da yanlış tipte |
 | 401 | `unauthorized` | Anahtar yok ya da yanlış |
 | 404 / 405 | `not_found`, `method_not_allowed` | Yol ya da metot yanlış |
 | 411 / 413 / 415 | `length_required`, `too_large`, `unsupported_media_type` | `Content-Length` yok, gövde büyük, JSON değil |
