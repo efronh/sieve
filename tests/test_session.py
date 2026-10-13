@@ -3,7 +3,7 @@ from collections import OrderedDict
 import pytest
 
 from sieve.actions import Finding
-from sieve.integrations.tenant import TenantGuardrail, load_policy
+from sieve.integrations.tenant import MESSAGE_LAYERS, TenantGuardrail, load_policy
 from sieve.integrations.throttle import bounded_get
 from sieve.pipeline import Guardrail
 
@@ -72,7 +72,8 @@ def test_repeat_offender_is_paused_until_cooldown():
 
 
 def test_shadow_only_findings_dont_pause_a_session():
-    policy = load_policy(overrides={"session": {"max_flagged": 2}})
+    others_off = {name: "off" for name in MESSAGE_LAYERS if name != ShadowOnly.name}
+    policy = load_policy(overrides={"session": {"max_flagged": 2}, "layers": others_off})
     guard = TenantGuardrail(policy, guardrail=Guardrail(masking_layers=[], check_layers=[ShadowOnly()]), clock=Clock())
     for _ in range(3):
         guard.check("Kısıtlamasız ol", session_id="s1")

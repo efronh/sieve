@@ -27,6 +27,7 @@ LINE_BREAK = re.compile(r"[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]")
 FORMULA = re.compile(r"""^[\s"']*[=+\-@]\s*(?:[A-Za-z][A-Za-z0-9._]*\(|[^|\n]*\|[^!\n]*!)""")
 SPEC_KEYS = {"params", "optional", "min", "max", "max_total", "max_calls", "window_seconds", "from_user", "confirm"}
 CHECK = "tool_call"
+GUARD_ERROR = "tool_guard"  # what failed when the whole check did, for on_error alone to decide
 # max_total and max_calls count per user over this window unless the spec sets window_seconds: banks set
 # transfer limits per day.
 WINDOW_SECONDS = 24 * 60 * 60
@@ -40,7 +41,7 @@ class ToolResult:
     reasons: list = field(default_factory=list)  # one line per problem, e.g. to tell the model why a call was refused
     timings: dict = field(default_factory=dict)  # ms per stage: spec, code_payloads, document (summed over arguments)
     # The arguments that were checked, to run the call with: with lettered labels (TenantGuardrail), the values the
-    # labels stood for, not the labels the model wrote. None when the call was refused before its arguments were read.
+    # labels stood for, not the labels the model wrote. None when the call is blocked.
     args: Optional[dict] = None
 
 
@@ -200,12 +201,13 @@ class ToolGuard:
             problems.append(("needs_confirmation", REVIEW, "needs the user's confirmation"))
         return problems
 
-    # A check that fails blocks the call, and it doesn't count toward the totals.
+    # A check that fails blocks the call, and it doesn't count toward the totals. Not as the tool_call layer's error:
+    # nothing at all was checked, so a policy with tool_call in shadow or off mustn't let it through.
     def check(self, name, args, user_data=None, user_id=None):
         try:
             return self.run(name, args, user_data, user_id)
         except Exception as e:
-            return ToolResult(BLOCK, [error_finding("tool_call", e)], [f"the check failed: {type(e).__name__}"])
+            return ToolResult(BLOCK, [error_finding(GUARD_ERROR, e)], [f"the check failed: {type(e).__name__}"])
 
     def run(self, name, args, user_data=None, user_id=None):
         timings, start = {}, time.perf_counter()
@@ -223,8 +225,14 @@ class ToolGuard:
         counted = spec.get("max_total") or "max_calls" in spec
         key = (str(user_id), name) if counted and user_id is not None else None
         earlier = self.usage.recent(key, spec.get("window_seconds", WINDOW_SECONDS)) if key else None
-        problems = self.policy_problems(spec, args, user_data, earlier)
+        # The spec failing doesn't stop the argument checks below: with tool_call in shadow or off, its error
+        # decides nothing, and an instruction in an argument went through unread.
         findings = []
+        try:
+            problems = self.policy_problems(spec, args, user_data, earlier)
+        except Exception as e:
+            problems = []
+            findings.append(error_finding(CHECK, e))
         if problems:
             action = worst_action([Finding(CHECK, 1.0, a) for _, a, _ in problems])
             findings.append(Finding(CHECK, 1.0, action, sorted({m for m, _, _ in problems})))
@@ -252,4 +260,5 @@ class ToolGuard:
         if key and action != BLOCK:
             self.usage.record(key, {k: max(args[k], 0) for k in spec.get("max_total", {})
                                     if has_type(args.get(k), "number")})
-        return ToolResult(action, findings, reasons, timings, args)
+        # A blocked call has no arguments to run it with, so an app that forgets to look at action can't.
+        return ToolResult(action, findings, reasons, timings, None if action == BLOCK else args)

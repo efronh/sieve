@@ -56,7 +56,7 @@ Ortak, isteğe bağlı alanlar: `session_id`, `user_id` (oturum limitleri ve too
  "reasons": ["needs the user's confirmation"], "rules": ["tool_call.needs_confirmation"]}
 ```
 
-Çağrı `args` ile çalıştırılmalı, modelin yazdığıyla değil: politika harfli etiketleri açtıysa ([katmanlar](layers.md#harfli-etiketler-vaultpy)) etiketler burada değerlerine dönmüş oluyor, örnekteki gibi. Çağrı argümanları okunmadan reddedildiyse `null`. `reasons` uygulama için; modele geri verilirse hangi kuralın aşılacağını söyler.
+Çağrı `args` ile çalıştırılmalı, modelin yazdığıyla değil: politika harfli etiketleri açtıysa ([katmanlar](layers.md#harfli-etiketler-vaultpy)) etiketler burada değerlerine dönmüş oluyor, örnekteki gibi. Engellenen çağrıda `null`: `action`'a bakmayı unutan uygulamanın çalıştıracağı argüman yok. `reasons` uygulama için; modele geri verilirse hangi kuralın aşılacağını söyler.
 
 ### `POST /v1/output` — modelin cevabı (B4)
 

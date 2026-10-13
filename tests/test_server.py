@@ -8,7 +8,7 @@ import pytest
 
 from scripts.replay import TOOLS
 from sieve import Guardrail
-from sieve.integrations.tenant import TenantGuardrail, load_policy
+from sieve.integrations.tenant import MESSAGE_LAYERS, TenantGuardrail, load_policy
 from sieve.server import main, make_server
 
 KEY = "test-key-7f3a"
@@ -128,7 +128,7 @@ def test_documents_tools_answers_and_the_prompt(server, guard):
 
     _, tool, _ = call(server, "/v1/tool", {"name": "para_transferi", "args": {"iban": "TR33 0006 1005 1978 6457 8413 26",
                                                                              "tutar": 900000}})
-    assert tool["action"] == "block" and "tool_call.out_of_range" in tool["rules"] and tool["args"]["tutar"] == 900000
+    assert tool["action"] == "block" and "tool_call.out_of_range" in tool["rules"] and tool["args"] is None
 
     _, shown, _ = call(server, "/v1/output", {"answer": f"Kayıtlarda {TC} görünüyor.", "user_data": ["Merhaba"]})
     assert shown["action"] == "review" and TC not in shown["text"]
@@ -159,8 +159,8 @@ def until(condition, seconds=5):
 @pytest.fixture
 def slow_server():
     layer = Slow()
-    guard = TenantGuardrail(load_policy(overrides={"layers": {"prompt_injection_ml": "off"}}),
-                            guardrail=Guardrail(check_layers=[layer]))
+    others_off = {name: "off" for name in MESSAGE_LAYERS if name != layer.name}
+    guard = TenantGuardrail(load_policy(overrides={"layers": others_off}), guardrail=Guardrail(check_layers=[layer]))
     server = serve(guard, check_timeout=0.3, max_pending=2)
     yield server, layer
     layer.go.set()
