@@ -68,7 +68,8 @@ jobs:
           python-version: "3.13"
           cache: pip
           cache-dependency-path: requirements-lock.txt
-      - run: pip install -c requirements-lock.txt -e ".[dev]" pip-audit bandit
+      # AnyJev too: the fuzzer imports every module of sieve/, the LLM layer among them.
+      - run: pip install -c requirements-lock.txt -e ".[dev]" pip-audit bandit "anyjev @ git+https://github.com/nokia-applied-research/AnyJev.git@149e7f71949c08b57492ef7025b67a763c600a0f"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         continue-on-error: true  # a failed test job may have left none; the report then says so
         with:
