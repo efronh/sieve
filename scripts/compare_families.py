@@ -6,12 +6,14 @@
 # does; for Sieve a tool call's confirmation alone doesn't count.
 # Two baseline thresholds: 0.5, as it ships, and per entry point the one that flags as many benign records there as
 # Sieve does. At 0.5 it flags most Turkish text, benign too, so only the second compares catch rates.
-#   python -m scripts.compare_families      -> results/family_comparison.json (the model must be in the HF cache)
+#   python -m scripts.compare_families      -> results/family_comparison.json and its chart (the model must be in the HF cache)
 import json
 import os
 
+from scripts.charts import FAMILY_PATH, family_chart
 from scripts.replay import ALLOW, FAMILIES, config, entry_points, expand, load, run, wilson
 from sieve.documents import strings_in
+from sieve.ml.injection import REVISIONS
 from sieve.paths import RESULTS, ROOT
 
 os.environ.setdefault("HF_HUB_OFFLINE", "1")  # the cached model only; nothing is fetched
@@ -45,7 +47,8 @@ class Baseline:
     def __init__(self):
         from transformers import pipeline
 
-        self.pipe = pipeline("text-classification", model=BASELINE, device="mps", truncation=True, max_length=512)
+        self.pipe = pipeline("text-classification", model=BASELINE, revision=REVISIONS[BASELINE], device="mps", truncation=True,
+                             max_length=512)
         self.scores = {}
 
     def score(self, texts):
@@ -135,7 +138,8 @@ def main():
                    "rows": [{k: r[k] for k in ("id", "family", "group", "entry", "sieve", "score")} for r in rows]},
                   f, ensure_ascii=False, indent=1)
         f.write("\n")
-    print(f"\nwrote {RESULTS_PATH.relative_to(ROOT)}")
+    family_chart(families)
+    print(f"\nwrote {RESULTS_PATH.relative_to(ROOT)}, {FAMILY_PATH.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

@@ -33,6 +33,9 @@ dev = ["pytest>=8", "ruff"]
 [tool.setuptools.packages.find]
 include = ["sieve*"]
 
+[tool.setuptools.package-data]
+sieve = ["ui/*"]  # the page python -m sieve.server --ui serves
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-m 'not slow'"   # pytest -m slow for the ones that download a model

@@ -10,19 +10,50 @@ SIEVE_API_KEY=... python -m sieve.server --tenant example_bank --system-prompt p
 |---|---|---|
 | `--tenant` | `default` | `policies/<kiracı>.toml` |
 | `--system-prompt` | yok | Operatörün sistem promptu (dosya); canary ekleniyor, modele `GET /v1/prompt`'taki verilmeli |
-| `--host`, `--port` | `127.0.0.1`, `8080` | Dışarı açmak için `--host 0.0.0.0`, önünde TLS yapan bir reverse proxy ile |
+| `--host`, `--port` | `127.0.0.1`, `8080` | `127.0.0.1` dışı bir adres TLS istiyor: `--tls-cert`/`--tls-key`, ya da önünde TLS yapan bir proxy varsa `--behind-proxy` ([Taşımak](#anahtarlar)) |
+| `--tls-cert`, `--tls-key` | yok | PEM sertifika zinciri ve özel anahtarı: HTTPS, en az TLS 1.2, cevaplarda HSTS |
+| `--behind-proxy` | kapalı | `127.0.0.1` dışında düz HTTP, çünkü TLS'i öndeki proxy yapıyor; açıkça yazılması gerekiyor |
+| `--allowed-host` | `127.0.0.1`'de loopback adları | Cevap verilecek `Host` adı, tekrarlanabilir; başka bir adla gelen istek 421 |
 | `--timeout` | `5` | Bir kontrolün saniye cinsinden süresi; aşarsa cevap block |
 | `--siem` | `stdout` | `stdout` (satır başına bir JSON olay), `host:port` (TCP syslog, JSON) ya da `none` |
 | `--siem-tls`, `--siem-ca` | kapalı | `host:port`'a TLS ile gönder; toplayıcının sertifikası sistemin CA'larıyla ya da verilen dosyayla doğrulanıyor. Düz TCP'de her olay ağda okunabilir gidiyor |
-| `--insecure-no-auth` | kapalı | Anahtarsız çalıştırma; sadece yerel test için |
+| `--insecure-no-auth` | kapalı | Anahtarsız çalıştırma; sadece yerel test için, sadece `127.0.0.1`/`::1`'de |
+| `--ui` | kapalı | `/` adresinde bir sayfa: kontrol denemek, kararları izlemek, değerlendirmeyi okumak ([aşağıda](#sayfa---ui)) |
 
-`SIEVE_API_KEY` yoksa sunucu başlamıyor; `SIEVE_PSEUDONYM_KEY` yoksa uyarı veriyor. SIGTERM'de çalışan kontrolü bitirip temiz kapanıyor (systemd, Kubernetes ve `docker stop` böyle durduruyor). Sadece standart kütüphane kullanıyor (`http.server`): güvenilmesi gereken bir web framework'ü yok ([TH-13](../THREAT_MODEL.md#th-13-model-and-training-data-integrity)).
+`SIEVE_API_KEY` (ya da `SIEVE_API_KEY_FILE`) yoksa ya da 32 karakterden kısaysa sunucu başlamıyor ([Anahtarlar](#anahtarlar)); `SIEVE_PSEUDONYM_KEY` yoksa uyarı veriyor. SIGTERM'de çalışan kontrolü bitirip temiz kapanıyor (systemd, Kubernetes ve `docker stop` böyle durduruyor). Sadece standart kütüphane kullanıyor (`http.server`): güvenilmesi gereken bir web framework'ü yok ([TH-13](../THREAT_MODEL.md#th-13-model-and-training-data-integrity)).
+
+## Anahtarlar
+
+İki anahtar var, ikisi de sunucu dinlemeye başlamadan kontrol ediliyor:
+
+| | Kimin | Ne yapabilir |
+|---|---|---|
+| `SIEVE_API_KEY` | Uygulamanın | Her şey: dört kontrol, `GET /v1/prompt`, `GET /v1/stats` |
+| `SIEVE_UI_KEY` | Sayfayı kullanan kişinin (isteğe bağlı) | Dört kontrol ve `GET /v1/stats`. `GET /v1/prompt` 403: sistem promptu ve canary uygulamanın. Gönderdiği `session_id` ve `user_id` `ui:` önekiyle ayrı tutuluyor, yani gerçek bir kullanıcının oturum limitlerine ve geçmişine dokunamıyor |
+
+**Üretmek.** Her anahtar en az 32 karakter, yoksa sunucu başlamıyor; iki anahtar aynıysa da. Rastgele üretin, elle seçmeyin:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+**Dağıtmak.** Anahtar repoya, loglara, bir komut satırına ya da bir sohbete girmiyor. Tercihen bir dosyadan: `SIEVE_API_KEY_FILE` ve `SIEVE_UI_KEY_FILE` bir Docker ya da Kubernetes secret'ının bağlandığı yolu, ya da sadece servisin kullanıcısının okuyabildiği bir dosyayı (`chmod 600`) gösteriyor; bir secret manager (Vault, AWS Secrets Manager, Azure Key Vault) da onu oraya yazıyor. Ortam değişkeni olarak da verilebiliyor (`SIEVE_API_KEY`), ikisi birden değil. Hangisi olursa olsun sunucu okuduktan sonra onu ortamından siliyor, bir alt süreç devralmasın. Sürecin başlarken aldığı ortam ise sahibine okunur kalıyor (`ps eww`, `/proc/<pid>/environ`); `_FILE` ile orada sadece yol görünüyor, anahtar değil. Bu yüzden dosya tercih ediliyor. Uygulamanın anahtarı sadece uygulamada; sayfayı kullanacak kişiye `SIEVE_UI_KEY` veriliyor, uygulamanınki asla. `--ui` açık ve `SIEVE_UI_KEY` yoksa sunucu bunu uyarıyla söylüyor.
+
+**Döndürmek.** `SIEVE_API_KEY` virgülle ayrılmış birden fazla anahtar alıyor: önce `SIEVE_API_KEY=yeni,eski` ile yeniden başlatın, uygulamaları yeni anahtara geçirin, sonra `SIEVE_API_KEY=yeni` ile bir kez daha. Arada iki anahtar da geçerli, hiçbir istek reddedilmiyor. Sızdığından şüphelenilen bir anahtar hemen çıkarılıyor.
+
+**Yanlış anahtar.** Cevap 401. Her ret `GET /v1/stats`'ta `refused` olarak sayılıyor ve dakikada en fazla bir kez `sieve.server` logunda uyarı oluyor. Kilitleme yok: yanlış anahtarla gelen istekler gerçek uygulamayı da kilitleyebilirdi, 32 rastgele karakter de tahminle bulunamaz. Anahtarlar SHA-256 özetleri üzerinden, sabit sürede karşılaştırılıyor, hepsi her seferinde: süre ne gönderilenin uzunluğunu ne de hangisine yaklaşıldığını söylüyor.
+
+**Sayfanın anahtarı sınırlı.** Dakikada en fazla 60 kontrol; fazlası 429 ve `Retry-After: 60`. Sunucunun tek işçisi önce uygulamanın: sayfayı kullanan biri onu doldurup uygulamanın kontrollerini bekletemesin. Uygulamanın anahtarının böyle bir sınırı yok; onu oturum limitleri sınırlıyor.
+
+**Taşımak.** Anahtar her istekte gidiyor, o yüzden düz HTTP sadece `127.0.0.1`'de. Başka bir adreste sunucu ya TLS yapıyor (`--tls-cert`, `--tls-key`: en az TLS 1.2, cevaplarda `Strict-Transport-Security`) ya da önünde TLS yapan bir proxy olduğu `--behind-proxy` ile açıkça söyleniyor; ikisi de yoksa başlamıyor. El sıkışma bağlantının kendi thread'inde, zaman aşımıyla: bitirmeyen bir istemci diğerlerini bekletmiyor. Sayfa dışarı açılacaksa proxy'de bir de SSO.
+
+**Host adı.** `127.0.0.1`'deki bir sunucu sadece `127.0.0.1`, `localhost` ve `::1` adına cevap veriyor; başka bir `Host` ile gelen istek, sayfa da dahil, 421. Bir saldırganın kendi alan adını 127.0.0.1'e çevirip (DNS rebinding) tarayıcı üzerinden yerel sunucuya ulaşması böyle kesiliyor. Başka bir adreste `--allowed-host` ile adlar sınırlanabiliyor.
 
 ## İstek
 
 Her istek `Content-Type: application/json`, `Authorization: Bearer <SIEVE_API_KEY>` (`/healthz` hariç) ve en fazla 1.000.000 baytlık bir gövdeyle. Bilinmeyen bir alan, eksik ya da yanlış tipte bir alan 400; yazım hatası sessizce yok sayılmıyor.
 
-Ortak, isteğe bağlı alanlar: `session_id`, `user_id` (oturum limitleri ve tool toplamları buna göre), `request_id` (bir isteğin olaylarını SIEM'de birleştiriyor).
+Ortak, isteğe bağlı alanlar: `session_id`, `user_id` (oturum limitleri ve tool toplamları buna göre), `request_id` (bir isteğin olaylarını SIEM'de birleştiriyor), `detail` (`true` ise cevapta her katmanın bulgusu ve aşama süreleri; aşağıda).
 
 ### `POST /v1/check` — kullanıcının mesajı (B1)
 
@@ -78,9 +109,39 @@ Ortak, isteğe bağlı alanlar: `session_id`, `user_id` (oturum limitleri ve too
 
 Modele verilecek sistem promptu (canary ile) ve dokümanlar için açıklama. Sunucu her başladığında canary ve sınır yeniden üretiliyor; uygulama bunları sunucu başladıktan sonra almalı.
 
+### `"detail": true`
+
+Dört kontrolün cevabına `detail` ekliyor: her katmanın bulgusu (hiçbir şey bulmayanlar da, ML skoru görünsün diye), skoru, kararı, kuralları ve başlıkları, bir de aşama başına süre.
+
+```json
+"detail": {"findings": [{"check": "prompt_injection_rules", "score": 1.0, "action": "block",
+                         "rules": [{"rule": "prompt_injection_rules.ignore_instructions", "title": "Ignore previous instructions", "detail": null}]},
+                        {"check": "prompt_injection_ml", "score": 0.97, "action": "review", "rules": [...]}],
+           "timings_ms": {"masking": 0.44, "prompt_injection_rules": 0.2, "prompt_injection_ml": 0.67, "policy": 0.05}}
+```
+
+Skorlar ve kurallar uygulamanın, `rules` gibi: kullanıcıya gösterilmemeli, bir saldırgan hangi kuralı tetiklediğini öğrenmesin ([TH-12](../THREAT_MODEL.md#th-12-probing-the-guardrail)). Önbellekten gelen bir sonucun süresi `cache`.
+
+### `GET /v1/stats`
+
+Sunucunun başladığından beri verdiği kararlar: yön ve karar başına sayılar, en çok tetiklenen 20 kural, son 50 kararın zamanı, yönü, kararı, kuralları ve süresi, zaman aşımları. Kiracı, politika sürümü ve mod da var, bir de yanlış anahtarla gelen isteklerin sayısı (`refused`). Metin, kullanıcı, oturum ve istek ID'si yok: kararları saklayan ve birleştiren yer SIEM. Süreç başına, bellekte; yeniden başlayınca sıfırlanıyor. İki anahtardan biri gerekiyor.
+
 ### `GET /healthz`
 
 `{"status": "ok"}`; anahtar istemiyor, başka bir şey söylemiyor.
+
+## Sayfa (`--ui`)
+
+`--ui` ile sunucu `/` adresinde bir sayfa da veriyor, üç sekme:
+- **Try a check:** dört sınırdan birini seçip bir mesaj, doküman, tool çağrısı ya da cevap gönderiyor (`detail` ile); kararı, modele ya da kullanıcıya gidecek hali, her katmanın bulgusunu ve süreleri gösteriyor. Örnekler hazır; tool örnekleri `policies/demo.toml`'daki iki tool'la çalışıyor.
+- **Decisions:** `GET /v1/stats`, beş saniyede bir.
+- **Evaluation:** `results/` altındaki sonuçların özeti (`/ui/results.json`: mühürlü set, aile karşılaştırması, dedektörler, süreler; hiçbir kayıt değil) ve README'deki grafikler.
+
+```bash
+SIEVE_API_KEY=... SIEVE_UI_KEY=... python -m sieve.server --tenant demo --ui
+```
+
+Sayfa ve dosyaları anahtarsız (ama `Host` adı kontrolüyle); kendileri veri taşımıyor, gösterdikleri API'den anahtarla geliyor. Anahtar sayfadaki alana yazılıyor, `SIEVE_UI_KEY` tercihen ([Anahtarlar](#anahtarlar)); sadece o alanda, bellekte duruyor, hiçbir yere kaydedilmiyor, sayfa yenilenince yeniden soruluyor. Sayfa saldırı metni gösterdiği için her şeyi metin olarak yazıyor, hiçbir zaman HTML olarak değil; bir test `innerHTML` ve benzerlerini arıyor. Sadece sabit bir listedeki dosyalar veriliyor (`/`, `/ui/app.js`, `/ui/app.css`, `/ui/results.json` ve dört SVG): başka bir yol 404. Başlıklar: `Content-Security-Policy` (sadece sunucunun kendi dosyaları, satır içi script yok, çerçeveye konamaz, ve Trusted Types: bir metni HTML olarak yazmayı tarayıcının kendisi de reddediyor), `Permissions-Policy` (kamera, mikrofon, konum, ödeme, USB, pano okuma kapalı), `Cross-Origin-Opener-Policy`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `nosniff`. API'nin JSON cevaplarında da `Content-Security-Policy: default-src 'none'`, `no-store`, `nosniff`, `Cross-Origin-Resource-Policy: same-origin` var. Varsayılan kapalı: bir üretim API'sinde fazladan bir HTML yüzeyi olmasın.
 
 ## Hatalar
 
@@ -92,6 +153,9 @@ Modele verilecek sistem promptu (canary ile) ve dokümanlar için açıklama. Su
 |---|---|---|
 | 400 | `bad_request`, `bad_json`, `duplicate_key` | Gövde JSON nesnesi değil, okunamıyor (binlerce seviye iç içe, binlerce basamaklı sayı), bir nesnede aynı anahtar iki kez var (modelin JSON'unu olduğu gibi geçiren uygulamanın ayrıştırıcısı ilkini, Sieve sonuncusunu okurdu), alan bilinmiyor, eksik ya da yanlış tipte |
 | 401 | `unauthorized` | Anahtar yok ya da yanlış |
+| 403 | `forbidden` | Sayfanın anahtarıyla `GET /v1/prompt` |
+| 421 | `misdirected` | `Host` adı sunucunun cevap verdiği adlardan değil |
+| 429 | `rate_limited` | Sayfanın anahtarı dakikalık sınırını aştı (`Retry-After`) |
 | 404 / 405 | `not_found`, `method_not_allowed` | Yol ya da metot yanlış |
 | 411 / 413 / 415 | `length_required`, `too_large`, `unsupported_media_type` | `Content-Length` yok, gövde büyük, JSON değil |
 | 503 | `busy` | Bekleyen ya da çalışan 64 istek ya da açık 128 bağlantı var |
@@ -105,6 +169,6 @@ Hata mesajı alanın adını söylüyor, değerini asla: istek kişisel veri ta�
 
 - **Bir kontrol en fazla `--timeout` saniye.** Aşarsa cevap `block`, `rules: ["layer_error"]`; SIEM olayında ayrıntı `timeout: TimeoutError`. Kontrol arka planda bitiyor ve kendi olayını da yazıyor; uygulama o sırada block'u almış oluyor.
 - **Bir süreçte bir kontrol aynı anda çalışıyor.** Kiracının oturum durumu ortak; `TenantGuardrail` çağrıları bir kilitle sırayla çalıştırıyor (kütüphane olarak birden fazla thread'den kullanılınca da). Sırada bekleyen bir isteğin süresi de sayılıyor: önündeki yavaş bir kontrol onu da block'a düşürebilir. Saldırı altında sunucu durmuyor, block'a dönüyor; bu bir kullanılabilirlik bedeli ([TH-11](../THREAT_MODEL.md#th-11-resource-exhaustion)). Daha fazlası için birden fazla süreç; oturum limitleri o zaman süreç başına.
-- **64'ten fazla istek beklerse 503.** Aynı anda en fazla 128 bağlantı açık; fazlası thread başlatılmadan 503 alıp kapanıyor. İki okuma arasında en fazla 10 saniye, isteğin tamamı için 20 saniye var: bayt bayt gönderen bir istemci bağlantıyı istediği kadar tutamıyor.
+- **64'ten fazla istek beklerse 503.** Aynı anda en fazla 256 bağlantı açık; fazlası thread başlatılmadan 503 alıp kapanıyor, boşta bekleyen soketler bütün thread'leri ve belleği alamıyor. İki okuma arasında en fazla 10 saniye, isteğin tamamı için 20 saniye var (TLS el sıkışması dahil): bayt bayt gönderen bir istemci bağlantıyı istediği kadar tutamıyor.
 - **Her kontrolün okuduğu miktar sınırlı.** Gövde en fazla 1 MB, ama hiçbir kontrol o kadarını işlemiyor: 50.000 karakterden uzun bir mesaj okunmadan block (`input_too_large`); bir dokümanın ilk 200.000 karakteri okunuyor, fazlası kesilip review (`input_length`) ve `wrapped` de aynı yerden kesiliyor; argümanlarıyla 50.000 karakteri aşan bir tool çağrısı okunmadan block; 50.000 karakterden uzun bir cevap kesilip review (`output_length`); `user_data`'nın ilk 50.000 karakteri okunuyor. Bu cihazda (M4) en kötü durum 1 MB'lık bir doküman: kontrol ve `wrapped` birlikte 2,5 saniye civarı. ([TH-11](../THREAT_MODEL.md#th-11-resource-exhaustion))
 - **Tekrar deneme güvenli.** Hata veren bir kontrol önbelleğe girmiyor, tekrarında baştan çalışıyor. Süresi dolan bir kontrol arka planda bitince sonucu (allow ya da block, gerçek karar) önbelleğe giriyor; tekrar deneme o gerçek kararı alıyor, ilk denemenin hatasını değil. Her deneme `session.rate_limit`'e sayılıyor, işaretlenen her deneme `session.repeat_offender`'a da; yani bir saldırıyı tekrar tekrar denemek limite takılıyor.

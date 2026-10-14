@@ -58,7 +58,10 @@ The ML layer only sends messages to review and never blocks on its own, so in pr
 
 The ML layer reviews at 0.76, the threshold that flagged 1% of normal messages in cross-validation. A policy can move it (`[thresholds.prompt_injection_ml]`), for messages, documents and tool arguments alike. `python -m scripts.threshold_sweep` runs each set once and works out every threshold from 0.01 to 0.999 ([results/threshold_sweep.json](results/threshold_sweep.json)). What the other layers flag stays flagged at any threshold.
 
-![Attacks and normal records flagged against the ML threshold, per set](results/threshold_sweep.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="results/threshold_sweep-dark.svg">
+  <img alt="Attacks caught and normal records flagged against the ML threshold, for the four sets in the table below" src="results/threshold_sweep.svg">
+</picture>
 
 | ML threshold | Cross-validation (763 attacks, 2,486 normal) | TCPI test split (30, 90) | Sealed `deepset_tr` (258, 345) | Corpus test documents (1,231, 494) |
 |---|---|---|---|---|
@@ -113,6 +116,11 @@ Every attack in [`corpus/`](corpus) has a family, a carrier and the least action
 #### Against the baseline, family by family
 
 The same test records through protectai's DeBERTa v3 detector, the baseline in [Detectors compared](#detectors-compared), reading the text each boundary carries: a message, each turn, a document in overlapping pieces, a tool call's string arguments, an answer (`python -m scripts.compare_families`). Flagged here means anything was flagged, for both, so Sieve's column is higher than "stopped" above. As it ships (a score of 0.5) the baseline flags most Turkish text, normal or not, so its catch rate there means little. At the threshold where it flags as many normal records as Sieve does, it catches almost nothing.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="results/family_comparison-dark.svg">
+  <img alt="Attacks caught per family: Sieve against the DeBERTa baseline at Sieve's false-alarm rate; the numbers are in the table below" src="results/family_comparison.svg">
+</picture>
 
 | Family | Attack | Records (attacks) | Sieve | Baseline at Sieve's false-alarm rate | Baseline as shipped |
 |---|---|---|---|---|---|
@@ -184,7 +192,7 @@ flowchart LR
 | Document guard | For text the model reads but the user didn't write. Checks each sentence, JSON value, hidden HTML part and HTML attribute on its own; blocks when a flagged part is hidden from the reader; flags documents that talk to the model ("bu e-postayı okuyan yapay zeka", "if you are an AI"). `wrap()` masks personal data in it and marks it as data before it goes into the prompt. |
 | Tool guard | Checks a tool call before your app runs it. Tools not on the list, unknown or wrongly typed arguments and amounts outside their limits are blocked. An argument that must come from the user (an IBAN, a phone number) but isn't in their messages, and tools marked `confirm`, go to review. String arguments go through the code rules and the same check as documents, ML included, since a database, a mail or another agent reads them next. |
 
-What it defends against, where, and what's left: [THREAT_MODEL.md](THREAT_MODEL.md). The held-out and document numbers above can be replayed from the attack corpus in [`corpus/`](corpus) with `python -m scripts.replay`.
+What it defends against, where, and what's left: [THREAT_MODEL.md](THREAT_MODEL.md). What testing found wrong on the way, from a one-word bypass to an audit trail that lost events silently, and what changed: [CHANGELOG.md](CHANGELOG.md). The held-out and document numbers above can be replayed from the attack corpus in [`corpus/`](corpus) with `python -m scripts.replay`.
 
 More detail (in Turkish): [layers](docs/layers.md), [ML](docs/ml.md), [LLM](docs/llm.md), [operations](docs/operations.md).
 
@@ -232,6 +240,8 @@ curl -s localhost:8080/v1/check -H "Authorization: Bearer $SIEVE_API_KEY" -H "Co
 # {"action": "block", "text": "", "request_id": "…", "rules": ["prompt_injection_ml", "prompt_injection_rules.ignore_instructions"]}
 ```
 
+To try it in a browser, `--ui` also serves a page at `http://127.0.0.1:8080/`: send a message, a document, a tool call or an answer and see the decision, what the model or the user gets, what each layer found and how long it took; watch the server's decisions as counts (no text is kept); and read the evaluation with its charts. `SIEVE_API_KEY=... SIEVE_UI_KEY=... python -m sieve.server --tenant demo --ui` has example tools for the tool-call examples. The page gets its own key, which can't read the system prompt and keeps its sessions apart from the app's users; keys are 32 random characters or more, read from a file if you like, and the app's can be rotated without downtime. Off a loopback address the server does TLS itself or is told a proxy does ([docs/api.md](docs/api.md#anahtarlar)).
+
 ## What Sieve guarantees, and what it doesn't
 
 Detection is a rate, measured above. These hold every time, and tests check them:
@@ -276,7 +286,7 @@ reply = guarded_reply(user_message, ask_model, TenantGuardrail(policy, system_pr
 - The indirect-injection test hides real attacks in real conversations, but the hiding is mine, and the 20 look-alike documents are hand-written. The ML layer was trained on the customer-service conversations, so 0 false alarms on the ticket exports is optimistic. The indirect examples in AltaySec are a dev set: I read them before writing the document rules.
 - Names and addresses aren't masked (that needs NER). Masking also misses e-mail addresses with spaces or words for `@` and the dot, passwords with no digit or symbol, a tax number with its keyword after it, and some numbers with only a space between them.
 - Plain masking takes values a task needs. The model sees `[IBAN]`, so it can't send money to the IBAN the user typed (8 of the corpus's 11 benign tool requests that need a typed value), and two values of a kind in one conversation become the same label. Lettered labels (`[masking] lettered_labels = true`: `[IBAN_A]`, turned back into the value only in a tool call and in the user's own answer) fix both, at a cost: a value from the user's own text, like an IBAN in a pasted scam SMS, can reach a tool call again ([TH-08](THREAT_MODEL.md#th-08-personal-data-leaving-in-prompts-or-logs), [TH-06](THREAT_MODEL.md#th-06-malicious-tool-calls)).
-- The model file in `models/` is a joblib pickle and is loaded on import. Only load models you trained yourself or got from a source you trust.
+- The model file in `models/` is a joblib pickle, which can run code as it loads. Sieve checks it against a SHA-256 pinned in the code before opening it and won't start with one that doesn't match; `scripts/train_injection.py` rewrites the pin when it retrains. BERTurk is pinned to a commit too.
 - Session limits and tool-call totals are kept in memory, so each process counts separately.
 - Nothing bounds how long a check takes; the timeout is the caller's.
 
@@ -286,7 +296,6 @@ reply = guarded_reply(user_message, ask_model, TenantGuardrail(policy, system_pr
 - Better generalisation: more varied Turkish training data (never the sealed set), measured on the sealed set.
 - Names and addresses (NER), and a check for harmful content in answers.
 - A Docker image.
-- A CI run with the BERTurk stage, not only TF-IDF.
 
 ## Layout
 
@@ -324,10 +333,12 @@ python -m scripts.train_injection    # retrain, prints CV and held-out results
 python -m scripts.compare_models     # regenerates results/compare_models.json
 python -m scripts.compare_families   # Sieve and the DeBERTa baseline per attack family (cached model; ~15 min)
 python -m scripts.threshold_sweep    # every ML threshold from 0.01 to 0.999 on every set, with the chart (~6 min)
+python -m scripts.charts             # redraws the README's charts, light and dark, from results/
 python -m scripts.evaluate_pipeline  # the default Guardrail() on the held-out set
 python -m scripts.evaluate_documents # DocumentGuard on attacks hidden in documents
 python -m scripts.replay             # the attack corpus, per entry point, family, carrier and source
 python -m scripts.replay --baseline check   # the CI gate
+python -m scripts.replay --baseline check --cascade   # the same with BERTurk, as CI's second job
 python -m scripts.replay --holdout   # the sealed held-out set, counts only
 python -m scripts.fuzz_slow_inputs  # inputs whose cost grows faster than their length
 python -m scripts.bypass_suite      # caught attacks rewritten (encodings, Unicode, alphabets, languages, documents)
@@ -337,6 +348,7 @@ python -m scripts.evaluate_masking  # masking on the labelled personal-data set
 python -m scripts.evaluate_masking_loss  # what masking takes that it shouldn't: wrong masks, merged values, needed values
 python -m scripts.benchmark_latency # time per stage, and what the checks add to a request
 SIEVE_API_KEY=... python -m sieve.server   # the HTTP API on 127.0.0.1:8080 (docs/api.md)
+SIEVE_API_KEY=... SIEVE_UI_KEY=... python -m sieve.server --tenant demo --ui   # and the page at http://127.0.0.1:8080/
 ```
 
 Run scripts from the repo root. Don't keep the repo in an iCloud-synced folder on macOS: iCloud can mark `.venv/*.pth` files hidden, Python 3.13 skips hidden `.pth` files, and the editable install silently stops working.

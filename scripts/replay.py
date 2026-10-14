@@ -1,6 +1,7 @@
 # Replays the attack corpus (corpus/*.jsonl) against Sieve and reports what each entry point did.
 #   python -m scripts.replay                 # test split; --split dev | all
 #   python -m scripts.replay --baseline check   # the CI gate; "update" rewrites corpus/baseline.json
+#   python -m scripts.replay --baseline check --cascade   # the same with BERTurk, against corpus/baseline_cascade.json
 # The record format, the families and why there should be 300 groups: THREAT_MODEL.md, section 7.
 #
 # Every single-message attack is also hidden in support-ticket exports in seven ways and sent to
@@ -45,6 +46,7 @@ HOLDOUT_RESULTS = RESULTS / "holdout.json"
 # What the user writes into it themselves, one message per line; lines starting with # are notes.
 USER_HOLDOUT = {"user_attacks.txt": "attack", "user_benign.txt": "benign"}
 BASELINE = CORPUS / "baseline.json"
+CASCADE_BASELINE = CORPUS / "baseline_cascade.json"  # the default setup, BERTurk included (needs the [ml] extra)
 TOOLS = CORPUS / "tools.toml"
 # The example assistant's system prompt, which OutputGuard compares answers with, and a fixed canary,
 # so records can carry it, plain or encoded.
@@ -459,6 +461,9 @@ def check_baseline(results, setup, baseline, floors=RECALL_FLOORS):
         problems.append("the ML layer didn't load (model file or scikit-learn missing)")
     if setup["model_sha256"] != baseline["config"]["model_sha256"]:
         problems.append("the model file isn't the one the baseline was made with")
+    if setup["cascade"] != baseline["config"]["cascade"]:
+        problems.append(f"BERTurk {'ran' if setup['cascade'] else 'did not run'}, the baseline was made "
+                        f"{'with' if baseline['config']['cascade'] else 'without'} it (the [ml] extra, SIEVE_CASCADE)")
 
     known, passing = baseline["actions"], set(baseline["passing"])
     for r in results:
@@ -552,6 +557,8 @@ def main():
     parser.add_argument("--out", type=Path, default=RESULTS_PATH)
     parser.add_argument("--baseline", choices=("check", "update"))
     parser.add_argument("--holdout", action="store_true", help="the sealed held-out set, counts only")
+    parser.add_argument("--cascade", action="store_true",
+                        help="with --baseline: BERTurk on, as shipped, against corpus/baseline_cascade.json")
     args = parser.parse_args()
     if args.holdout:
         checks, ml = entry_points()
@@ -561,9 +568,10 @@ def main():
             f.write("\n")
         print(f"\nwrote {HOLDOUT_RESULTS.relative_to(ROOT)}")
         return
+    baseline_path = CASCADE_BASELINE if args.cascade else BASELINE
     if args.baseline:
-        # The baseline is what CI sees: TF-IDF without the BERTurk stage, every split.
-        os.environ["SIEVE_CASCADE"] = "0"
+        # Two baselines, every split: TF-IDF alone (the CI job without torch) and the default setup with BERTurk.
+        os.environ["SIEVE_CASCADE"] = "1" if args.cascade else "0"
         args.split = "all"
 
     records = [r for r in load() if args.split == "all" or r["split"] == args.split]
@@ -580,17 +588,17 @@ def main():
     print(f"\nwrote {args.out.relative_to(ROOT)}")
 
     if args.baseline == "update":
-        write_baseline(results, setup)
-        print(f"wrote {BASELINE.relative_to(ROOT)}")
+        write_baseline(results, setup, baseline_path)
+        print(f"wrote {baseline_path.relative_to(ROOT)}")
     elif args.baseline == "check":
-        problems, notes = check_baseline(results, setup, read_baseline())
+        problems, notes = check_baseline(results, setup, read_baseline(baseline_path))
         step_summary(results, problems, notes)
         print(f"\nbaseline: {len(problems)} problems, {len(notes)} notes")
         for line in problems + notes:
             print(f"  {line}")
         if problems:
-            print(f"\nIf a change is intended, run python -m scripts.replay --baseline update "
-                  f"and commit {BASELINE.relative_to(ROOT)}.")
+            print(f"\nIf a change is intended, run python -m scripts.replay --baseline update"
+                  f"{' --cascade' if args.cascade else ''} and commit {baseline_path.relative_to(ROOT)}.")
             sys.exit(1)
 
 

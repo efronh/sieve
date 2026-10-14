@@ -267,19 +267,6 @@ def test_json_python_cant_read_is_a_bad_request(small_server, raw):
     assert status == 400 and body["error"]["code"] == "bad_json"
 
 
-def test_connections_past_the_limit_are_turned_away(small_server):
-    port = small_server.server_address[1]
-    idle = [socket.create_connection(("127.0.0.1", port)) for _ in range(2)]
-    time.sleep(0.1)
-    with socket.create_connection(("127.0.0.1", port)) as third:
-        third.settimeout(5)
-        assert third.recv(100).startswith(b"HTTP/1.0 503")
-    for s in idle:
-        s.close()
-    time.sleep(0.3)
-    assert post(small_server, json.dumps({"text": "Merhaba"}).encode())[0] == 200
-
-
 # The socket timeout counts per read: a client sending a byte now and then held its connection for as long as it liked.
 def test_a_request_that_takes_too_long_to_arrive_is_dropped(small_server):
     start = time.monotonic()

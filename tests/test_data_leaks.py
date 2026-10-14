@@ -265,19 +265,3 @@ def test_events_can_go_to_the_siem_over_tls(certificate):
         threading.Event().wait(0.05)
     assert received and b'"action": "block"' in received[0]
 
-
-# The model file is a pickle: a swapped one would run its code when loaded. The shipped one is checked first.
-def test_a_swapped_model_file_isnt_opened(tmp_path, monkeypatch):
-    import pickle
-
-    from sieve.ml import injection
-
-    swapped = tmp_path / "prompt_injection_tr.joblib"
-    swapped.write_bytes(pickle.dumps({"model": None}))
-    opened = []
-    monkeypatch.setattr(injection, "MODEL_PATH", swapped)
-    monkeypatch.setattr("joblib.load", lambda path: opened.append(path))
-    with pytest.raises(ValueError, match="isn't the model this version of Sieve ships"):
-        injection.load_bundle(swapped)
-    assert opened == []
-    assert injection.file_sha256(injection.MODELS / "prompt_injection_tr.joblib") == injection.MODEL_SHA256

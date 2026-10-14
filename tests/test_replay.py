@@ -299,6 +299,13 @@ def test_a_missing_ml_layer_or_another_model_fails_the_gate():
                         "the model file isn't the one the baseline was made with"]
 
 
+def test_a_cascade_baseline_needs_berturk_to_have_run():
+    cascade = dict(baseline(), config=dict(SETUP, cascade=True))
+    problems, _ = check_baseline([], SETUP, cascade, floors={})
+    assert problems == ["BERTurk did not run, the baseline was made with it (the [ml] extra, SIEVE_CASCADE)"]
+    assert check_baseline([], dict(SETUP, cascade=True), cascade, floors={})[0] == []
+
+
 def test_recall_below_the_floor_fails_even_without_a_regression():
     results = [result("PI-OVR-001", "review"), result("PI-OVR-002", "allow")]
     problems, _ = check_baseline(results, SETUP, baseline(["PI-OVR-001"], PI_OVR_001="review", PI_OVR_002="allow"),

@@ -58,7 +58,10 @@ ML katmanı mesajı sadece review'a gönderiyor, tek başına engellemiyor. Yani
 
 ML katmanı 0,76'da review'a gönderiyor; bu, çapraz doğrulamada normal mesajların %1'ini işaretleyen threshold. Politika onu oynatabiliyor (`[thresholds.prompt_injection_ml]`), mesajlarda, dokümanlarda ve tool argümanlarında aynı şekilde. `python -m scripts.threshold_sweep` her seti bir kez çalıştırıp 0,01'den 0,999'a her threshold'u hesaplıyor ([results/threshold_sweep.json](results/threshold_sweep.json)). Diğer katmanların işaretledikleri her threshold'da işaretli kalıyor.
 
-![ML threshold'una göre işaretlenen saldırılar ve normal kayıtlar, set başına](results/threshold_sweep.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="results/threshold_sweep-dark.svg">
+  <img alt="ML threshold'una göre yakalanan saldırılar ve işaretlenen normal kayıtlar, aşağıdaki tablodaki dört set için" src="results/threshold_sweep.svg">
+</picture>
 
 | ML threshold'u | Çapraz doğrulama (763 saldırı, 2.486 normal) | TCPI test bölümü (30, 90) | Mühürlü `deepset_tr` (258, 345) | Corpus test dokümanları (1.231, 494) |
 |---|---|---|---|---|
@@ -113,6 +116,11 @@ ML'in mesaj olarak işaretlediği saldırılar (30'da 22), 1.000 karakterlik bir
 #### Baseline'a karşı, aile aile
 
 Aynı test kayıtları, [Dedektörlerin karşılaştırması](#dedektörlerin-karşılaştırması)'ndaki baseline olan protectai'nin DeBERTa v3 dedektöründen geçiyor; her sınırın taşıdığı metni okuyor: bir mesaj, konuşmanın her mesajı, üst üste binen parçalar halinde bir doküman, bir tool çağrısının string argümanları, bir cevap (`python -m scripts.compare_families`). Burada işaretlenen, ikisi için de herhangi bir şeyin işaretlenmesi demek, yani Sieve'in sütunu yukarıdaki "durdurulan"dan yüksek. Geldiği haliyle (0,5 skor) baseline normal olsun olmasın Türkçe metnin çoğunu işaretliyor, yani oradaki yakalama oranı pek bir şey söylemiyor. Sieve kadar normal kaydı işaretlediği eşikte neredeyse hiçbir şey yakalamıyor.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="results/family_comparison-dark.svg">
+  <img alt="Aile başına yakalanan saldırılar: Sieve ve Sieve'in yanlış alarm oranındaki DeBERTa baseline'ı; sayılar aşağıdaki tabloda" src="results/family_comparison.svg">
+</picture>
 
 | Aile | Saldırı | Kayıt (saldırı) | Sieve | Sieve'in yanlış alarm oranında baseline | Baseline olduğu gibi |
 |---|---|---|---|---|---|
@@ -184,7 +192,7 @@ flowchart LR
 | Doküman kontrolü | Modelin okuduğu ama kullanıcının yazmadığı metinler için. Her cümleyi, JSON değerini, gizli HTML parçasını ve HTML özniteliğini ayrı kontrol ediyor; işaretlenen parça okuyucudan gizlenmişse dokümanı engelliyor; modele hitap eden dokümanları ("bu e-postayı okuyan yapay zeka", "if you are an AI") işaretliyor. `wrap()` dokümandaki kişisel veriyi maskeliyor ve onu prompta girmeden önce veri olarak işaretliyor. |
 | Tool kontrolü | Uygulamanız bir tool çağrısını çalıştırmadan önce bakıyor. Listede olmayan tool, bilinmeyen ya da yanlış tipte argüman ve limit dışı tutar engelleniyor. Kullanıcıdan gelmesi gereken (IBAN, telefon) ama mesajlarında olmayan bir argüman ve `confirm` işaretli tool'lar review'a gidiyor. String argümanlar kod kurallarından ve dokümanlarla aynı kontrolden (ML dahil) geçiyor, çünkü onları sonra bir veritabanı, bir e-posta ya da başka bir ajan okuyor. |
 
-Neye karşı, hangi sınırda koruduğu ve geriye ne kaldığı (İngilizce): [THREAT_MODEL.md](THREAT_MODEL.md). Yukarıdaki held-out ve doküman sonuçları [`corpus/`](corpus) altındaki saldırı korpusundan `python -m scripts.replay` ile yeniden üretilebiliyor.
+Neye karşı, hangi sınırda koruduğu ve geriye ne kaldığı (İngilizce): [THREAT_MODEL.md](THREAT_MODEL.md). Test ederken bulunan hatalar, tek kelimelik bir bypass'tan olayları sessizce kaybeden bir audit trail'e kadar, ve ne değiştiği (İngilizce): [CHANGELOG.md](CHANGELOG.md). Yukarıdaki held-out ve doküman sonuçları [`corpus/`](corpus) altındaki saldırı korpusundan `python -m scripts.replay` ile yeniden üretilebiliyor.
 
 Ayrıntılar: [katmanlar](docs/layers.md), [ML](docs/ml.md), [LLM](docs/llm.md), [entegrasyon](docs/operations.md).
 
@@ -232,6 +240,8 @@ curl -s localhost:8080/v1/check -H "Authorization: Bearer $SIEVE_API_KEY" -H "Co
 # {"action": "block", "text": "", "request_id": "…", "rules": ["prompt_injection_ml", "prompt_injection_rules.ignore_instructions"]}
 ```
 
+Tarayıcıda denemek için `--ui` sunucunun `http://127.0.0.1:8080/` adresinde bir sayfa da vermesini sağlıyor: bir mesaj, doküman, tool çağrısı ya da cevap gönderip kararı, modele ya da kullanıcıya gidecek hali, her katmanın bulgusunu ve süreleri görmek; sunucunun kararlarını sayılar olarak izlemek (hiçbir metin tutulmuyor); değerlendirmeyi grafikleriyle okumak. `SIEVE_API_KEY=... SIEVE_UI_KEY=... python -m sieve.server --tenant demo --ui` tool örnekleri için örnek tool'larla geliyor. Sayfanın kendi anahtarı var: sistem promptunu okuyamıyor ve oturumları uygulamanın kullanıcılarından ayrı tutuluyor; anahtarlar en az 32 rastgele karakter, istenirse dosyadan okunuyor, uygulamanınki kesintisiz değiştirilebiliyor. Loopback dışında sunucu ya TLS'i kendisi yapıyor ya da önündeki proxy'nin yaptığı açıkça söyleniyor ([docs/api.md](docs/api.md#anahtarlar)).
+
 ## Sieve neyi garanti ediyor, neyi etmiyor
 
 Tespit bir oran, yukarıda ölçüldü. Bunlar ise her seferinde geçerli ve testler bunları kontrol ediyor:
@@ -276,7 +286,7 @@ reply = guarded_reply(user_message, ask_model, TenantGuardrail(policy, system_pr
 - Dolaylı injection testi gerçek saldırıları gerçek yazışmalara gizliyor ama gizleme şekilleri benim, 20 benzer doküman da elle yazıldı. ML müşteri hizmetleri yazışmalarıyla eğitildiği için kayıt dökümlerindeki 0 yanlış alarm iyimser. AltaySec'teki dolaylı örnekler geliştirme seti: doküman kurallarını yazmadan önce onları okudum.
 - İsim ve adres maskelenmiyor (NER gerekir). Maskeleme ayrıca `@` ve nokta yerine boşluk ya da kelime kullanan e-posta adreslerini, rakam ya da sembol içermeyen şifreleri, anahtar kelimesi sonra gelen vergi numarasını ve aralarında sadece boşluk olan bazı sayıları kaçırıyor.
 - Düz maskeleme bir görevin ihtiyaç duyduğu değeri de götürüyor. Model `[IBAN]` görüyor, yani kullanıcının yazdığı IBAN'a para gönderemiyor (korpusta yazılan bir değere ihtiyaç duyan 11 benign tool isteğinin 8'i); aynı konuşmadaki aynı türden iki değer de aynı etiket oluyor. Harfli etiketler (`[masking] lettered_labels = true`: `[IBAN_A]`, değerine sadece tool çağrısında ve kullanıcının kendi cevabında dönüyor) ikisini de çözüyor, bir bedelle: kullanıcının kendi metnindeki bir değer (yapıştırılmış dolandırıcılık SMS'indeki IBAN) yine bir tool çağrısına girebiliyor ([TH-08](THREAT_MODEL.md#th-08-personal-data-leaving-in-prompts-or-logs), [TH-06](THREAT_MODEL.md#th-06-malicious-tool-calls)).
-- `models/` içindeki model dosyası bir joblib pickle'ı ve import sırasında yükleniyor. Sadece kendi eğittiğiniz ya da güvendiğiniz bir kaynaktan aldığınız modelleri yükleyin.
+- `models/` içindeki model dosyası bir joblib pickle'ı; yüklenirken kod çalıştırabilir. Sieve onu açmadan önce kodda sabitlenmiş bir SHA-256 ile karşılaştırıyor, uyuşmayan dosyayla başlamıyor; `scripts/train_injection.py` yeniden eğitince bu değeri kendisi güncelliyor. BERTurk da bir commit'e sabitlenmiş.
 - Oturum limitleri ve tool çağrısı toplamları bellekte tutuluyor, birden fazla süreç varsa her biri ayrı sayıyor.
 - Bir kontrolün ne kadar süreceğini hiçbir şey sınırlamıyor; zaman aşımı çağıranın işi.
 
@@ -286,7 +296,6 @@ reply = guarded_reply(user_message, ask_model, TenantGuardrail(policy, system_pr
 - Daha iyi genelleme: daha çeşitli Türkçe eğitim verisi (mühürlü set asla değil), sonucu mühürlü sette ölçmek.
 - İsim ve adres (NER), cevaplarda zararlı içerik kontrolü.
 - Bir Docker imajı.
-- CI'da sadece TF-IDF değil, BERTurk aşamasıyla da bir çalışma.
 
 ## Dizin yapısı
 
@@ -324,10 +333,12 @@ python -m scripts.train_injection    # yeniden eğitir, CV ve test seti sonuçla
 python -m scripts.compare_models     # results/compare_models.json'u yeniden üretir
 python -m scripts.compare_families   # Sieve ve DeBERTa baseline'ı saldırı ailesine göre (önbellekteki model; ~15 dk)
 python -m scripts.threshold_sweep    # her sette 0,01'den 0,999'a her ML threshold'u, grafiğiyle (~6 dk)
+python -m scripts.charts             # README'deki grafikleri results/'tan yeniden çiziyor, açık ve koyu
 python -m scripts.evaluate_pipeline  # varsayılan Guardrail() test setinde
 python -m scripts.evaluate_documents # dokümanlara gizlenmiş saldırılarda DocumentGuard
 python -m scripts.replay             # saldırı korpusu: giriş noktası, aile, taşıyıcı ve kaynağa göre
 python -m scripts.replay --baseline check   # CI kapısı
+python -m scripts.replay --baseline check --cascade   # aynısı BERTurk'le, CI'ın ikinci işi
 python -m scripts.replay --holdout   # mühürlü held-out set, sadece sayı
 python -m scripts.fuzz_slow_inputs  # maliyeti uzunluğundan hızlı büyüyen girdiler
 python -m scripts.bypass_suite      # yakalanan saldırılar yeniden yazılmış (kodlama, Unicode, alfabe, dil, doküman)
@@ -337,6 +348,7 @@ python -m scripts.evaluate_masking  # etiketli kişisel veri setinde maskeleme
 python -m scripts.evaluate_masking_loss  # maskelemenin götürmemesi gerekenler: yanlış maske, birleşen değer, gereken değer
 python -m scripts.benchmark_latency # aşama başına süre ve kontrollerin isteğe eklediği süre
 SIEVE_API_KEY=... python -m sieve.server   # 127.0.0.1:8080'de HTTP API (docs/api.md)
+SIEVE_API_KEY=... SIEVE_UI_KEY=... python -m sieve.server --tenant demo --ui   # ve http://127.0.0.1:8080/ adresinde sayfa
 ```
 
 Scriptleri repo kökünden çalıştırın. macOS'ta repoyu iCloud'a senkronize bir klasörde tutmayın: iCloud `.venv/*.pth` dosyalarını gizli yapabiliyor, Python 3.13 gizli `.pth` dosyalarını atlıyor ve editable kurulum sessizce bozuluyor.
