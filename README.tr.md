@@ -332,6 +332,7 @@ python -m scripts.replay --holdout   # mühürlü held-out set, sadece sayı
 python -m scripts.fuzz_slow_inputs  # maliyeti uzunluğundan hızlı büyüyen girdiler
 python -m scripts.bypass_suite      # yakalanan saldırılar yeniden yazılmış (kodlama, Unicode, alfabe, dil, doküman)
 python -m scripts.security_report   # CI güvenlik işinin kontrollerinden tek rapor (pip-audit, bandit, gitleaks...)
+python -m scripts.benchmark_versions  # main'den beri her commit, tek ölçüt: tespit, bypass, gecikme, bellek
 python -m scripts.evaluate_masking  # etiketli kişisel veri setinde maskeleme
 python -m scripts.evaluate_masking_loss  # maskelemenin götürmemesi gerekenler: yanlış maske, birleşen değer, gereken değer
 python -m scripts.benchmark_latency # aşama başına süre ve kontrollerin isteğe eklediği süre

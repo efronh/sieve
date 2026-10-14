@@ -1,0 +1,471 @@
+{
+ "cascade": true,
+ "versions": [
+  {
+   "ref": "3085fc1",
+   "commit": "3085fc1",
+   "subject": "Decide and log the four TenantGuardrail entry points in one place",
+   "entries": {
+    "guardrail": {
+     "attacks": 174,
+     "flagged": 129,
+     "benign": 105,
+     "false_alarms": 3,
+     "recall": 0.7413793103448276,
+     "precision": 0.9772727272727273,
+     "fpr": 0.02857142857142857,
+     "fnr": 0.25862068965517243,
+     "f1": 0.8431372549019608
+    },
+    "document": {
+     "attacks": 1231,
+     "flagged": 918,
+     "benign": 494,
+     "false_alarms": 9,
+     "recall": 0.7457351746547523,
+     "precision": 0.9902912621359223,
+     "fpr": 0.018218623481781375,
+     "fnr": 0.25426482534524775,
+     "f1": 0.8507877664504171
+    },
+    "tool": {
+     "attacks": 54,
+     "flagged": 48,
+     "benign": 15,
+     "false_alarms": 0,
+     "recall": 0.8888888888888888,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.1111111111111111,
+     "f1": 0.9411764705882353
+    },
+    "conversation": {
+     "attacks": 44,
+     "flagged": 40,
+     "benign": 387,
+     "false_alarms": 0,
+     "recall": 0.9090909090909091,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.09090909090909091,
+     "f1": 0.9523809523809523
+    },
+    "output": {
+     "attacks": 51,
+     "flagged": 44,
+     "benign": 22,
+     "false_alarms": 2,
+     "recall": 0.8627450980392157,
+     "precision": 0.9565217391304348,
+     "fpr": 0.09090909090909091,
+     "fnr": 0.13725490196078433,
+     "f1": 0.9072164948453608
+    },
+    "chain": {
+     "attacks": 10,
+     "flagged": 10,
+     "benign": 0,
+     "false_alarms": 0,
+     "recall": 1.0,
+     "precision": null,
+     "fpr": null,
+     "fnr": 0.0,
+     "f1": null
+    }
+   },
+   "holdout": {
+    "all": {
+     "attacks": 444,
+     "flagged": 252,
+     "benign": 379,
+     "false_alarms": 8,
+     "recall": 0.5675675675675675,
+     "precision": 0.9692307692307692,
+     "fpr": 0.021108179419525065,
+     "fnr": 0.43243243243243246,
+     "f1": 0.7159090909090909
+    },
+    "deepset_tr": {
+     "attacks": 258,
+     "flagged": 68,
+     "benign": 345,
+     "false_alarms": 0,
+     "recall": 0.26356589147286824,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.7364341085271318,
+     "f1": 0.4171779141104294
+    },
+    "patterns_tr": {
+     "attacks": 107,
+     "flagged": 106,
+     "benign": 0,
+     "false_alarms": 0,
+     "recall": 0.9906542056074766,
+     "precision": null,
+     "fpr": null,
+     "fnr": 0.009345794392523364,
+     "f1": null
+    },
+    "pi1k": {
+     "attacks": 79,
+     "flagged": 78,
+     "benign": 34,
+     "false_alarms": 8,
+     "recall": 0.9873417721518988,
+     "precision": 0.9069767441860465,
+     "fpr": 0.23529411764705882,
+     "fnr": 0.012658227848101266,
+     "f1": 0.9454545454545454
+    }
+   },
+   "bypass": {
+    "encoding": {
+     "total": 2024,
+     "lost": 755
+    },
+    "unicode": {
+     "total": 2816,
+     "lost": 429
+    },
+    "script": {
+     "total": 176,
+     "lost": 170
+    },
+    "structure": {
+     "total": 528,
+     "lost": 402
+    },
+    "language": {
+     "total": 76,
+     "lost": 55
+    },
+    "document": {
+     "total": 3910,
+     "lost": 367
+    },
+    "session": {
+     "total": 1056,
+     "lost": 71
+    },
+    "exfiltration": {
+     "total": 30,
+     "lost": 2
+    },
+    "leak": {
+     "total": 114,
+     "lost": 53
+    },
+    "personal_data": {
+     "total": 13,
+     "lost": 3
+    },
+    "tool": {
+     "total": 96,
+     "lost": 3
+    }
+   },
+   "latency": {
+    "normal messages": {
+     "median": 0.5465419963002205,
+     "p95": 0.927334011066705,
+     "p99": 1.1593750095926225,
+     "mean": 0.5719144125917859
+    },
+    "attack messages": {
+     "median": 11.93075001356192,
+     "p95": 17.24595797713846,
+     "p99": 23.563958005979657,
+     "mean": 10.307551934330286
+    },
+    "documents": {
+     "median": 50.724958011414856,
+     "p95": 55.43670797487721,
+     "p99": 56.65491701802239,
+     "mean": 44.74778032362096
+    },
+    "tool calls": {
+     "median": 0.287041999399662,
+     "p95": 11.24641700880602,
+     "p99": 12.79649999924004,
+     "mean": 1.1553890542127192
+    },
+    "answers": {
+     "median": 0.16877095913514495,
+     "p95": 0.5182910244911909,
+     "p99": 0.8026250288821757,
+     "mean": 0.24966160870260662
+    }
+   },
+   "steps": {
+    "replay": {
+     "exit": 0,
+     "seconds": 104.41,
+     "cpu_seconds": 44.69,
+     "peak_mb": 553.9
+    },
+    "holdout": {
+     "exit": 0,
+     "seconds": 10.12,
+     "cpu_seconds": 5.16,
+     "peak_mb": 591.3
+    },
+    "bypass": {
+     "exit": 0,
+     "seconds": 206.97,
+     "cpu_seconds": 83.05,
+     "peak_mb": 598.7
+    },
+    "latency": {
+     "exit": 0,
+     "seconds": 15.59,
+     "cpu_seconds": 7.93,
+     "peak_mb": 585.8
+    },
+    "startup": {
+     "exit": 0,
+     "seconds": 0.8,
+     "cpu_seconds": 0.79,
+     "peak_mb": 161.9,
+     "import_s": 0.013,
+     "build_s": 0.673,
+     "first_check_ms": 0.36,
+     "ready_mb": 161.9
+    }
+   }
+  },
+  {
+   "ref": "f3b305b",
+   "commit": "f3b305b",
+   "subject": "Add a CI security job: locked dependencies, CVEs, code scan, secrets, report",
+   "entries": {
+    "guardrail": {
+     "attacks": 174,
+     "flagged": 139,
+     "benign": 105,
+     "false_alarms": 4,
+     "recall": 0.7988505747126436,
+     "precision": 0.972027972027972,
+     "fpr": 0.0380952380952381,
+     "fnr": 0.20114942528735633,
+     "f1": 0.8769716088328076
+    },
+    "document": {
+     "attacks": 1231,
+     "flagged": 960,
+     "benign": 494,
+     "false_alarms": 9,
+     "recall": 0.7798537774167343,
+     "precision": 0.9907120743034056,
+     "fpr": 0.018218623481781375,
+     "fnr": 0.22014622258326563,
+     "f1": 0.8727272727272727
+    },
+    "tool": {
+     "attacks": 54,
+     "flagged": 48,
+     "benign": 15,
+     "false_alarms": 0,
+     "recall": 0.8888888888888888,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.1111111111111111,
+     "f1": 0.9411764705882353
+    },
+    "conversation": {
+     "attacks": 44,
+     "flagged": 41,
+     "benign": 387,
+     "false_alarms": 0,
+     "recall": 0.9318181818181818,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.06818181818181818,
+     "f1": 0.9647058823529412
+    },
+    "output": {
+     "attacks": 51,
+     "flagged": 46,
+     "benign": 22,
+     "false_alarms": 2,
+     "recall": 0.9019607843137255,
+     "precision": 0.9583333333333334,
+     "fpr": 0.09090909090909091,
+     "fnr": 0.09803921568627451,
+     "f1": 0.9292929292929293
+    },
+    "chain": {
+     "attacks": 10,
+     "flagged": 10,
+     "benign": 0,
+     "false_alarms": 0,
+     "recall": 1.0,
+     "precision": null,
+     "fpr": null,
+     "fnr": 0.0,
+     "f1": null
+    }
+   },
+   "holdout": {
+    "all": {
+     "attacks": 444,
+     "flagged": 302,
+     "benign": 379,
+     "false_alarms": 8,
+     "recall": 0.6801801801801802,
+     "precision": 0.9741935483870968,
+     "fpr": 0.021108179419525065,
+     "fnr": 0.31981981981981983,
+     "f1": 0.8010610079575596
+    },
+    "deepset_tr": {
+     "attacks": 258,
+     "flagged": 117,
+     "benign": 345,
+     "false_alarms": 0,
+     "recall": 0.45348837209302323,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.5465116279069767,
+     "f1": 0.624
+    },
+    "patterns_tr": {
+     "attacks": 107,
+     "flagged": 106,
+     "benign": 0,
+     "false_alarms": 0,
+     "recall": 0.9906542056074766,
+     "precision": null,
+     "fpr": null,
+     "fnr": 0.009345794392523364,
+     "f1": null
+    },
+    "pi1k": {
+     "attacks": 79,
+     "flagged": 79,
+     "benign": 34,
+     "false_alarms": 8,
+     "recall": 1.0,
+     "precision": 0.9080459770114943,
+     "fpr": 0.23529411764705882,
+     "fnr": 0.0,
+     "f1": 0.9518072289156626
+    }
+   },
+   "bypass": {
+    "encoding": {
+     "total": 2093,
+     "lost": 316
+    },
+    "unicode": {
+     "total": 2912,
+     "lost": 92
+    },
+    "script": {
+     "total": 182,
+     "lost": 0
+    },
+    "structure": {
+     "total": 546,
+     "lost": 81
+    },
+    "language": {
+     "total": 76,
+     "lost": 53
+    },
+    "document": {
+     "total": 4002,
+     "lost": 7
+    },
+    "session": {
+     "total": 1092,
+     "lost": 35
+    },
+    "exfiltration": {
+     "total": 30,
+     "lost": 0
+    },
+    "leak": {
+     "total": 114,
+     "lost": 0
+    },
+    "personal_data": {
+     "total": 13,
+     "lost": 1
+    },
+    "tool": {
+     "total": 96,
+     "lost": 1
+    }
+   },
+   "latency": {
+    "normal messages": {
+     "median": 0.9519999730400741,
+     "p95": 2.313332981429994,
+     "p99": 3.288749954663217,
+     "mean": 1.1143159695871054
+    },
+    "attack messages": {
+     "median": 23.391083494061604,
+     "p95": 43.24279201682657,
+     "p99": 52.55166697315872,
+     "mean": 20.485148697906848
+    },
+    "documents": {
+     "median": 15.374729497125372,
+     "p95": 18.04520795121789,
+     "p99": 20.789500034879893,
+     "mean": 15.536954867744912
+    },
+    "tool calls": {
+     "median": 0.38058299105614424,
+     "p95": 11.709332989994437,
+     "p99": 14.178832992911339,
+     "mean": 1.2838360317982733
+    },
+    "answers": {
+     "median": 0.6425419996958226,
+     "p95": 1.2647910043597221,
+     "p99": 2.9283329495228827,
+     "mean": 0.7423286630202912
+    }
+   },
+   "steps": {
+    "replay": {
+     "exit": 0,
+     "seconds": 46.84,
+     "cpu_seconds": 25.75,
+     "peak_mb": 792.5
+    },
+    "holdout": {
+     "exit": 0,
+     "seconds": 20.62,
+     "cpu_seconds": 9.31,
+     "peak_mb": 769.0
+    },
+    "bypass": {
+     "exit": 0,
+     "seconds": 337.14,
+     "cpu_seconds": 139.89,
+     "peak_mb": 1287.3
+    },
+    "latency": {
+     "exit": 0,
+     "seconds": 12.6,
+     "cpu_seconds": 8.03,
+     "peak_mb": 642.1
+    },
+    "startup": {
+     "exit": 0,
+     "seconds": 0.8,
+     "cpu_seconds": 0.79,
+     "peak_mb": 161.8,
+     "import_s": 0.016,
+     "build_s": 0.669,
+     "first_check_ms": 0.36,
+     "ready_mb": 161.8
+    }
+   }
+  }
+ ]
+}
