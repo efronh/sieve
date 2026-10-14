@@ -23,7 +23,7 @@ from scripts.replay import tool_guard
 from sieve.actions import ERROR_CHECK
 from sieve.documents import DocumentGuard
 from sieve.ml.injection import MLInjectionLayer
-from sieve.output import OutputGuard
+from sieve.output import CLOSERS, OutputGuard
 from sieve.pipeline import Guardrail, mask
 
 PATTERN_LENGTH = 4_000
@@ -113,14 +113,18 @@ def check_patterns(guards):
     pairs = [a + b for a in SPECIAL for b in SPECIAL]
     for pattern, where in patterns(guards).items():
         words = sorted(set(re.findall(r"[^\W\d_]{2,}", pattern.pattern)))[:40]
+        # A pattern run through before_last sees text up to its last closer, so text ending in one. Without it
+        # the run never closes and every start scans to the end: quadratic, but not a text the pattern is given.
+        closer = CLOSERS.get(pattern, "")
         pieces = SPECIAL + pairs + PIECES + [w + end for w in words for end in ("", " ", "a")]
         worst = None
         for piece in pieces:
             for end in ("", "!"):
-                small = seconds(lambda t: list(pattern.finditer(t)), repeated(piece, PATTERN_LENGTH) + end, 3)
+                small = seconds(lambda t: list(pattern.finditer(t)), repeated(piece, PATTERN_LENGTH) + end + closer, 3)
                 if small < MIN_SECONDS / GROWTH:
                     continue
-                large = seconds(lambda t: list(pattern.finditer(t)), repeated(piece, 2 * PATTERN_LENGTH) + end, 3)
+                large = seconds(lambda t: list(pattern.finditer(t)), repeated(piece, 2 * PATTERN_LENGTH) + end + closer,
+                                3)
                 if large > MIN_SECONDS and large > GROWTH * small and (worst is None or large > worst[1]):
                     worst = (piece + end, large, small)
         if worst:
