@@ -451,15 +451,17 @@ Concurrency had its own failures. `TenantGuardrail` had no lock: from 8 threads 
 
 **Controls.**
 - Training datasets are pinned to Hugging Face revisions in `data/raw/revisions.txt`.
-- scikit-learn is pinned, because the model file depends on its version.
-- AnyJev is pinned to a commit.
-- The README warns that the model is a pickle.
+- The shipped model file is checked against a SHA-256 in the code (`MODEL_SHA256`) before it's opened; a swapped file fails at start, unread. Retraining prints the new hash.
+- BERTurk is loaded at a fixed commit (`EMBEDDING_REVISION`), not whatever its name points at.
+- Every dependency is locked (`requirements-lock.txt`, the full environment by `pip freeze`; CI and `requirements.txt` install with it as constraints). AnyJev is pinned to a commit, scikit-learn to the version the model file needs.
+- CI's security job checks the locked versions for known vulnerabilities (pip-audit), scans `sieve/` (bandit), reads the whole git history for secrets (gitleaks, with only the synthetic test secrets allowed), and runs the slow-pattern fuzzer; it also runs weekly, since advisories come out while the code stands still. One report gathers them with the replay and bypass results (`scripts/security_report.py`). Actions are pinned to commits, the token can only read, and Dependabot proposes updates to the lock and the actions, each through the same gates.
+
+**Fixed.** The first gitleaks run found 9 secrets in the history; all were synthetic, put there to test masking and the leak checks (a fake Stripe key, GitHub token and JWT). Each value is allowed by itself. Allowing them only under `tests/` with gitleaks' `condition = "AND"` let every secret under `tests/` through (gitleaks 8.30), which a planted key showed; that config isn't used. bandit's two findings were a deliberate silent `except` on the path where sending an event fails, and the `[SIFRE]` mask label; each is marked with its reason. pip-audit finds no known vulnerability in the 72 locked packages.
 
 **Residual risk.**
-- `joblib.load` is pickle: whoever can write `models/prompt_injection_tr.joblib` can run code in the app.
-- The model file has no hash check.
-- BERTurk is downloaded by name, without a pinned revision.
-- The other dependencies aren't locked.
+- `joblib.load` is pickle: a model at another path, or the hash in the code changed with the file, runs whatever the file holds.
+- The lock has versions but no hashes, so it trusts PyPI to serve the same file for a version (it doesn't allow re-uploading one).
+- BERTurk's revision is a commit, but its download isn't checked against a hash beyond what Hugging Face's client does.
 
 ### TH-14 Policy misconfiguration
 

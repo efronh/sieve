@@ -521,8 +521,9 @@ class TenantGuardrail:
         try:
             emit(to_event(result, BLOCK, self.policy, original="", session_id=session_id, user_id=user_id,
                           direction=direction, request_id=request_id, checked=count_decision()))
-        except Exception:
-            pass  # the event may be what failed; the decision stands
+        # The event may be what failed; the decision stands, and failing again can't change it.
+        except Exception:  # nosec B110
+            pass
         return result
 
     # request_id: the input check's (result.request_id), so the SIEM can join a request's events.

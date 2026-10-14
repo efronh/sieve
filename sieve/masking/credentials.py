@@ -5,7 +5,8 @@ from collections import Counter
 from sieve.masking.number_units import apply_labeled_masks
 
 KEY_LABEL = "[GIZLI_ANAHTAR]"
-PASSWORD_LABEL = "[SIFRE]"
+# The label a password is masked with, not a password.
+PASSWORD_LABEL = "[SIFRE]"  # nosec B105
 
 MIN_RANDOM_LENGTH = 32
 MIN_RANDOM_ENTROPY = 4.3

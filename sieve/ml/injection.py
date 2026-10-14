@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import logging
 import math
@@ -14,6 +15,12 @@ MODEL_PATH = MODELS / "prompt_injection_tr.joblib"
 DEFAULT_REVIEW_AT = 0.5
 BLOCK_AT = 1.01  # ML alone never blocks
 EMBEDDING_MODEL = "dbmdz/bert-base-turkish-cased"
+# The model file is a pickle: loading it runs whatever it holds. The shipped one is checked against this before it's
+# opened, so a file swapped in models/ fails at start instead (TH-13). It's here and not beside the file, where whoever
+# swapped the model could swap the hash too. Retraining prints the new one (scripts/train_injection.py).
+MODEL_SHA256 = "7e8ad299b539a70c10d23706fbd3d3a89de79237132aabbc76395d3c8dbe5c93"
+# BERTurk at a fixed commit on Hugging Face, not whatever the name points at the day it's downloaded.
+EMBEDDING_REVISION = "b6e1de16c983e0f2c70664591ea3f22810072608"
 
 logger = logging.getLogger("sieve")
 
@@ -73,7 +80,8 @@ class EmbeddingStage:
         if self._encoder is None:
             from sentence_transformers import SentenceTransformer
 
-            self._encoder = SentenceTransformer(self.encoder_name, device=best_device())
+            revision = EMBEDDING_REVISION if self.encoder_name == EMBEDDING_MODEL else None
+            self._encoder = SentenceTransformer(self.encoder_name, revision=revision, device=best_device())
         return self._encoder
 
     def embed(self, texts):
@@ -104,10 +112,19 @@ def cascade_decision(p1, low, high, second_stage):
     return p, None, True
 
 
+def file_sha256(path):
+    with open(path, "rb") as f:
+        return hashlib.file_digest(f, "sha256").hexdigest()
+
+
+# A model at another path is the caller's to vouch for.
 def load_bundle(path):
     import joblib
     import sklearn
 
+    if Path(path).resolve() == MODEL_PATH.resolve() and file_sha256(path) != MODEL_SHA256:
+        raise ValueError(f"{path} isn't the model this version of Sieve ships (SHA-256 {file_sha256(path)}); "
+                         "retrain with scripts/train_injection.py and set MODEL_SHA256, or restore the file")
     bundle = joblib.load(path)
     if not isinstance(bundle, dict):  # old files hold the bare pipeline
         bundle = {"model": bundle, "review_at": DEFAULT_REVIEW_AT, "sklearn_version": None}

@@ -1,0 +1,16 @@
+# gitleaks (CI's security job): every rule it ships with, and these synthetic secrets, which exist to test masking and
+# the leak checks. Each value is allowed only as itself, so any other key, in a test or not, still fails. (Limiting
+# them to tests/ with condition = "AND" let every secret under tests/ through in gitleaks 8.30: tried, not used.)
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Synthetic secrets the masking tests, the PII corpus and the leak tests are made of"
+regexTarget = "secret"
+regexes = [
+  '''^Zq7Lm2Vx9Kp4Rt8Bn3Hj6Fd1Wc5Ys0Ga$''',
+  '''^ghp_aB3dE6fG9hJ2kL5mN8pQ1rS4tU7vW0xY3z6A$''',
+  '''^eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0NSJ9\.dBjftJeZ4CVPmB92K27uhbUJU1p1r$''',
+  '''^eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U$''',
+  '''^(KAMPANYA-KODU-ZX81Q|test-api-key-6Yb2Qw|pseudonym-key-Hk3vP0)$''',
+]

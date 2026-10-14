@@ -14,7 +14,7 @@ from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.pipeline import make_pipeline, make_union
 
 from sieve.ml.augment import augment
-from sieve.ml.injection import EMBEDDING_MODEL, MODEL_PATH, EmbeddingStage, prepare
+from sieve.ml.injection import EMBEDDING_MODEL, MODEL_PATH, EmbeddingStage, file_sha256, prepare
 from sieve.pipeline import clean
 
 DATA_PATHS = [
@@ -295,6 +295,8 @@ def main():
         "sklearn_version": sklearn.__version__,
         "cascade": cascade,
     }, MODEL_PATH)
+    # Sieve loads the shipped model only if it matches the hash in sieve/ml/injection.py (a pickle runs code).
+    print(f"New model: set MODEL_SHA256 = \"{file_sha256(MODEL_PATH)}\" in sieve/ml/injection.py")
 
     report_holdout(model, review_at)
     show_top_features(model)
