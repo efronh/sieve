@@ -450,6 +450,56 @@ def test_the_pages_key_is_rate_limited_and_the_apps_is_not(guard):
         server.shutdown()
 
 
+# A cached result comes back faster and says "cache": the page's key mustn't learn from it what the app sent.
+def test_the_pages_key_and_the_apps_dont_share_the_cache(guard):
+    server = serve(guard, ui_key=UI_KEY)
+    sent = {"text": f"Merhaba, numaram {TC} (cache)", "detail": True}
+    try:
+        call(server, "/v1/check", sent)
+        assert "cache" not in call(server, "/v1/check", sent, key=UI_KEY)[1]["detail"]["timings_ms"]
+        assert "cache" in call(server, "/v1/check", sent, key=UI_KEY)[1]["detail"]["timings_ms"]  # its own, yes
+        assert "cache" in call(server, "/v1/check", sent)[1]["detail"]["timings_ms"]
+    finally:
+        server.shutdown()
+
+
+# The page's key runs one check at a time and gets ui_worker_seconds of the worker a minute, counted until its check
+# ends on the worker, not when its answer timed out.
+def test_the_pages_key_gets_one_check_at_a_time_and_a_share_of_the_worker():
+    layer = Slow()
+    others_off = {name: "off" for name in MESSAGE_LAYERS if name != layer.name}
+    guard = TenantGuardrail(load_policy(overrides={"layers": others_off}), guardrail=Guardrail(check_layers=[layer]))
+    server = serve(guard, ui_key=UI_KEY, check_timeout=0.3, ui_worker_seconds=0.5)
+    service = server.RequestHandlerClass.service
+    try:
+        assert call(server, "/v1/check", {"text": "m1"}, key=UI_KEY)[1]["action"] == "block"  # timed out, still running
+        status, body, headers = call(server, "/v1/check", {"text": "m2"}, key=UI_KEY)
+        assert status == 429 and body["error"]["code"] == "rate_limited" and headers["Retry-After"] == "60"
+        time.sleep(0.4)
+        layer.go.set()
+        until(lambda: not service.ui_running)
+        assert call(server, "/v1/check", {"text": "m3"}, key=UI_KEY)[0] == 429  # it held the worker 0.7 s of 0.5
+        assert call(server, "/v1/check", {"text": "m4"})[1]["action"] == "allow"  # the app's key isn't limited
+    finally:
+        layer.go.set()
+        server.shutdown()
+
+
+def test_the_pages_turn_comes_back_when_a_check_is_refused_or_cancelled(guard):
+    server = serve(guard, ui_key=UI_KEY)
+    service = server.RequestHandlerClass.service
+    try:
+        assert call(server, "/v1/check", {"text": "Merhaba", "extra": 1}, key=UI_KEY)[0] == 400
+        assert not service.ui_running and service.ui_check_allowed()
+        busy = service.worker.submit(time.sleep, 0.3)  # keeps the worker busy, so the next is queued
+        queued = service.worker.submit(lambda: None)
+        queued.add_done_callback(lambda f: service.ui_finished(0.0) if f.cancelled() else None)
+        assert queued.cancel() and not service.ui_running
+        busy.result()
+    finally:
+        server.shutdown()
+
+
 def test_connections_past_the_cap_are_closed_at_once(guard):
     server = serve(guard, max_connections=2)
     port = server.server_address[1]
