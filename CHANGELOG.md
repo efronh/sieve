@@ -128,6 +128,9 @@ Measuring every entry point at the server's 1 MB body showed no input whose cost
 
 Concurrency had its own failures. `TenantGuardrail` had no lock: from 8 threads at once, 102 of 3,200 messages were blocked by a check that raised mid-update (`policy: RuntimeError`), and two calls to a `ToolGuard` could both read a `max_total` before either was recorded, so 8 threads moved 1,020 to 1,040 against a limit of 1,000. The session limiter kept every session ever flagged, unbounded. The server started a thread for every connection, with no limit, and its socket timeout counts per read, so a client sending a byte every few seconds held one for as long as it liked; JSON nested too deep or a number too long to read dropped the connection without an answer. Each is fixed and tested.
 
+**2026-10-14 · The cut on answers hid a quadratic pattern from its tests** ([7e9e5a1](https://github.com/efronh/sieve/commit/7e9e5a1))
+Since answers are cut at 50,000 characters, the tests that would catch `before_last` going away no longer could: unguarded, the quadratic link and tag patterns took under a second on the cut answer and passed. Only the slow-input fuzzer saw them, on runs with no closer that the code never gives them, and it reported them whenever a CI machine was slow enough: it failed the security job on a Dependabot PR. The test reads the answer whole now (without `before_last` three shapes fail), and the fuzzer gives these patterns text that ends in their closer, from one table (`CLOSERS`) that `before_last` reads too.
+
 ## TH-13 Model and training data integrity
 
 **2026-10-13 · A swapped model file would have been unpickled** ([10ab693](https://github.com/efronh/sieve/commit/10ab693))
