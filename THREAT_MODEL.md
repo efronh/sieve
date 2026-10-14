@@ -407,6 +407,7 @@ Of 12 benign answers, 1 is a false alarm: a branch's landline (`0312 555 12 34`)
 - AnyJev is pinned to a commit.
 - Every other dependency is locked too (`requirements-lock.txt`, the full environment by `pip freeze`); CI and `requirements.txt` install with it as constraints.
 - CI's security job checks the locked versions for known vulnerabilities (pip-audit), scans `sieve/` (bandit), reads the whole git history for secrets (gitleaks, with only the synthetic test secrets allowed), and runs the slow-pattern fuzzer; it also runs weekly, since advisories come out while the code stands still. One report gathers them with the replay and bypass results (`scripts/security_report.py`). Actions are pinned to commits, the token can only read, and Dependabot proposes updates to the lock and the actions, each through the same gates.
+- `main` takes changes only through a pull request whose four checks passed (both test jobs, security, cascade), so the gates above can't be skipped by pushing to it straight; force pushes and deleting it are blocked, so its history can't be rewritten under the commits the changelog links.
 
 **Found and fixed.** A swapped model file would have been unpickled, BERTurk loaded whatever its repository held that day, and no dependency was locked or scanned ([changelog](CHANGELOG.md#th-13-model-and-training-data-integrity)).
 
@@ -415,6 +416,7 @@ Of 12 benign answers, 1 is a false alarm: a branch's landline (`0312 555 12 34`)
 - A backdoor trained in from poisoned data matches its own hash; the pins say the model is the one that was measured, not that its data was clean.
 - The optional LLM layer (`[llm]`) loads its model through AnyJev by name.
 - The lock has versions but no hashes, so it trusts PyPI to serve the same file for a version (it doesn't allow re-uploading one).
+- The rules on `main` are a ruleset set on GitHub, not in the repository: whoever administers the repository can turn them off, and nothing in the code shows whether they're on.
 
 ### TH-14 Policy misconfiguration
 

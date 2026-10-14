@@ -1,7 +1,10 @@
 name: CI
 
 on:
+  # A PR's branch is checked by pull_request, against main as it would be merged; push only for main, so a PR's
+  # checks don't run twice.
   push:
+    branches: [main]
   pull_request:
   # New vulnerabilities are published while the code stands still: the security job runs weekly as well.
   schedule:
