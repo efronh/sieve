@@ -433,6 +433,7 @@ Concurrency had its own failures. `TenantGuardrail` had no lock: from 8 threads 
 **Residual risk.**
 - Masking is linear but costs up to about 5 µs a character: a 200,000-character document takes about a second to mask for its event and again for `wrap()`.
 - On a CPU, BERTurk's batch is slower than on this machine's GPU; 64 parts bound how much slower.
+- With BERTurk, a process's memory now peaks at about 1.2 GB on a CPU (0.9 GB on this machine's GPU), from about 0.6 GB: reading messages by sentence sends many more texts through BERTurk, and PyTorch keeps its high-water mark. It levels off rather than growing (`scripts/benchmark_versions.py` measures it); the batch size doesn't change it. With TF-IDF alone a process stays near 210 MB. Size a deployment for it.
 - The fuzzer only tries runs of repeated pieces. A pattern that's slow on some other shape would pass it.
 - Rate limits apply only when the app passes a session or user ID, and only within one process.
 - Over HTTP one check runs at a time per process, since a tenant's session state is shared, and a request's waiting time counts toward its deadline. A slow input delays the checks behind it, and they're answered with block when their time runs out: the server doesn't fall over, but it stops letting messages through until the slow check ends. Past 64 waiting requests the answer is 503.
