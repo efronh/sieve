@@ -2,6 +2,7 @@ import bisect
 import re
 from contextvars import ContextVar
 from dataclasses import dataclass
+from itertools import accumulate
 
 MAX_GAP = 3
 
@@ -97,19 +98,31 @@ GAP = re.compile(r"[\W_]")
 # ("0599", "326", ...), never a stretch cut out of a longer run. Sliding through the group instead found a
 # checksum-valid run across the end of a phone number and the start of a card, which hid half of each and
 # left the card's expiry date and CVV in the clear.
-def aligned_windows(units, length, text):
-    edge = [True] + [GAP.search(text, a.end, b.start) is not None for a, b in zip(units, units[1:])] + [True]
+def aligned_windows(units, length, text, edges=None):
+    edge = gap_edges(units, text) if edges is None else edges
     return [i for i in range(len(units) - length + 1) if edge[i] and edge[i + length]]
 
 
+# Whether there's a gap before each unit, and after the last one.
+def gap_edges(units, text):
+    return [True] + [GAP.search(text, a.end, b.start) is not None for a, b in zip(units, units[1:])] + [True]
+
+
+# (the units' digits as one string, the number of real digits before each unit). Each unit's digit is one character,
+# so a window's number is a slice of the string and its real digits a difference: joining and summing every window
+# again made masking a long run of digits cost about 13 µs a character.
+def digits_and_real(units):
+    return "".join(u.digit for u in units), list(accumulate((u.real for u in units), initial=0))
+
+
+# Windows are tried left to right, so one overlaps a window already taken only if it starts before that one ends.
 def find_windows(group, length, min_real, is_valid, text):
-    spans, taken = [], set()
+    digits, real = digits_and_real(group)
+    spans, free_from = [], 0
     for i in aligned_windows(group, length, text):
-        window = group[i:i + length]
-        if (taken.isdisjoint(range(i, i + length)) and sum(u.real for u in window) >= min_real
-                and is_valid("".join(u.digit for u in window))):
-            spans.append((window[0].start, window[-1].end))
-            taken.update(range(i, i + length))
+        if i >= free_from and real[i + length] - real[i] >= min_real and is_valid(digits[i:i + length]):
+            spans.append((group[i].start, group[i + length - 1].end))
+            free_from = i + length
     return spans
 
 

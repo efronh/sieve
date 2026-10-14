@@ -1,0 +1,2102 @@
+{
+ "cascade": false,
+ "versions": [
+  {
+   "ref": "3085fc13821ca14225f443a344450e8032ccf177",
+   "commit": "3085fc1",
+   "subject": "Decide and log the four TenantGuardrail entry points in one place",
+   "entries": {
+    "guardrail": {
+     "attacks": 174,
+     "flagged": 118,
+     "benign": 105,
+     "false_alarms": 3,
+     "recall": 0.6781609195402298,
+     "precision": 0.9752066115702479,
+     "fpr": 0.02857142857142857,
+     "fnr": 0.3218390804597701,
+     "f1": 0.8
+    },
+    "document": {
+     "attacks": 1231,
+     "flagged": 859,
+     "benign": 494,
+     "false_alarms": 13,
+     "recall": 0.6978066612510154,
+     "precision": 0.9850917431192661,
+     "fpr": 0.02631578947368421,
+     "fnr": 0.3021933387489846,
+     "f1": 0.8169281978126486
+    },
+    "tool": {
+     "attacks": 54,
+     "flagged": 48,
+     "benign": 15,
+     "false_alarms": 0,
+     "recall": 0.8888888888888888,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.1111111111111111,
+     "f1": 0.9411764705882353
+    },
+    "conversation": {
+     "attacks": 44,
+     "flagged": 36,
+     "benign": 387,
+     "false_alarms": 0,
+     "recall": 0.8181818181818182,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.18181818181818182,
+     "f1": 0.9
+    },
+    "output": {
+     "attacks": 51,
+     "flagged": 44,
+     "benign": 22,
+     "false_alarms": 2,
+     "recall": 0.8627450980392157,
+     "precision": 0.9565217391304348,
+     "fpr": 0.09090909090909091,
+     "fnr": 0.13725490196078433,
+     "f1": 0.9072164948453608
+    },
+    "chain": {
+     "attacks": 10,
+     "flagged": 9,
+     "benign": 0,
+     "false_alarms": 0,
+     "recall": 0.9,
+     "precision": null,
+     "fpr": null,
+     "fnr": 0.1,
+     "f1": null
+    }
+   },
+   "holdout": {
+    "all": {
+     "attacks": 444,
+     "flagged": 248,
+     "benign": 379,
+     "false_alarms": 11,
+     "recall": 0.5585585585585585,
+     "precision": 0.9575289575289575,
+     "fpr": 0.029023746701846966,
+     "fnr": 0.44144144144144143,
+     "f1": 0.705547652916074
+    },
+    "deepset_tr": {
+     "attacks": 258,
+     "flagged": 69,
+     "benign": 345,
+     "false_alarms": 0,
+     "recall": 0.26744186046511625,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.7325581395348837,
+     "f1": 0.42201834862385323
+    },
+    "patterns_tr": {
+     "attacks": 107,
+     "flagged": 103,
+     "benign": 0,
+     "false_alarms": 0,
+     "recall": 0.9626168224299065,
+     "precision": null,
+     "fpr": null,
+     "fnr": 0.037383177570093455,
+     "f1": null
+    },
+    "pi1k": {
+     "attacks": 79,
+     "flagged": 76,
+     "benign": 34,
+     "false_alarms": 11,
+     "recall": 0.9620253164556962,
+     "precision": 0.8735632183908046,
+     "fpr": 0.3235294117647059,
+     "fnr": 0.0379746835443038,
+     "f1": 0.9156626506024096
+    }
+   },
+   "bypass": {
+    "encoding": {
+     "total": 1817,
+     "lost": 814
+    },
+    "unicode": {
+     "total": 2528,
+     "lost": 356
+    },
+    "script": {
+     "total": 158,
+     "lost": 154
+    },
+    "structure": {
+     "total": 474,
+     "lost": 378
+    },
+    "language": {
+     "total": 76,
+     "lost": 59
+    },
+    "document": {
+     "total": 3588,
+     "lost": 375
+    },
+    "session": {
+     "total": 948,
+     "lost": 62
+    },
+    "exfiltration": {
+     "total": 30,
+     "lost": 2
+    },
+    "leak": {
+     "total": 114,
+     "lost": 53
+    },
+    "personal_data": {
+     "total": 13,
+     "lost": 3
+    },
+    "tool": {
+     "total": 96,
+     "lost": 3
+    }
+   },
+   "latency": {
+    "normal messages": {
+     "median": 0.5270420224405825,
+     "p95": 0.8990829810500145,
+     "p99": 1.1097079841420054,
+     "mean": 0.5515496199296032
+    },
+    "attack messages": {
+     "median": 0.4668335022870451,
+     "p95": 0.8139580022543669,
+     "p99": 1.881415955722332,
+     "mean": 0.5235021683687194
+    },
+    "documents": {
+     "median": 2.3252080427482724,
+     "p95": 3.2308330410160124,
+     "p99": 3.5225829924456775,
+     "mean": 2.3472670574755043
+    },
+    "tool calls": {
+     "median": 0.26108301244676113,
+     "p95": 0.6254159961827099,
+     "p99": 0.8500000112690032,
+     "mean": 0.2857486787252128
+    },
+    "answers": {
+     "median": 0.16731201321817935,
+     "p95": 0.5137079861015081,
+     "p99": 0.7980410009622574,
+     "mean": 0.2457647759001702
+    }
+   },
+   "steps": {
+    "replay": {
+     "exit": 0,
+     "seconds": 6.44,
+     "cpu_seconds": 6.44,
+     "peak_mb": 187.3
+    },
+    "holdout": {
+     "exit": 0,
+     "seconds": 1.17,
+     "cpu_seconds": 1.17,
+     "peak_mb": 180.2
+    },
+    "bypass": {
+     "exit": 0,
+     "seconds": 11.77,
+     "cpu_seconds": 11.76,
+     "peak_mb": 211.5
+    },
+    "latency": {
+     "exit": 0,
+     "seconds": 2.04,
+     "cpu_seconds": 2.03,
+     "peak_mb": 166.1
+    },
+    "startup": {
+     "exit": 0,
+     "seconds": 0.77,
+     "cpu_seconds": 0.77,
+     "peak_mb": 152.5,
+     "import_s": 0.013,
+     "build_s": 0.657,
+     "first_check_ms": 0.38,
+     "ready_mb": 152.5
+    }
+   }
+  },
+  {
+   "ref": "b2f02529a8b56e9e3f3d071bdcc6b65204b61f31",
+   "commit": "b2f0252",
+   "subject": "Keep a failing part or a malformed policy from opening Sieve",
+   "entries": {
+    "guardrail": {
+     "attacks": 174,
+     "flagged": 118,
+     "benign": 105,
+     "false_alarms": 3,
+     "recall": 0.6781609195402298,
+     "precision": 0.9752066115702479,
+     "fpr": 0.02857142857142857,
+     "fnr": 0.3218390804597701,
+     "f1": 0.8
+    },
+    "document": {
+     "attacks": 1231,
+     "flagged": 859,
+     "benign": 494,
+     "false_alarms": 13,
+     "recall": 0.6978066612510154,
+     "precision": 0.9850917431192661,
+     "fpr": 0.02631578947368421,
+     "fnr": 0.3021933387489846,
+     "f1": 0.8169281978126486
+    },
+    "tool": {
+     "attacks": 54,
+     "flagged": 48,
+     "benign": 15,
+     "false_alarms": 0,
+     "recall": 0.8888888888888888,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.1111111111111111,
+     "f1": 0.9411764705882353
+    },
+    "conversation": {
+     "attacks": 44,
+     "flagged": 36,
+     "benign": 387,
+     "false_alarms": 0,
+     "recall": 0.8181818181818182,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.18181818181818182,
+     "f1": 0.9
+    },
+    "output": {
+     "attacks": 51,
+     "flagged": 44,
+     "benign": 22,
+     "false_alarms": 2,
+     "recall": 0.8627450980392157,
+     "precision": 0.9565217391304348,
+     "fpr": 0.09090909090909091,
+     "fnr": 0.13725490196078433,
+     "f1": 0.9072164948453608
+    },
+    "chain": {
+     "attacks": 10,
+     "flagged": 9,
+     "benign": 0,
+     "false_alarms": 0,
+     "recall": 0.9,
+     "precision": null,
+     "fpr": null,
+     "fnr": 0.1,
+     "f1": null
+    }
+   },
+   "holdout": {
+    "all": {
+     "attacks": 444,
+     "flagged": 248,
+     "benign": 379,
+     "false_alarms": 11,
+     "recall": 0.5585585585585585,
+     "precision": 0.9575289575289575,
+     "fpr": 0.029023746701846966,
+     "fnr": 0.44144144144144143,
+     "f1": 0.705547652916074
+    },
+    "deepset_tr": {
+     "attacks": 258,
+     "flagged": 69,
+     "benign": 345,
+     "false_alarms": 0,
+     "recall": 0.26744186046511625,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.7325581395348837,
+     "f1": 0.42201834862385323
+    },
+    "patterns_tr": {
+     "attacks": 107,
+     "flagged": 103,
+     "benign": 0,
+     "false_alarms": 0,
+     "recall": 0.9626168224299065,
+     "precision": null,
+     "fpr": null,
+     "fnr": 0.037383177570093455,
+     "f1": null
+    },
+    "pi1k": {
+     "attacks": 79,
+     "flagged": 76,
+     "benign": 34,
+     "false_alarms": 11,
+     "recall": 0.9620253164556962,
+     "precision": 0.8735632183908046,
+     "fpr": 0.3235294117647059,
+     "fnr": 0.0379746835443038,
+     "f1": 0.9156626506024096
+    }
+   },
+   "bypass": {
+    "encoding": {
+     "total": 1817,
+     "lost": 814
+    },
+    "unicode": {
+     "total": 2528,
+     "lost": 356
+    },
+    "script": {
+     "total": 158,
+     "lost": 154
+    },
+    "structure": {
+     "total": 474,
+     "lost": 378
+    },
+    "language": {
+     "total": 76,
+     "lost": 59
+    },
+    "document": {
+     "total": 3588,
+     "lost": 375
+    },
+    "session": {
+     "total": 948,
+     "lost": 62
+    },
+    "exfiltration": {
+     "total": 30,
+     "lost": 2
+    },
+    "leak": {
+     "total": 114,
+     "lost": 53
+    },
+    "personal_data": {
+     "total": 13,
+     "lost": 3
+    },
+    "tool": {
+     "total": 96,
+     "lost": 3
+    }
+   },
+   "latency": {
+    "normal messages": {
+     "median": 0.5319580086506903,
+     "p95": 0.9165829978883266,
+     "p99": 1.1386669939383864,
+     "mean": 0.5586514461235738
+    },
+    "attack messages": {
+     "median": 0.47224952140823007,
+     "p95": 0.8102910360321403,
+     "p99": 1.840165990870446,
+     "mean": 0.5194995108718887
+    },
+    "documents": {
+     "median": 2.4256670149043202,
+     "p95": 3.2812089775688946,
+     "p99": 3.6397919757291675,
+     "mean": 2.434105235093002
+    },
+    "tool calls": {
+     "median": 0.26350002735853195,
+     "p95": 0.648665998596698,
+     "p99": 0.8732500136829913,
+     "mean": 0.2936289603821933
+    },
+    "answers": {
+     "median": 0.17052050679922104,
+     "p95": 0.5160000291652977,
+     "p99": 0.7994999759830534,
+     "mean": 0.24867175444443193
+    }
+   },
+   "steps": {
+    "replay": {
+     "exit": 0,
+     "seconds": 6.45,
+     "cpu_seconds": 6.44,
+     "peak_mb": 188.6
+    },
+    "holdout": {
+     "exit": 0,
+     "seconds": 1.17,
+     "cpu_seconds": 1.17,
+     "peak_mb": 175.1
+    },
+    "bypass": {
+     "exit": 0,
+     "seconds": 11.79,
+     "cpu_seconds": 11.78,
+     "peak_mb": 212.0
+    },
+    "latency": {
+     "exit": 0,
+     "seconds": 2.04,
+     "cpu_seconds": 2.04,
+     "peak_mb": 170.3
+    },
+    "startup": {
+     "exit": 0,
+     "seconds": 0.77,
+     "cpu_seconds": 0.77,
+     "peak_mb": 158.9,
+     "import_s": 0.013,
+     "build_s": 0.654,
+     "first_check_ms": 0.38,
+     "ready_mb": 158.9
+    }
+   }
+  },
+  {
+   "ref": "70466498c0fbe529f58ea3f0f2ba7ceb657ad0f3",
+   "commit": "7046649",
+   "subject": "Mask long runs of digits 2.7 times faster, with the same output",
+   "entries": {
+    "guardrail": {
+     "attacks": 174,
+     "flagged": 118,
+     "benign": 105,
+     "false_alarms": 3,
+     "recall": 0.6781609195402298,
+     "precision": 0.9752066115702479,
+     "fpr": 0.02857142857142857,
+     "fnr": 0.3218390804597701,
+     "f1": 0.8
+    },
+    "document": {
+     "attacks": 1231,
+     "flagged": 859,
+     "benign": 494,
+     "false_alarms": 13,
+     "recall": 0.6978066612510154,
+     "precision": 0.9850917431192661,
+     "fpr": 0.02631578947368421,
+     "fnr": 0.3021933387489846,
+     "f1": 0.8169281978126486
+    },
+    "tool": {
+     "attacks": 54,
+     "flagged": 48,
+     "benign": 15,
+     "false_alarms": 0,
+     "recall": 0.8888888888888888,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.1111111111111111,
+     "f1": 0.9411764705882353
+    },
+    "conversation": {
+     "attacks": 44,
+     "flagged": 36,
+     "benign": 387,
+     "false_alarms": 0,
+     "recall": 0.8181818181818182,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.18181818181818182,
+     "f1": 0.9
+    },
+    "output": {
+     "attacks": 51,
+     "flagged": 44,
+     "benign": 22,
+     "false_alarms": 2,
+     "recall": 0.8627450980392157,
+     "precision": 0.9565217391304348,
+     "fpr": 0.09090909090909091,
+     "fnr": 0.13725490196078433,
+     "f1": 0.9072164948453608
+    },
+    "chain": {
+     "attacks": 10,
+     "flagged": 9,
+     "benign": 0,
+     "false_alarms": 0,
+     "recall": 0.9,
+     "precision": null,
+     "fpr": null,
+     "fnr": 0.1,
+     "f1": null
+    }
+   },
+   "holdout": {
+    "all": {
+     "attacks": 444,
+     "flagged": 248,
+     "benign": 379,
+     "false_alarms": 11,
+     "recall": 0.5585585585585585,
+     "precision": 0.9575289575289575,
+     "fpr": 0.029023746701846966,
+     "fnr": 0.44144144144144143,
+     "f1": 0.705547652916074
+    },
+    "deepset_tr": {
+     "attacks": 258,
+     "flagged": 69,
+     "benign": 345,
+     "false_alarms": 0,
+     "recall": 0.26744186046511625,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.7325581395348837,
+     "f1": 0.42201834862385323
+    },
+    "patterns_tr": {
+     "attacks": 107,
+     "flagged": 103,
+     "benign": 0,
+     "false_alarms": 0,
+     "recall": 0.9626168224299065,
+     "precision": null,
+     "fpr": null,
+     "fnr": 0.037383177570093455,
+     "f1": null
+    },
+    "pi1k": {
+     "attacks": 79,
+     "flagged": 76,
+     "benign": 34,
+     "false_alarms": 11,
+     "recall": 0.9620253164556962,
+     "precision": 0.8735632183908046,
+     "fpr": 0.3235294117647059,
+     "fnr": 0.0379746835443038,
+     "f1": 0.9156626506024096
+    }
+   },
+   "bypass": {
+    "encoding": {
+     "total": 1817,
+     "lost": 814
+    },
+    "unicode": {
+     "total": 2528,
+     "lost": 356
+    },
+    "script": {
+     "total": 158,
+     "lost": 154
+    },
+    "structure": {
+     "total": 474,
+     "lost": 378
+    },
+    "language": {
+     "total": 76,
+     "lost": 59
+    },
+    "document": {
+     "total": 3588,
+     "lost": 375
+    },
+    "session": {
+     "total": 948,
+     "lost": 62
+    },
+    "exfiltration": {
+     "total": 30,
+     "lost": 2
+    },
+    "leak": {
+     "total": 114,
+     "lost": 53
+    },
+    "personal_data": {
+     "total": 13,
+     "lost": 3
+    },
+    "tool": {
+     "total": 96,
+     "lost": 3
+    }
+   },
+   "latency": {
+    "normal messages": {
+     "median": 0.5301250494085252,
+     "p95": 0.9155410225503147,
+     "p99": 1.1398750357329845,
+     "mean": 0.5581840071415746
+    },
+    "attack messages": {
+     "median": 0.48839551163837314,
+     "p95": 0.8587089832872152,
+     "p99": 1.5847499598748982,
+     "mean": 0.5207981488763772
+    },
+    "documents": {
+     "median": 2.3637289996258914,
+     "p95": 3.2726250356063247,
+     "p99": 3.695166960824281,
+     "mean": 2.3944691063753694
+    },
+    "tool calls": {
+     "median": 0.26404199888929725,
+     "p95": 0.6278340006247163,
+     "p99": 0.8794579771347344,
+     "mean": 0.2899152967147529
+    },
+    "answers": {
+     "median": 0.17770851263776422,
+     "p95": 0.5184999899938703,
+     "p99": 0.8040419779717922,
+     "mean": 0.251774499580885
+    }
+   },
+   "steps": {
+    "replay": {
+     "exit": 0,
+     "seconds": 6.44,
+     "cpu_seconds": 6.43,
+     "peak_mb": 179.8
+    },
+    "holdout": {
+     "exit": 0,
+     "seconds": 1.17,
+     "cpu_seconds": 1.16,
+     "peak_mb": 175.0
+    },
+    "bypass": {
+     "exit": 0,
+     "seconds": 11.59,
+     "cpu_seconds": 11.58,
+     "peak_mb": 214.7
+    },
+    "latency": {
+     "exit": 0,
+     "seconds": 2.04,
+     "cpu_seconds": 2.03,
+     "peak_mb": 171.5
+    },
+    "startup": {
+     "exit": 0,
+     "seconds": 0.78,
+     "cpu_seconds": 0.77,
+     "peak_mb": 166.3,
+     "import_s": 0.013,
+     "build_s": 0.661,
+     "first_check_ms": 0.36,
+     "ready_mb": 166.3
+    }
+   }
+  },
+  {
+   "ref": "185f9ae189bd606f524e8b5f0dda888c48fd54ac",
+   "commit": "185f9ae",
+   "subject": "Bound what one request can cost Sieve",
+   "entries": {
+    "guardrail": {
+     "attacks": 174,
+     "flagged": 118,
+     "benign": 105,
+     "false_alarms": 3,
+     "recall": 0.6781609195402298,
+     "precision": 0.9752066115702479,
+     "fpr": 0.02857142857142857,
+     "fnr": 0.3218390804597701,
+     "f1": 0.8
+    },
+    "document": {
+     "attacks": 1231,
+     "flagged": 859,
+     "benign": 494,
+     "false_alarms": 13,
+     "recall": 0.6978066612510154,
+     "precision": 0.9850917431192661,
+     "fpr": 0.02631578947368421,
+     "fnr": 0.3021933387489846,
+     "f1": 0.8169281978126486
+    },
+    "tool": {
+     "attacks": 54,
+     "flagged": 48,
+     "benign": 15,
+     "false_alarms": 0,
+     "recall": 0.8888888888888888,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.1111111111111111,
+     "f1": 0.9411764705882353
+    },
+    "conversation": {
+     "attacks": 44,
+     "flagged": 36,
+     "benign": 387,
+     "false_alarms": 0,
+     "recall": 0.8181818181818182,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.18181818181818182,
+     "f1": 0.9
+    },
+    "output": {
+     "attacks": 51,
+     "flagged": 44,
+     "benign": 22,
+     "false_alarms": 2,
+     "recall": 0.8627450980392157,
+     "precision": 0.9565217391304348,
+     "fpr": 0.09090909090909091,
+     "fnr": 0.13725490196078433,
+     "f1": 0.9072164948453608
+    },
+    "chain": {
+     "attacks": 10,
+     "flagged": 9,
+     "benign": 0,
+     "false_alarms": 0,
+     "recall": 0.9,
+     "precision": null,
+     "fpr": null,
+     "fnr": 0.1,
+     "f1": null
+    }
+   },
+   "holdout": {
+    "all": {
+     "attacks": 444,
+     "flagged": 248,
+     "benign": 379,
+     "false_alarms": 11,
+     "recall": 0.5585585585585585,
+     "precision": 0.9575289575289575,
+     "fpr": 0.029023746701846966,
+     "fnr": 0.44144144144144143,
+     "f1": 0.705547652916074
+    },
+    "deepset_tr": {
+     "attacks": 258,
+     "flagged": 69,
+     "benign": 345,
+     "false_alarms": 0,
+     "recall": 0.26744186046511625,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.7325581395348837,
+     "f1": 0.42201834862385323
+    },
+    "patterns_tr": {
+     "attacks": 107,
+     "flagged": 103,
+     "benign": 0,
+     "false_alarms": 0,
+     "recall": 0.9626168224299065,
+     "precision": null,
+     "fpr": null,
+     "fnr": 0.037383177570093455,
+     "f1": null
+    },
+    "pi1k": {
+     "attacks": 79,
+     "flagged": 76,
+     "benign": 34,
+     "false_alarms": 11,
+     "recall": 0.9620253164556962,
+     "precision": 0.8735632183908046,
+     "fpr": 0.3235294117647059,
+     "fnr": 0.0379746835443038,
+     "f1": 0.9156626506024096
+    }
+   },
+   "bypass": {
+    "encoding": {
+     "total": 1817,
+     "lost": 814
+    },
+    "unicode": {
+     "total": 2528,
+     "lost": 356
+    },
+    "script": {
+     "total": 158,
+     "lost": 154
+    },
+    "structure": {
+     "total": 474,
+     "lost": 378
+    },
+    "language": {
+     "total": 76,
+     "lost": 59
+    },
+    "document": {
+     "total": 3588,
+     "lost": 375
+    },
+    "session": {
+     "total": 948,
+     "lost": 62
+    },
+    "exfiltration": {
+     "total": 30,
+     "lost": 2
+    },
+    "leak": {
+     "total": 114,
+     "lost": 53
+    },
+    "personal_data": {
+     "total": 13,
+     "lost": 3
+    },
+    "tool": {
+     "total": 96,
+     "lost": 3
+    }
+   },
+   "latency": {
+    "normal messages": {
+     "median": 0.5277079762890935,
+     "p95": 0.9078750154003501,
+     "p99": 1.1214580154046416,
+     "mean": 0.5549552245907127
+    },
+    "attack messages": {
+     "median": 0.47985403216443956,
+     "p95": 0.8434170158579946,
+     "p99": 1.570541993714869,
+     "mean": 0.5146563892793339
+    },
+    "documents": {
+     "median": 2.2611040039919317,
+     "p95": 3.1292919884435833,
+     "p99": 3.442958986852318,
+     "mean": 2.2961716738653286
+    },
+    "tool calls": {
+     "median": 0.2662910264916718,
+     "p95": 0.6482499884441495,
+     "p99": 0.8846659911796451,
+     "mean": 0.29918199963867664
+    },
+    "answers": {
+     "median": 0.1728125207591802,
+     "p95": 0.5245410138741136,
+     "p99": 0.797417014837265,
+     "mean": 0.2537199367199921
+    }
+   },
+   "steps": {
+    "replay": {
+     "exit": 0,
+     "seconds": 6.34,
+     "cpu_seconds": 6.33,
+     "peak_mb": 184.3
+    },
+    "holdout": {
+     "exit": 0,
+     "seconds": 1.18,
+     "cpu_seconds": 1.17,
+     "peak_mb": 174.4
+    },
+    "bypass": {
+     "exit": 0,
+     "seconds": 11.5,
+     "cpu_seconds": 11.49,
+     "peak_mb": 202.9
+    },
+    "latency": {
+     "exit": 0,
+     "seconds": 2.02,
+     "cpu_seconds": 2.02,
+     "peak_mb": 162.2
+    },
+    "startup": {
+     "exit": 0,
+     "seconds": 0.77,
+     "cpu_seconds": 0.77,
+     "peak_mb": 153.0,
+     "import_s": 0.014,
+     "build_s": 0.654,
+     "first_check_ms": 0.37,
+     "ready_mb": 153.0
+    }
+   }
+  },
+  {
+   "ref": "60d8e52b2c200d12218642e9129242b1f0e69a88",
+   "commit": "60d8e52",
+   "subject": "Measure each trick on attacks Sieve already catches, and close what leaked",
+   "entries": {
+    "guardrail": {
+     "attacks": 174,
+     "flagged": 123,
+     "benign": 105,
+     "false_alarms": 3,
+     "recall": 0.7068965517241379,
+     "precision": 0.9761904761904762,
+     "fpr": 0.02857142857142857,
+     "fnr": 0.29310344827586204,
+     "f1": 0.82
+    },
+    "document": {
+     "attacks": 1231,
+     "flagged": 902,
+     "benign": 494,
+     "false_alarms": 13,
+     "recall": 0.7327376116978067,
+     "precision": 0.985792349726776,
+     "fpr": 0.02631578947368421,
+     "fnr": 0.26726238830219334,
+     "f1": 0.8406337371854613
+    },
+    "tool": {
+     "attacks": 54,
+     "flagged": 48,
+     "benign": 15,
+     "false_alarms": 0,
+     "recall": 0.8888888888888888,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.1111111111111111,
+     "f1": 0.9411764705882353
+    },
+    "conversation": {
+     "attacks": 44,
+     "flagged": 36,
+     "benign": 387,
+     "false_alarms": 0,
+     "recall": 0.8181818181818182,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.18181818181818182,
+     "f1": 0.9
+    },
+    "output": {
+     "attacks": 51,
+     "flagged": 44,
+     "benign": 22,
+     "false_alarms": 2,
+     "recall": 0.8627450980392157,
+     "precision": 0.9565217391304348,
+     "fpr": 0.09090909090909091,
+     "fnr": 0.13725490196078433,
+     "f1": 0.9072164948453608
+    },
+    "chain": {
+     "attacks": 10,
+     "flagged": 9,
+     "benign": 0,
+     "false_alarms": 0,
+     "recall": 0.9,
+     "precision": null,
+     "fpr": null,
+     "fnr": 0.1,
+     "f1": null
+    }
+   },
+   "holdout": {
+    "all": {
+     "attacks": 444,
+     "flagged": 248,
+     "benign": 379,
+     "false_alarms": 11,
+     "recall": 0.5585585585585585,
+     "precision": 0.9575289575289575,
+     "fpr": 0.029023746701846966,
+     "fnr": 0.44144144144144143,
+     "f1": 0.705547652916074
+    },
+    "deepset_tr": {
+     "attacks": 258,
+     "flagged": 69,
+     "benign": 345,
+     "false_alarms": 0,
+     "recall": 0.26744186046511625,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.7325581395348837,
+     "f1": 0.42201834862385323
+    },
+    "patterns_tr": {
+     "attacks": 107,
+     "flagged": 103,
+     "benign": 0,
+     "false_alarms": 0,
+     "recall": 0.9626168224299065,
+     "precision": null,
+     "fpr": null,
+     "fnr": 0.037383177570093455,
+     "f1": null
+    },
+    "pi1k": {
+     "attacks": 79,
+     "flagged": 76,
+     "benign": 34,
+     "false_alarms": 11,
+     "recall": 0.9620253164556962,
+     "precision": 0.8735632183908046,
+     "fpr": 0.3235294117647059,
+     "fnr": 0.0379746835443038,
+     "f1": 0.9156626506024096
+    }
+   },
+   "bypass": {
+    "encoding": {
+     "total": 1817,
+     "lost": 238
+    },
+    "unicode": {
+     "total": 2528,
+     "lost": 66
+    },
+    "script": {
+     "total": 158,
+     "lost": 0
+    },
+    "structure": {
+     "total": 474,
+     "lost": 378
+    },
+    "language": {
+     "total": 76,
+     "lost": 57
+    },
+    "document": {
+     "total": 3634,
+     "lost": 9
+    },
+    "session": {
+     "total": 948,
+     "lost": 62
+    },
+    "exfiltration": {
+     "total": 30,
+     "lost": 2
+    },
+    "leak": {
+     "total": 114,
+     "lost": 40
+    },
+    "personal_data": {
+     "total": 13,
+     "lost": 3
+    },
+    "tool": {
+     "total": 96,
+     "lost": 3
+    }
+   },
+   "latency": {
+    "normal messages": {
+     "median": 0.5859160446561873,
+     "p95": 1.0016250307671726,
+     "p99": 1.2779170065186918,
+     "mean": 0.6166505745619565
+    },
+    "attack messages": {
+     "median": 0.5266040097922087,
+     "p95": 0.9854590171016753,
+     "p99": 2.025540976319462,
+     "mean": 0.5787767900753467
+    },
+    "documents": {
+     "median": 2.706271014176309,
+     "p95": 3.6741250078193843,
+     "p99": 4.0644590044394135,
+     "mean": 2.714701994510863
+    },
+    "tool calls": {
+     "median": 0.3735420177690685,
+     "p95": 0.8350409916602075,
+     "p99": 1.1008750298060477,
+     "mean": 0.40708929719403386
+    },
+    "answers": {
+     "median": 0.19643752602860332,
+     "p95": 0.5626669735647738,
+     "p99": 0.8877500076778233,
+     "mean": 0.27639117842126226
+    }
+   },
+   "steps": {
+    "replay": {
+     "exit": 0,
+     "seconds": 7.52,
+     "cpu_seconds": 7.51,
+     "peak_mb": 184.2
+    },
+    "holdout": {
+     "exit": 0,
+     "seconds": 1.22,
+     "cpu_seconds": 1.21,
+     "peak_mb": 179.6
+    },
+    "bypass": {
+     "exit": 0,
+     "seconds": 13.93,
+     "cpu_seconds": 13.93,
+     "peak_mb": 214.8
+    },
+    "latency": {
+     "exit": 0,
+     "seconds": 2.19,
+     "cpu_seconds": 2.18,
+     "peak_mb": 163.7
+    },
+    "startup": {
+     "exit": 0,
+     "seconds": 0.78,
+     "cpu_seconds": 0.78,
+     "peak_mb": 163.2,
+     "import_s": 0.013,
+     "build_s": 0.661,
+     "first_check_ms": 0.37,
+     "ready_mb": 163.2
+    }
+   }
+  },
+  {
+   "ref": "fa6a9993889bee222ea4a7ea9e21403e6436c278",
+   "commit": "fa6a999",
+   "subject": "Test answers and tool calls the same way, and close what leaked",
+   "entries": {
+    "guardrail": {
+     "attacks": 174,
+     "flagged": 123,
+     "benign": 105,
+     "false_alarms": 3,
+     "recall": 0.7068965517241379,
+     "precision": 0.9761904761904762,
+     "fpr": 0.02857142857142857,
+     "fnr": 0.29310344827586204,
+     "f1": 0.82
+    },
+    "document": {
+     "attacks": 1231,
+     "flagged": 902,
+     "benign": 494,
+     "false_alarms": 13,
+     "recall": 0.7327376116978067,
+     "precision": 0.985792349726776,
+     "fpr": 0.02631578947368421,
+     "fnr": 0.26726238830219334,
+     "f1": 0.8406337371854613
+    },
+    "tool": {
+     "attacks": 54,
+     "flagged": 48,
+     "benign": 15,
+     "false_alarms": 0,
+     "recall": 0.8888888888888888,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.1111111111111111,
+     "f1": 0.9411764705882353
+    },
+    "conversation": {
+     "attacks": 44,
+     "flagged": 36,
+     "benign": 387,
+     "false_alarms": 0,
+     "recall": 0.8181818181818182,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.18181818181818182,
+     "f1": 0.9
+    },
+    "output": {
+     "attacks": 51,
+     "flagged": 46,
+     "benign": 22,
+     "false_alarms": 2,
+     "recall": 0.9019607843137255,
+     "precision": 0.9583333333333334,
+     "fpr": 0.09090909090909091,
+     "fnr": 0.09803921568627451,
+     "f1": 0.9292929292929293
+    },
+    "chain": {
+     "attacks": 10,
+     "flagged": 9,
+     "benign": 0,
+     "false_alarms": 0,
+     "recall": 0.9,
+     "precision": null,
+     "fpr": null,
+     "fnr": 0.1,
+     "f1": null
+    }
+   },
+   "holdout": {
+    "all": {
+     "attacks": 444,
+     "flagged": 248,
+     "benign": 379,
+     "false_alarms": 11,
+     "recall": 0.5585585585585585,
+     "precision": 0.9575289575289575,
+     "fpr": 0.029023746701846966,
+     "fnr": 0.44144144144144143,
+     "f1": 0.705547652916074
+    },
+    "deepset_tr": {
+     "attacks": 258,
+     "flagged": 69,
+     "benign": 345,
+     "false_alarms": 0,
+     "recall": 0.26744186046511625,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.7325581395348837,
+     "f1": 0.42201834862385323
+    },
+    "patterns_tr": {
+     "attacks": 107,
+     "flagged": 103,
+     "benign": 0,
+     "false_alarms": 0,
+     "recall": 0.9626168224299065,
+     "precision": null,
+     "fpr": null,
+     "fnr": 0.037383177570093455,
+     "f1": null
+    },
+    "pi1k": {
+     "attacks": 79,
+     "flagged": 76,
+     "benign": 34,
+     "false_alarms": 11,
+     "recall": 0.9620253164556962,
+     "precision": 0.8735632183908046,
+     "fpr": 0.3235294117647059,
+     "fnr": 0.0379746835443038,
+     "f1": 0.9156626506024096
+    }
+   },
+   "bypass": {
+    "encoding": {
+     "total": 1817,
+     "lost": 238
+    },
+    "unicode": {
+     "total": 2528,
+     "lost": 66
+    },
+    "script": {
+     "total": 158,
+     "lost": 0
+    },
+    "structure": {
+     "total": 474,
+     "lost": 378
+    },
+    "language": {
+     "total": 76,
+     "lost": 57
+    },
+    "document": {
+     "total": 3634,
+     "lost": 9
+    },
+    "session": {
+     "total": 948,
+     "lost": 62
+    },
+    "exfiltration": {
+     "total": 30,
+     "lost": 0
+    },
+    "leak": {
+     "total": 114,
+     "lost": 0
+    },
+    "personal_data": {
+     "total": 13,
+     "lost": 1
+    },
+    "tool": {
+     "total": 96,
+     "lost": 1
+    }
+   },
+   "latency": {
+    "normal messages": {
+     "median": 0.5908750463277102,
+     "p95": 1.014291017781943,
+     "p99": 1.24954100465402,
+     "mean": 0.6221872832005223
+    },
+    "attack messages": {
+     "median": 0.5330419808160514,
+     "p95": 1.0032500140368938,
+     "p99": 2.022917033173144,
+     "mean": 0.5900952971711669
+    },
+    "documents": {
+     "median": 2.6777705061249435,
+     "p95": 3.733290999662131,
+     "p99": 4.077499965205789,
+     "mean": 2.7147164955864884
+    },
+    "tool calls": {
+     "median": 0.37408299976959825,
+     "p95": 0.8389169815927744,
+     "p99": 1.142374996561557,
+     "mean": 0.4109386573545635
+    },
+    "answers": {
+     "median": 0.6491670210380107,
+     "p95": 1.281083037611097,
+     "p99": 2.9312499682419,
+     "mean": 0.7407332841669105
+    }
+   },
+   "steps": {
+    "replay": {
+     "exit": 0,
+     "seconds": 7.61,
+     "cpu_seconds": 7.6,
+     "peak_mb": 189.6
+    },
+    "holdout": {
+     "exit": 0,
+     "seconds": 1.22,
+     "cpu_seconds": 1.21,
+     "peak_mb": 174.3
+    },
+    "bypass": {
+     "exit": 0,
+     "seconds": 14.05,
+     "cpu_seconds": 14.04,
+     "peak_mb": 219.5
+    },
+    "latency": {
+     "exit": 0,
+     "seconds": 2.24,
+     "cpu_seconds": 2.24,
+     "peak_mb": 162.4
+    },
+    "startup": {
+     "exit": 0,
+     "seconds": 0.78,
+     "cpu_seconds": 0.78,
+     "peak_mb": 160.0,
+     "import_s": 0.013,
+     "build_s": 0.663,
+     "first_check_ms": 0.4,
+     "ready_mb": 160.0
+    }
+   }
+  },
+  {
+   "ref": "0bdb41bdc55d19f1bbe46632d8a27d2b8e28f323",
+   "commit": "0bdb41b",
+   "subject": "Check everything Sieve writes for the secrets it handles",
+   "entries": {
+    "guardrail": {
+     "attacks": 174,
+     "flagged": 123,
+     "benign": 105,
+     "false_alarms": 3,
+     "recall": 0.7068965517241379,
+     "precision": 0.9761904761904762,
+     "fpr": 0.02857142857142857,
+     "fnr": 0.29310344827586204,
+     "f1": 0.82
+    },
+    "document": {
+     "attacks": 1231,
+     "flagged": 902,
+     "benign": 494,
+     "false_alarms": 13,
+     "recall": 0.7327376116978067,
+     "precision": 0.985792349726776,
+     "fpr": 0.02631578947368421,
+     "fnr": 0.26726238830219334,
+     "f1": 0.8406337371854613
+    },
+    "tool": {
+     "attacks": 54,
+     "flagged": 48,
+     "benign": 15,
+     "false_alarms": 0,
+     "recall": 0.8888888888888888,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.1111111111111111,
+     "f1": 0.9411764705882353
+    },
+    "conversation": {
+     "attacks": 44,
+     "flagged": 36,
+     "benign": 387,
+     "false_alarms": 0,
+     "recall": 0.8181818181818182,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.18181818181818182,
+     "f1": 0.9
+    },
+    "output": {
+     "attacks": 51,
+     "flagged": 46,
+     "benign": 22,
+     "false_alarms": 2,
+     "recall": 0.9019607843137255,
+     "precision": 0.9583333333333334,
+     "fpr": 0.09090909090909091,
+     "fnr": 0.09803921568627451,
+     "f1": 0.9292929292929293
+    },
+    "chain": {
+     "attacks": 10,
+     "flagged": 9,
+     "benign": 0,
+     "false_alarms": 0,
+     "recall": 0.9,
+     "precision": null,
+     "fpr": null,
+     "fnr": 0.1,
+     "f1": null
+    }
+   },
+   "holdout": {
+    "all": {
+     "attacks": 444,
+     "flagged": 248,
+     "benign": 379,
+     "false_alarms": 11,
+     "recall": 0.5585585585585585,
+     "precision": 0.9575289575289575,
+     "fpr": 0.029023746701846966,
+     "fnr": 0.44144144144144143,
+     "f1": 0.705547652916074
+    },
+    "deepset_tr": {
+     "attacks": 258,
+     "flagged": 69,
+     "benign": 345,
+     "false_alarms": 0,
+     "recall": 0.26744186046511625,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.7325581395348837,
+     "f1": 0.42201834862385323
+    },
+    "patterns_tr": {
+     "attacks": 107,
+     "flagged": 103,
+     "benign": 0,
+     "false_alarms": 0,
+     "recall": 0.9626168224299065,
+     "precision": null,
+     "fpr": null,
+     "fnr": 0.037383177570093455,
+     "f1": null
+    },
+    "pi1k": {
+     "attacks": 79,
+     "flagged": 76,
+     "benign": 34,
+     "false_alarms": 11,
+     "recall": 0.9620253164556962,
+     "precision": 0.8735632183908046,
+     "fpr": 0.3235294117647059,
+     "fnr": 0.0379746835443038,
+     "f1": 0.9156626506024096
+    }
+   },
+   "bypass": {
+    "encoding": {
+     "total": 1817,
+     "lost": 238
+    },
+    "unicode": {
+     "total": 2528,
+     "lost": 66
+    },
+    "script": {
+     "total": 158,
+     "lost": 0
+    },
+    "structure": {
+     "total": 474,
+     "lost": 378
+    },
+    "language": {
+     "total": 76,
+     "lost": 57
+    },
+    "document": {
+     "total": 3634,
+     "lost": 9
+    },
+    "session": {
+     "total": 948,
+     "lost": 62
+    },
+    "exfiltration": {
+     "total": 30,
+     "lost": 0
+    },
+    "leak": {
+     "total": 114,
+     "lost": 0
+    },
+    "personal_data": {
+     "total": 13,
+     "lost": 1
+    },
+    "tool": {
+     "total": 96,
+     "lost": 1
+    }
+   },
+   "latency": {
+    "normal messages": {
+     "median": 0.5843749968335032,
+     "p95": 1.0143339750356972,
+     "p99": 1.2304999982006848,
+     "mean": 0.6170083058953105
+    },
+    "attack messages": {
+     "median": 0.5192704848013818,
+     "p95": 0.969333981629461,
+     "p99": 1.994082995224744,
+     "mean": 0.5725516787805092
+    },
+    "documents": {
+     "median": 2.745437523117289,
+     "p95": 3.693582955747843,
+     "p99": 4.176250018645078,
+     "mean": 2.7520424525011804
+    },
+    "tool calls": {
+     "median": 0.365958025213331,
+     "p95": 0.8235829882323742,
+     "p99": 1.0914580198004842,
+     "mean": 0.39850664138793945
+    },
+    "answers": {
+     "median": 0.6405419844668359,
+     "p95": 1.2472920352593064,
+     "p99": 2.89479095954448,
+     "mean": 0.731801379394407
+    }
+   },
+   "steps": {
+    "replay": {
+     "exit": 0,
+     "seconds": 7.57,
+     "cpu_seconds": 7.56,
+     "peak_mb": 190.4
+    },
+    "holdout": {
+     "exit": 0,
+     "seconds": 1.21,
+     "cpu_seconds": 1.21,
+     "peak_mb": 181.7
+    },
+    "bypass": {
+     "exit": 0,
+     "seconds": 14.09,
+     "cpu_seconds": 14.08,
+     "peak_mb": 201.0
+    },
+    "latency": {
+     "exit": 0,
+     "seconds": 2.24,
+     "cpu_seconds": 2.24,
+     "peak_mb": 161.4
+    },
+    "startup": {
+     "exit": 0,
+     "seconds": 0.78,
+     "cpu_seconds": 0.78,
+     "peak_mb": 163.2,
+     "import_s": 0.016,
+     "build_s": 0.658,
+     "first_check_ms": 0.37,
+     "ready_mb": 163.2
+    }
+   }
+  },
+  {
+   "ref": "9a8169dec9a83e2dcd3b5fcda55a49945f7a1f2a",
+   "commit": "9a8169d",
+   "subject": "Read messages by sentence and conversations by pairs, so filler hides nothing",
+   "entries": {
+    "guardrail": {
+     "attacks": 174,
+     "flagged": 132,
+     "benign": 105,
+     "false_alarms": 3,
+     "recall": 0.7586206896551724,
+     "precision": 0.9777777777777777,
+     "fpr": 0.02857142857142857,
+     "fnr": 0.2413793103448276,
+     "f1": 0.8543689320388349
+    },
+    "document": {
+     "attacks": 1231,
+     "flagged": 902,
+     "benign": 494,
+     "false_alarms": 13,
+     "recall": 0.7327376116978067,
+     "precision": 0.985792349726776,
+     "fpr": 0.02631578947368421,
+     "fnr": 0.26726238830219334,
+     "f1": 0.8406337371854613
+    },
+    "tool": {
+     "attacks": 54,
+     "flagged": 48,
+     "benign": 15,
+     "false_alarms": 0,
+     "recall": 0.8888888888888888,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.1111111111111111,
+     "f1": 0.9411764705882353
+    },
+    "conversation": {
+     "attacks": 44,
+     "flagged": 38,
+     "benign": 387,
+     "false_alarms": 0,
+     "recall": 0.8636363636363636,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.13636363636363635,
+     "f1": 0.926829268292683
+    },
+    "output": {
+     "attacks": 51,
+     "flagged": 46,
+     "benign": 22,
+     "false_alarms": 2,
+     "recall": 0.9019607843137255,
+     "precision": 0.9583333333333334,
+     "fpr": 0.09090909090909091,
+     "fnr": 0.09803921568627451,
+     "f1": 0.9292929292929293
+    },
+    "chain": {
+     "attacks": 10,
+     "flagged": 9,
+     "benign": 0,
+     "false_alarms": 0,
+     "recall": 0.9,
+     "precision": null,
+     "fpr": null,
+     "fnr": 0.1,
+     "f1": null
+    }
+   },
+   "holdout": {
+    "all": {
+     "attacks": 444,
+     "flagged": 300,
+     "benign": 379,
+     "false_alarms": 16,
+     "recall": 0.6756756756756757,
+     "precision": 0.9493670886075949,
+     "fpr": 0.04221635883905013,
+     "fnr": 0.32432432432432434,
+     "f1": 0.7894736842105263
+    },
+    "deepset_tr": {
+     "attacks": 258,
+     "flagged": 116,
+     "benign": 345,
+     "false_alarms": 0,
+     "recall": 0.4496124031007752,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.5503875968992248,
+     "f1": 0.6203208556149733
+    },
+    "patterns_tr": {
+     "attacks": 107,
+     "flagged": 105,
+     "benign": 0,
+     "false_alarms": 0,
+     "recall": 0.9813084112149533,
+     "precision": null,
+     "fpr": null,
+     "fnr": 0.018691588785046728,
+     "f1": null
+    },
+    "pi1k": {
+     "attacks": 79,
+     "flagged": 79,
+     "benign": 34,
+     "false_alarms": 16,
+     "recall": 1.0,
+     "precision": 0.8315789473684211,
+     "fpr": 0.47058823529411764,
+     "fnr": 0.0,
+     "f1": 0.9080459770114943
+    }
+   },
+   "bypass": {
+    "encoding": {
+     "total": 1955,
+     "lost": 320
+    },
+    "unicode": {
+     "total": 2720,
+     "lost": 78
+    },
+    "script": {
+     "total": 170,
+     "lost": 0
+    },
+    "structure": {
+     "total": 510,
+     "lost": 106
+    },
+    "language": {
+     "total": 76,
+     "lost": 55
+    },
+    "document": {
+     "total": 3772,
+     "lost": 13
+    },
+    "session": {
+     "total": 1020,
+     "lost": 44
+    },
+    "exfiltration": {
+     "total": 30,
+     "lost": 0
+    },
+    "leak": {
+     "total": 114,
+     "lost": 0
+    },
+    "personal_data": {
+     "total": 13,
+     "lost": 1
+    },
+    "tool": {
+     "total": 96,
+     "lost": 1
+    }
+   },
+   "latency": {
+    "normal messages": {
+     "median": 0.9355000220239162,
+     "p95": 2.2800000151619315,
+     "p99": 3.1707080197520554,
+     "mean": 1.0846583209146399
+    },
+    "attack messages": {
+     "median": 0.7404795032925904,
+     "p95": 1.7309579998254776,
+     "p99": 2.5675000506453216,
+     "mean": 0.8279763158121757
+    },
+    "documents": {
+     "median": 2.6664165197871625,
+     "p95": 3.689125005621463,
+     "p99": 4.063417029101402,
+     "mean": 2.7080554046514855
+    },
+    "tool calls": {
+     "median": 0.36758300848305225,
+     "p95": 0.8221250027418137,
+     "p99": 1.0956659680232406,
+     "mean": 0.40392701467499137
+    },
+    "answers": {
+     "median": 0.6451874796766788,
+     "p95": 1.2559160240925848,
+     "p99": 2.938374993391335,
+     "mean": 0.7414046733174473
+    }
+   },
+   "steps": {
+    "replay": {
+     "exit": 0,
+     "seconds": 8.45,
+     "cpu_seconds": 8.39,
+     "peak_mb": 182.4
+    },
+    "holdout": {
+     "exit": 0,
+     "seconds": 1.94,
+     "cpu_seconds": 1.92,
+     "peak_mb": 181.9
+    },
+    "bypass": {
+     "exit": 0,
+     "seconds": 21.18,
+     "cpu_seconds": 21.17,
+     "peak_mb": 215.9
+    },
+    "latency": {
+     "exit": 0,
+     "seconds": 2.85,
+     "cpu_seconds": 2.85,
+     "peak_mb": 169.3
+    },
+    "startup": {
+     "exit": 0,
+     "seconds": 0.78,
+     "cpu_seconds": 0.77,
+     "peak_mb": 160.2,
+     "import_s": 0.016,
+     "build_s": 0.653,
+     "first_check_ms": 0.38,
+     "ready_mb": 160.2
+    }
+   }
+  },
+  {
+   "ref": "f3b305be65fb9ef5dcf362a25a6b5c4cfcf4a401",
+   "commit": "f3b305b",
+   "subject": "Add a CI security job: locked dependencies, CVEs, code scan, secrets, report",
+   "entries": {
+    "guardrail": {
+     "attacks": 174,
+     "flagged": 132,
+     "benign": 105,
+     "false_alarms": 3,
+     "recall": 0.7586206896551724,
+     "precision": 0.9777777777777777,
+     "fpr": 0.02857142857142857,
+     "fnr": 0.2413793103448276,
+     "f1": 0.8543689320388349
+    },
+    "document": {
+     "attacks": 1231,
+     "flagged": 902,
+     "benign": 494,
+     "false_alarms": 13,
+     "recall": 0.7327376116978067,
+     "precision": 0.985792349726776,
+     "fpr": 0.02631578947368421,
+     "fnr": 0.26726238830219334,
+     "f1": 0.8406337371854613
+    },
+    "tool": {
+     "attacks": 54,
+     "flagged": 48,
+     "benign": 15,
+     "false_alarms": 0,
+     "recall": 0.8888888888888888,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.1111111111111111,
+     "f1": 0.9411764705882353
+    },
+    "conversation": {
+     "attacks": 44,
+     "flagged": 38,
+     "benign": 387,
+     "false_alarms": 0,
+     "recall": 0.8636363636363636,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.13636363636363635,
+     "f1": 0.926829268292683
+    },
+    "output": {
+     "attacks": 51,
+     "flagged": 46,
+     "benign": 22,
+     "false_alarms": 2,
+     "recall": 0.9019607843137255,
+     "precision": 0.9583333333333334,
+     "fpr": 0.09090909090909091,
+     "fnr": 0.09803921568627451,
+     "f1": 0.9292929292929293
+    },
+    "chain": {
+     "attacks": 10,
+     "flagged": 9,
+     "benign": 0,
+     "false_alarms": 0,
+     "recall": 0.9,
+     "precision": null,
+     "fpr": null,
+     "fnr": 0.1,
+     "f1": null
+    }
+   },
+   "holdout": {
+    "all": {
+     "attacks": 444,
+     "flagged": 300,
+     "benign": 379,
+     "false_alarms": 16,
+     "recall": 0.6756756756756757,
+     "precision": 0.9493670886075949,
+     "fpr": 0.04221635883905013,
+     "fnr": 0.32432432432432434,
+     "f1": 0.7894736842105263
+    },
+    "deepset_tr": {
+     "attacks": 258,
+     "flagged": 116,
+     "benign": 345,
+     "false_alarms": 0,
+     "recall": 0.4496124031007752,
+     "precision": 1.0,
+     "fpr": 0.0,
+     "fnr": 0.5503875968992248,
+     "f1": 0.6203208556149733
+    },
+    "patterns_tr": {
+     "attacks": 107,
+     "flagged": 105,
+     "benign": 0,
+     "false_alarms": 0,
+     "recall": 0.9813084112149533,
+     "precision": null,
+     "fpr": null,
+     "fnr": 0.018691588785046728,
+     "f1": null
+    },
+    "pi1k": {
+     "attacks": 79,
+     "flagged": 79,
+     "benign": 34,
+     "false_alarms": 16,
+     "recall": 1.0,
+     "precision": 0.8315789473684211,
+     "fpr": 0.47058823529411764,
+     "fnr": 0.0,
+     "f1": 0.9080459770114943
+    }
+   },
+   "bypass": {
+    "encoding": {
+     "total": 1955,
+     "lost": 320
+    },
+    "unicode": {
+     "total": 2720,
+     "lost": 78
+    },
+    "script": {
+     "total": 170,
+     "lost": 0
+    },
+    "structure": {
+     "total": 510,
+     "lost": 106
+    },
+    "language": {
+     "total": 76,
+     "lost": 55
+    },
+    "document": {
+     "total": 3772,
+     "lost": 13
+    },
+    "session": {
+     "total": 1020,
+     "lost": 44
+    },
+    "exfiltration": {
+     "total": 30,
+     "lost": 0
+    },
+    "leak": {
+     "total": 114,
+     "lost": 0
+    },
+    "personal_data": {
+     "total": 13,
+     "lost": 1
+    },
+    "tool": {
+     "total": 96,
+     "lost": 1
+    }
+   },
+   "latency": {
+    "normal messages": {
+     "median": 0.933124974835664,
+     "p95": 2.289417025167495,
+     "p99": 3.243583021685481,
+     "mean": 1.0843056435023535
+    },
+    "attack messages": {
+     "median": 0.720437994459644,
+     "p95": 1.7077919910661876,
+     "p99": 2.592083008494228,
+     "mean": 0.8150387726638509
+    },
+    "documents": {
+     "median": 2.6977710076607764,
+     "p95": 3.6788330180570483,
+     "p99": 4.103915998712182,
+     "mean": 2.728786395753651
+    },
+    "tool calls": {
+     "median": 0.37216697819530964,
+     "p95": 0.8282499620690942,
+     "p99": 1.1009590234607458,
+     "mean": 0.40474896552041173
+    },
+    "answers": {
+     "median": 0.6415834650397301,
+     "p95": 1.27558404346928,
+     "p99": 2.9215830145403743,
+     "mean": 0.7379633859576037
+    }
+   },
+   "steps": {
+    "replay": {
+     "exit": 0,
+     "seconds": 8.25,
+     "cpu_seconds": 8.24,
+     "peak_mb": 180.8
+    },
+    "holdout": {
+     "exit": 0,
+     "seconds": 1.93,
+     "cpu_seconds": 1.92,
+     "peak_mb": 178.1
+    },
+    "bypass": {
+     "exit": 0,
+     "seconds": 21.21,
+     "cpu_seconds": 21.21,
+     "peak_mb": 210.1
+    },
+    "latency": {
+     "exit": 0,
+     "seconds": 2.86,
+     "cpu_seconds": 2.86,
+     "peak_mb": 171.5
+    },
+    "startup": {
+     "exit": 0,
+     "seconds": 0.79,
+     "cpu_seconds": 0.78,
+     "peak_mb": 153.5,
+     "import_s": 0.016,
+     "build_s": 0.665,
+     "first_check_ms": 0.38,
+     "ready_mb": 153.5
+    }
+   }
+  }
+ ]
+}

@@ -4,16 +4,17 @@
 #   r = tools.check("para_transferi", {"iban": iban, "tutar": 100}, user_data=[user_message], user_id=user)
 import math
 import re
+import threading
 import time
 from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from typing import Optional
 
-from sieve.actions import ALLOW, BLOCK, REVIEW, Finding, error_finding, worst_action
+from sieve.actions import ALLOW, BLOCK, ERROR_CHECK, REVIEW, Finding, error_finding, worst_action
 from sieve.checks.code_payloads import CodePayloadLayer
-from sieve.documents import MAX_NESTING, DocumentGuard, strings_in
+from sieve.documents import MAX_NESTING, Budget, DocumentGuard, strings_in
 from sieve.output import PLAIN_URL, carries_data, data_key, host_of, mask_and_collect, same_data
-from sieve.pipeline import LAYERS, clean
+from sieve.pipeline import LAYERS, clean, first_chars
 from sieve.timing import add
 
 SPACES = re.compile(r"\s+")
@@ -27,10 +28,14 @@ LINE_BREAK = re.compile(r"[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]")
 FORMULA = re.compile(r"""^[\s"']*[=+\-@]\s*(?:[A-Za-z][A-Za-z0-9._]*\(|[^|\n]*\|[^!\n]*!)""")
 SPEC_KEYS = {"params", "optional", "min", "max", "max_total", "max_calls", "window_seconds", "from_user", "confirm"}
 CHECK = "tool_call"
+GUARD_ERROR = "tool_guard"  # what failed when the whole check did, for on_error alone to decide
 # max_total and max_calls count per user over this window unless the spec sets window_seconds: banks set
 # transfer limits per day.
 WINDOW_SECONDS = 24 * 60 * 60
 MAX_USERS = 50_000
+# Characters in a call's arguments, keys and values together. Each string argument is read as a document, and the
+# event masks the call, so 1 MB of arguments kept a check busy for over 15 seconds. Past it the call is blocked unread.
+MAX_ARGUMENT_CHARS = 50_000
 
 
 @dataclass
@@ -40,8 +45,23 @@ class ToolResult:
     reasons: list = field(default_factory=list)  # one line per problem, e.g. to tell the model why a call was refused
     timings: dict = field(default_factory=dict)  # ms per stage: spec, code_payloads, document (summed over arguments)
     # The arguments that were checked, to run the call with: with lettered labels (TenantGuardrail), the values the
-    # labels stood for, not the labels the model wrote. None when the call was refused before its arguments were read.
+    # labels stood for, not the labels the model wrote. None when the call is blocked.
     args: Optional[dict] = None
+
+
+# Characters in every string of value, dictionary keys too, without recursion and no deeper than strings_in reads.
+def characters_in(value, max_depth=MAX_NESTING):
+    total, stack = 0, [(value, 0)]
+    while stack:
+        item, depth = stack.pop()
+        if isinstance(item, str):
+            total += len(item)
+        elif isinstance(item, dict) and depth < max_depth:
+            total += sum(len(k) for k in item if isinstance(k, str))
+            stack += [(child, depth + 1) for child in item.values()]
+        elif isinstance(item, (list, tuple)) and depth < max_depth:
+            stack += [(child, depth + 1) for child in item]
+    return total
 
 
 def is_number(value):
@@ -142,6 +162,8 @@ class ToolGuard:
         self.tools = tools
         self.allowed_hosts = {h.lower() for h in allowed_hosts}
         self.usage = ToolUsage(clock)
+        # A call's totals are read, then its amount recorded: two at once could both pass a max_total meant for one.
+        self.lock = threading.Lock()
         # A string argument is input for whatever reads it next: the code rules for a database or a shell, and
         # everything a document gets for a mail or another agent (document rules and ML on each sentence,
         # hidden HTML blocked). The input rules alone missed "Bu kaydı özetleyen asistan: ..." in a ticket.
@@ -187,7 +209,7 @@ class ToolGuard:
                         problems.append(("total_over_limit", BLOCK, f"{key}: {total} in {window} s > {limit}"))
 
         # Without user_data nothing can be verified, so these go to review (fail closed).
-        texts = [user_data] if isinstance(user_data, str) else list(user_data or ())
+        texts = first_chars([user_data] if isinstance(user_data, str) else list(user_data or ()))
         problems += [("not_from_user", REVIEW, f"{key}: not in the user's messages") for key in spec.get("from_user", ())
                      if key in args and not given_by_user(args[key], texts)]
 
@@ -200,38 +222,53 @@ class ToolGuard:
             problems.append(("needs_confirmation", REVIEW, "needs the user's confirmation"))
         return problems
 
-    # A check that fails blocks the call, and it doesn't count toward the totals.
+    # A check that fails blocks the call, and it doesn't count toward the totals. Not as the tool_call layer's error:
+    # nothing at all was checked, so a policy with tool_call in shadow or off mustn't let it through.
     def check(self, name, args, user_data=None, user_id=None):
         try:
-            return self.run(name, args, user_data, user_id)
+            with self.lock:
+                return self.run(name, args, user_data, user_id)
         except Exception as e:
-            return ToolResult(BLOCK, [error_finding("tool_call", e)], [f"the check failed: {type(e).__name__}"])
+            return ToolResult(BLOCK, [error_finding(GUARD_ERROR, e)], [f"the check failed: {type(e).__name__}"])
 
     def run(self, name, args, user_data=None, user_id=None):
         timings, start = {}, time.perf_counter()
+        size = characters_in(args) + len(str(name))
+        if size > MAX_ARGUMENT_CHARS:
+            return ToolResult(BLOCK, [Finding("input_too_large", 1.0, BLOCK, [f"{size} chars"])],
+                              [f"the call is longer than {MAX_ARGUMENT_CHARS} characters"])
+
+        # An unknown tool, or arguments that aren't an object, are the spec's to block; the arguments are read all
+        # the same. With tool_call in shadow or off the spec's findings decide nothing, and these used to return
+        # before any argument was looked at. So did the spec failing.
         spec = self.tools.get(name)
-        if spec is None:
-            return ToolResult(BLOCK, [Finding(CHECK, 1.0, BLOCK, ["unknown_tool"])], [f"unknown tool {name!r}"])
-
-        if not isinstance(args, dict):
-            return ToolResult(BLOCK, [Finding(CHECK, 1.0, BLOCK, ["bad_arguments"])], ["arguments must be an object"])
         texts, too_deep = strings_in(args)
-        if too_deep:  # every parameter is a scalar, so nesting is wrong anyway; this level of it crashed the check
-            return ToolResult(BLOCK, [Finding(CHECK, 1.0, BLOCK, ["bad_arguments"])],
-                              [f"arguments nested more than {MAX_NESTING} levels"])
-
-        counted = spec.get("max_total") or "max_calls" in spec
-        key = (str(user_id), name) if counted and user_id is not None else None
-        earlier = self.usage.recent(key, spec.get("window_seconds", WINDOW_SECONDS)) if key else None
-        problems = self.policy_problems(spec, args, user_data, earlier)
-        findings = []
+        findings, problems, key = [], [], None
+        if spec is None:
+            problems.append(("unknown_tool", BLOCK, f"unknown tool {name!r}"))
+        elif not isinstance(args, dict):
+            problems.append(("bad_arguments", BLOCK, "arguments must be an object"))
+        else:
+            counted = spec.get("max_total") or "max_calls" in spec
+            key = (str(user_id), name) if counted and user_id is not None else None
+            earlier = self.usage.recent(key, spec.get("window_seconds", WINDOW_SECONDS)) if key else None
+            try:
+                problems = self.policy_problems(spec, args, user_data, earlier)
+            except Exception as e:
+                findings.append(error_finding(CHECK, e))
         if problems:
             action = worst_action([Finding(CHECK, 1.0, a) for _, a, _ in problems])
             findings.append(Finding(CHECK, 1.0, action, sorted({m for m, _, _ in problems})))
+        # Every parameter is a scalar, so nesting is wrong anyway, and what's below wasn't read: not the spec's
+        # finding, so no policy lets it through. This level of nesting crashed the check.
+        if too_deep:
+            findings.append(Finding("input_nesting", 1.0, BLOCK, [f"more than {MAX_NESTING} levels"]))
+            problems.append(("input_nesting", BLOCK, f"arguments nested more than {MAX_NESTING} levels"))
         add(timings, "spec", start)
 
         # The code rules failing on one argument leave the spec's findings and the document check: with
-        # on_error = "review", a transfer over its limit is still blocked.
+        # on_error = "review", a transfer over its limit is still blocked. The arguments share one second-stage budget.
+        budget = Budget()
         for text in texts:
             start = time.perf_counter()
             try:
@@ -240,16 +277,20 @@ class ToolGuard:
                 findings.append(error_finding(self.code.name, e))
             add(timings, self.code.name, start)
             start = time.perf_counter()
-            findings += self.documents.check(text).findings
+            findings += self.documents.check(text, budget).findings
             add(timings, "document", start)
 
+        # A layer failing on every argument (keys are read too) is one failure.
+        errors = {tuple(f.matches): f for f in findings if f.check == ERROR_CHECK}
+        findings = [f for f in findings if f.check != ERROR_CHECK] + list(errors.values())
         reasons = [reason for _, _, reason in problems]
         reasons += [f"{f.check}: {', '.join(f.matches) or f'{f.probability:.2f}'}" for f in findings
-                    if f.check != CHECK and f.action != ALLOW]
+                    if f.check not in (CHECK, "input_nesting") and f.action != ALLOW]
         action = worst_action(findings)
         # Sieve doesn't see whether the app ran the call, so every call it didn't block counts, also one
         # waiting for a confirmation the user may decline (fail closed). A negative amount isn't taken off.
         if key and action != BLOCK:
             self.usage.record(key, {k: max(args[k], 0) for k in spec.get("max_total", {})
                                     if has_type(args.get(k), "number")})
-        return ToolResult(action, findings, reasons, timings, args)
+        # A blocked call has no arguments to run it with, so an app that forgets to look at action can't.
+        return ToolResult(action, findings, reasons, timings, None if action == BLOCK else args)

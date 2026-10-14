@@ -22,7 +22,7 @@ def test_parts_split_sentences_hidden_html_and_json():
     html = f"<p>Kampanya başladı. Detaylar yakında!</p><!-- {ATTACK} --><span class=\"sr-only\">Menü</span>"
     assert parts_of(html) == [(ATTACK, True), ("Menü", True), ("Kampanya başladı.", False), ("Detaylar yakında!", False)]
     data = json.dumps({"durum": "kargoda", "notlar": ["Adres teyit edildi.", {"ic": ATTACK}]}, ensure_ascii=False)
-    assert [p for p, _ in parts_of(data)] == ["kargoda", "Adres teyit edildi.", ATTACK]
+    assert [p for p, _ in parts_of(data)] == ["durum", "kargoda", "notlar", "Adres teyit edildi.", "ic", ATTACK]
 
 
 DOCUMENTS = [

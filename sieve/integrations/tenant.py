@@ -1,7 +1,10 @@
 # Per-tenant TOML policy (layers, modes, rule exceptions); decisions go to siem.py.
 #   guard = TenantGuardrail(load_policy("example_bank"))
+import functools
 import json
 import logging
+import re
+import threading
 import time
 import tomllib
 import uuid
@@ -11,7 +14,7 @@ from pathlib import Path
 
 from sieve.actions import ACTION_ORDER, ALLOW, BLOCK, ERROR_CHECK, REVIEW, Finding, action_for, error_finding, worst_action
 from sieve.checks.indirect import IndirectInjectionLayer
-from sieve.documents import DocumentGuard, DocumentResult
+from sieve.documents import BUDGET_CHECK, MAX_DOCUMENT_CHARS, DocumentGuard, DocumentResult
 from sieve.integrations.siem import count_decision, emit, fired, to_event
 from sieve.integrations.throttle import MAX_KEYS, ConversationWindow, RateLimiter, SessionLimiter, bounded_get
 from sieve.ml.injection import MLInjectionLayer, unavailable_reason
@@ -21,14 +24,18 @@ from sieve.pipeline import LAYERS, Guardrail, GuardrailResult, default_check_lay
 from sieve.rules import RULES, rule_ids
 from sieve.timing import add, since
 from sieve.tools import CHECK as TOOL_CHECK
-from sieve.tools import ToolGuard, ToolResult, spec_problems
+from sieve.tools import MAX_ARGUMENT_CHARS, ToolGuard, ToolResult, spec_problems
 from sieve.vault import Vault
 
 POLICY_DIR = POLICIES
 MODES = ("enforce", "monitor")
 LAYER_MODES = ("enforce", "shadow", "off")
-KEYS = {"version", "mode", "on_error", "max_check_chars", "log_excerpt", "log_allowed", "disabled_rules", "masking",
-        "layers", "thresholds", "actions", "session", "url_check", "tools"}
+# A value of the wrong type used to load and then fail or mislead at run time: max_check_chars = "8000" blocked every
+# message, 0 read nothing and only reviewed, a string of hosts became a set of letters.
+KEY_TYPES = {"version": str, "mode": str, "on_error": str, "max_check_chars": int, "log_excerpt": bool,
+             "log_allowed": bool, "disabled_rules": list, "masking": dict, "layers": dict, "thresholds": dict,
+             "actions": dict, "session": dict, "url_check": dict, "tools": dict}
+KEYS = set(KEY_TYPES)
 # Layers that report a score: a policy can set where review and block start ([thresholds.<layer>]), and the
 # decision is made again from the score. The other checks (tool specs, answers, sessions) decide by rule.
 SCORED_LAYERS = ("tampering", "prompt_injection_rules", "code_payloads", "url_check", "indirect_injection",
@@ -43,7 +50,20 @@ MESSAGES, DOCUMENTS = SCOPES
 ON_ERROR = ("block", "review", "allow")
 SESSION_KEYS = {"max_requests_per_minute", "max_chars_per_window", "max_flagged", "cooldown_seconds",
                 "window_seconds", "context_messages"}
+# Each is a whole number at least this: a negative cooldown never paused anyone, a window of "600" blocked every
+# message. context_messages below 2 turns the split check off, which is the policy's call.
+SESSION_MINIMUM = {"max_requests_per_minute": 1, "max_chars_per_window": 1, "max_flagged": 1, "cooldown_seconds": 1,
+                   "window_seconds": 1, "context_messages": 0}
+URL_CHECK_KEYS = {"allowed_hosts"}
+# A host name is labels with dots between, two at least: "com" or "" let every link through in answers and tool
+# arguments, where a subdomain of an allowed host is allowed too, and a scheme, a path or a "*" never matched anything.
+# One label at a time: the whole name in one pattern backtracked, 8,000 characters of "1111!" took 0.4 s.
+HOST_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", re.IGNORECASE)
+# Message layers, which a Guardrail passed to TenantGuardrail must have unless the policy turns them off.
+MESSAGE_LAYERS = ("tampering", "prompt_injection_rules", "code_payloads", "url_check", "prompt_injection_ml")
 SESSION_CHECKS = {"session", "session_split"}  # both follow the "session" layer mode
+LEAK_CHECKS = ("canary", "prompt_overlap")
+LEAK_REDACTED = "[SISTEM_PROMPTU]"
 # [masking] lettered_labels = true: [IBAN_A], [IBAN_B] per session instead of [IBAN] (vault.py)
 LETTERED = "lettered_labels"
 # What a lettered label in a tool argument means when it can't be used as it stands.
@@ -83,9 +103,51 @@ def read_toml(path):
         return tomllib.load(f)
 
 
+def has_type(value, kind):
+    return isinstance(value, kind) and not (kind is int and isinstance(value, bool))
+
+
+# The keys that must be there and the type of each; the rest can't be checked until these are right.
+def type_problems(data):
+    problems = [f"unknown key {k!r}" for k in data if k not in KEYS]
+    problems += [f"missing key {k!r}" for k in ("version", "mode", "max_check_chars", "log_excerpt", "log_allowed",
+                                                 "disabled_rules", "masking", "layers") if k not in data]
+    problems += [f"{k} must be {KEY_TYPES[k].__name__}" for k, v in data.items()
+                 if k in KEY_TYPES and not has_type(v, KEY_TYPES[k])]
+    return problems
+
+
+def session_problems(session):
+    problems = [f"unknown session key {k!r}" for k in session if k not in SESSION_KEYS]
+    problems += [f"[session] {k} must be a whole number of at least {SESSION_MINIMUM[k]}" for k, v in session.items()
+                 if k in SESSION_MINIMUM and not (has_type(v, int) and v >= SESSION_MINIMUM[k])]
+    return problems
+
+
+def is_host_name(host):
+    labels = host.split(".") if isinstance(host, str) else []
+    return len(labels) >= 2 and all(HOST_LABEL.fullmatch(label) for label in labels)
+
+
+def url_check_problems(url_check):
+    problems = [f"unknown url_check key {k!r}" for k in url_check if k not in URL_CHECK_KEYS]
+    hosts = url_check.get("allowed_hosts", [])
+    if not isinstance(hosts, list):
+        return problems + ["[url_check] allowed_hosts must be a list of host names"]
+    return problems + [f"[url_check] allowed host {h!r} must be a host name like \"www.ornekbank.com.tr\"" for h in hosts
+                       if not is_host_name(h)]
+
+
 # Typos in a policy must fail loudly: a misspelled rule ID would silently keep the rule on.
 def validate(data, source):
-    problems = [f"unknown key {k!r}" for k in data if k not in KEYS]
+    problems = type_problems(data)
+    if problems:
+        raise ValueError(f"{source}: " + "; ".join(problems))
+    if data["max_check_chars"] < 1:
+        problems.append("max_check_chars must be at least 1")
+    if not all(isinstance(r, str) for r in data["disabled_rules"]):
+        problems.append("disabled_rules must be a list of rule IDs")
+        data = {**data, "disabled_rules": []}
     if data["mode"] not in MODES:
         problems.append(f"mode must be one of {MODES}")
     if data.get("on_error", "block") not in ON_ERROR:
@@ -105,7 +167,8 @@ def validate(data, source):
     problems += [f"unknown rule {r!r}" for r in data["disabled_rules"] if r not in RULES]
     problems += threshold_problems(data.get("thresholds", {}))
     problems += action_problems(data.get("actions", {}))
-    problems += [f"unknown session key {k!r}" for k in data.get("session", {}) if k not in SESSION_KEYS]
+    problems += session_problems(data.get("session", {}))
+    problems += url_check_problems(data.get("url_check", {}))
     problems += [p for name, spec in data.get("tools", {}).items() for p in spec_problems(name, spec)]
     if problems:
         raise ValueError(f"{source}: " + "; ".join(problems))
@@ -175,9 +238,13 @@ def load_policy(tenant="default", directory=POLICY_DIR, overrides=None):
     if overrides:
         data = merge(data, overrides)
     validate(data, f"policy {tenant!r}")
-    # Loosening is the policy's call, but it shouldn't go unnoticed: a rule that no longer counts, a layer
-    # that can no longer block.
-    loosened = sorted(f"{rule} = allow" for rule, action in data.get("actions", {}).items() if action == ALLOW)
+    # Loosening is the policy's call, but it shouldn't go unnoticed: nothing blocked, an unchecked message let
+    # through, a layer that decides nothing, a rule that no longer counts, a layer that can no longer block.
+    loosened = ["monitor mode"] if data["mode"] == "monitor" else []
+    loosened += [f"on_error = {data['on_error']}"] if data.get("on_error", BLOCK) != BLOCK else []
+    loosened += sorted(f"{layer} = {mode}" for layer, mode in data["layers"].items() if mode != "enforce")
+    loosened += sorted(f"{rule} disabled" for rule in data["disabled_rules"])
+    loosened += sorted(f"{rule} = allow" for rule, action in data.get("actions", {}).items() if action == ALLOW)
     loosened += sorted(f"{layer} never blocks" for layer, limits in data.get("thresholds", {}).items()
                        if limits.get("block_at") == NEVER)
     loosened += sorted(f"{layer} never blocks in {scope}" for layer, limits in data.get("thresholds", {}).items()
@@ -242,14 +309,36 @@ def as_allowed(finding, **flags):
                    would_action=finding.action, **flags)
 
 
+# The layer whose mode a finding follows: the split check's is the session's, and parts the ML layer's second stage
+# had no budget for are the ML layer's, so a policy with it in shadow isn't reviewed for them.
 def layer_of(check):
+    if check == BUDGET_CHECK:
+        return MLInjectionLayer.name
     return "session" if check in SESSION_CHECKS else check
+
+
+# One call at a time per guard. The session state is shared: 8 threads at once got 3% of messages blocked by a check
+# that raised mid-update, and two transfers could both pass a max_total meant for one.
+def one_at_a_time(method):
+    @functools.wraps(method)
+    def locked(self, *args, **kwargs):
+        with self.lock:
+            return method(self, *args, **kwargs)
+    return locked
 
 
 class TenantGuardrail:
     # system_prompt (and an optional fixed canary) are for the answer check: give the model guard.system_prompt.
     def __init__(self, policy, guardrail=None, clock=time.monotonic, system_prompt="", canary=None):
         self.policy = policy
+        self.lock = threading.RLock()
+        if guardrail is not None:
+            # A layer the policy runs but the Guardrail doesn't have would never be asked: fail loudly instead.
+            have = {layer.name for layer in guardrail.check_layers}
+            missing = [name for name in MESSAGE_LAYERS if policy.layers.get(name, "enforce") != "off" and name not in have]
+            if missing:
+                raise ValueError(f"policy {policy.tenant!r} runs {', '.join(missing)}, which the Guardrail given doesn't "
+                                 "have; give one that does, or set them to \"off\" in [layers]")
         self.guard = guardrail or build_guardrail(policy)
 
         limits = policy.session
@@ -259,7 +348,7 @@ class TenantGuardrail:
                                 window, clock)
         self.limiter = SessionLimiter(limits.get("max_flagged", 3), window, limits.get("cooldown_seconds", 900), clock)
         self.context_messages = limits.get("context_messages", 4)
-        self.conversation = ConversationWindow(self.context_messages, window, clock)
+        self.conversation = ConversationWindow(self.context_messages)
         # The same ML layer as for messages, so its shadow mode and "off" apply to documents and tool arguments too.
         ml = next((layer for layer in self.guard.check_layers if layer.name == MLInjectionLayer.name), None)
         self.tools = ToolGuard(policy.tools, policy.allowed_hosts, ml_layer=ml, use_ml=ml is not None)
@@ -284,6 +373,7 @@ class TenantGuardrail:
 
     # A document as the model should get it (DocumentGuard.wrap), masked with the policy's layers; with lettered
     # labels, its values join the session's vault as a document's.
+    @one_at_a_time
     def wrap(self, text, session_id=None, **wrap_args):
         return self.documents.wrap(text, vault=self.vault(session_id), **wrap_args)
 
@@ -351,23 +441,49 @@ class TenantGuardrail:
         return {rule_id for f in findings if fired(f) and not f.shadow and not (flagged_only and f.action == ALLOW)
                 for rule_id, _ in rule_ids(f) if self.enforced_rule(rule_id, f.check)}
 
-    # Rules that fire on the last few messages joined but on none of them alone. A layer that fails on the joined
-    # text is a layer_error like any other, for on_error to decide; the other layers still run.
+    # The message joined with what came before it: with each earlier message on its own (its start and its end
+    # separately), and with the last two, three... messages in a row. Each with the rules its messages fired alone.
+    # The history was only ever joined whole: a harmless message between the halves watered the attack down, and a
+    # message that had fired the rule earlier hid every later split of it.
+    def split_candidates(self, history, current):
+        own = self.local_rules(current.findings)
+        candidates = {}
+
+        def add(texts, rules):
+            joined = "\n".join(texts + [current.text])[-self.guard.max_check_chars:]
+            candidates[joined] = candidates.get(joined, rules) & rules  # the same text: the fewest rules seen
+
+        for pieces, rules in history:
+            for piece in pieces:
+                add([piece], rules | own)
+        for k in range(1, len(history) + 1):
+            last = history[-k:]
+            add(["\n".join(pieces) for pieces, _ in last], frozenset().union(own, *(rules for _, rules in last)))
+        return candidates
+
+    # Rules that fire on the message joined with earlier ones but on none of them alone. A layer that fails on a
+    # joined text is a layer_error like any other, for on_error to decide; the other layers still run.
     def split_attack(self, session, result):
         history = self.conversation.history(session)
         if self.context_messages < 2 or not history:
             return []
 
-        joined = "\n".join([text for text, _ in history] + [result.text])[-self.guard.max_check_chars:]
-        joined_findings, errors = [], []
+        candidates = self.split_candidates(history, result)
+        texts = list(candidates)
+        findings, errors = [[] for _ in texts], []
         for layer in self.guard.check_layers:
             try:
-                joined_findings += layer.check(joined)
+                if hasattr(layer, "check_many"):  # the ML layer: one batch for the second stage
+                    for found, more in zip(findings, layer.check_many(texts)[0]):
+                        found += more
+                else:
+                    for found, text in zip(findings, texts):
+                        found += layer.check(text)
             except Exception as e:
                 errors.append(error_finding(layer.name, e))
 
-        seen = set().union(*(rules for _, rules in history)) | self.local_rules(result.findings)
-        new = sorted(self.local_rules(joined_findings, flagged_only=True) - seen)
+        new = sorted({rule for text, found in zip(texts, findings)
+                      for rule in self.local_rules(found, flagged_only=True) - candidates[text]})
         if not new:
             return errors
         # Joining messages can pair words that were never meant together, so review, never block.
@@ -405,11 +521,13 @@ class TenantGuardrail:
         try:
             emit(to_event(result, BLOCK, self.policy, original="", session_id=session_id, user_id=user_id,
                           direction=direction, request_id=request_id, checked=count_decision()))
-        except Exception:
-            pass  # the event may be what failed; the decision stands
+        # The event may be what failed; the decision stands, and failing again can't change it.
+        except Exception:  # nosec B110
+            pass
         return result
 
     # request_id: the input check's (result.request_id), so the SIEM can join a request's events.
+    @one_at_a_time
     def check_tool(self, name, args, user_data=None, session_id=None, user_id=None, request_id=None):
         try:
             return self.run_tool(name, args, user_data, session_id, user_id, request_id)
@@ -417,6 +535,7 @@ class TenantGuardrail:
             failure = self.failed(e, "tool", session_id, user_id, request_id)
             return ToolResult(BLOCK, failure.findings, [f"the check failed: {type(e).__name__}"])
 
+    @one_at_a_time
     def check_document(self, text, session_id=None, user_id=None, request_id=None):
         try:
             return self.run_document(text, session_id, user_id, request_id)
@@ -426,6 +545,7 @@ class TenantGuardrail:
     # The model's answer, checked by OutputGuard and then the policy, like a message. Masking and link
     # cleaning always apply; the policy decides whether the answer is shown, reviewed or replaced. An
     # answer whose check failed is never shown, whatever on_error says: there's no checked text to show.
+    @one_at_a_time
     def check_output(self, answer, user_data=None, session_id=None, user_id=None, request_id=None):
         try:
             return self.run_output(answer, user_data, session_id, user_id, request_id)
@@ -441,11 +561,16 @@ class TenantGuardrail:
         vault = self.vault(session_id)
         if vault is not None and text != SAFE_REPLY:
             text = vault.reveal(text)  # the user's own values, to the user; a document's stay labels
-        self.log("output", answer, lambda: result.answer, decision, start, timings, session_id, user_id, request_id)
+        # An answer that leaked the system prompt is the system prompt, canary and all: its event keeps neither, so
+        # whoever reads the SIEM doesn't read the prompt in the excerpt. The rules say what leaked.
+        leaked = any(f.check in LEAK_CHECKS and fired(f) for f in result.findings)
+        self.log("output", answer, lambda: LEAK_REDACTED if leaked else result.answer, decision, start, timings,
+                 session_id, user_id, request_id)
         return OutputResult(text, action, findings, answer=result.answer, timings=timings)
 
     # A message starts a request: without a request_id from the app, it gets one (result.request_id) to pass on to the
     # document, tool and answer checks of the same request.
+    @one_at_a_time
     def check(self, text, session_id=None, user_id=None, direction="input", request_id=None):
         if request_id is None and direction == "input":
             request_id = uuid.uuid4().hex
@@ -469,9 +594,11 @@ class TenantGuardrail:
         timings = dict(result.timings)
         decision = findings, action, _ = self.decide(self.used(label_findings + result.findings), timings, DOCUMENTS)
         call = f"{name} {json.dumps(args, ensure_ascii=False, sort_keys=True, default=str)}"
-        self.log("tool", call, lambda: mask(call, self.guard.masking_layers), decision, start, timings, session_id,
-                 user_id, request_id)
-        return ToolResult(action, findings, result.reasons, timings, result.args)
+        self.log("tool", call, lambda: mask(call[:MAX_ARGUMENT_CHARS], self.guard.masking_layers), decision, start,
+                 timings, session_id, user_id, request_id)
+        # The arguments as checked, unless the call is blocked: shadow or monitor mode can let through a call
+        # ToolGuard itself blocked.
+        return ToolResult(action, findings, result.reasons, timings, None if action == BLOCK else args)
 
     # A document the model will read (retrieved page, e-mail, tool result); see documents.py.
     def run_document(self, text, session_id=None, user_id=None, request_id=None):
@@ -479,8 +606,9 @@ class TenantGuardrail:
         result = self.documents.check(text)
         timings = dict(result.timings)
         decision = findings, action, _ = self.decide(self.used(result.findings), timings, DOCUMENTS)
-        self.log("document", text, lambda: mask(text, self.guard.masking_layers), decision, start, timings, session_id,
-                 user_id, request_id)
+        # The event's text is what the check read: masking all of a 1 MB document took seconds more.
+        self.log("document", text, lambda: mask(text[:MAX_DOCUMENT_CHARS], self.guard.masking_layers), decision, start,
+                 timings, session_id, user_id, request_id)
         return DocumentResult(action, findings, result.flagged_parts, timings)
 
     def run(self, text, session_id=None, user_id=None, direction="input", request_id=None):

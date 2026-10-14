@@ -7,7 +7,7 @@
 # Each compiled pattern in sieve/ gets long runs of single characters, pairs and short pieces (the pattern's own
 # words among them), at two lengths. One that takes over 3 times longer at twice the length, and over 20 ms, is
 # reported. Then each entry point gets long runs of the same kind, also at two lengths. Slow but linear isn't
-# reported (masking a long run of digits is, at about 13 µs a character); the slowest time is printed. Passing
+# reported (masking a long run of digits is, at about 5 µs a character); the slowest time is printed. Passing
 # isn't a proof: only these shapes are tried. Exits 1 when something is reported. Needs SIGALRM (not Windows).
 import argparse
 import importlib
@@ -39,7 +39,8 @@ PIECES = list("ışİüйé\u200b\u00a0^`") + [
     "http://[", "http://[a]", "http://[::1]", "www.[", "http://a\uff20", "[EPOSTA]",
 ]
 # Entry point -> length of its longer inputs. A message is checked up to 8,000 characters but masked whole.
-LENGTHS = {"message": 8_000, "masking": 200_000, "document": 50_000, "tool argument": 50_000, "answer": 100_000}
+# A tool call is refused unread past 50,000 characters (MAX_ARGUMENT_CHARS), an answer cut past 50,000.
+LENGTHS = {"message": 8_000, "masking": 200_000, "document": 50_000, "tool argument": 45_000, "answer": 100_000}
 
 
 class TooSlow(BaseException):  # not an Exception, so the checks' fail-closed handlers don't swallow it
@@ -92,7 +93,13 @@ def patterns(guards):
                 walk(value, f"{where}.{key}", depth + 1)
 
     for info in pkgutil.walk_packages(sieve.__path__, "sieve."):
-        module = importlib.import_module(info.name)
+        # A module whose optional dependency isn't installed (torch for the LLM layer) is left out and said so,
+        # rather than stopping the run: CI's security job installs the core only.
+        try:
+            module = importlib.import_module(info.name)
+        except ImportError as e:
+            print(f"  skipped {info.name}: {e.name} isn't installed")
+            continue
         for name, value in vars(module).items():
             if not (isinstance(value, type) and value.__module__ != module.__name__):
                 walk(value, f"{info.name}.{name}")

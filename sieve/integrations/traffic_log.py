@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import time
 from pathlib import Path
 
@@ -44,7 +45,9 @@ class LoggingGuardrail(Guardrail):
 
     def check(self, text, session_id="unknown"):
         result = super().check(text)
-        self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.log_path, "a", encoding="utf-8") as f:
+        # Readable by its owner only: masking misses some values, and the directory and file came out readable by every
+        # user on the machine. A file that's already there keeps its mode.
+        self.log_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with open(os.open(self.log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600), "a", encoding="utf-8") as f:
             f.write(json.dumps(to_record(result, session_id), ensure_ascii=False) + "\n")
         return result

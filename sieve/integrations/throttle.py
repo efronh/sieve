@@ -1,7 +1,8 @@
 import time
-from collections import OrderedDict, defaultdict, deque
+from collections import OrderedDict, deque
 
 from sieve.actions import ALLOW
+from sieve.pipeline import SENTENCE_END
 
 MAX_FLAGGED = 3
 WINDOW_SECONDS = 10 * 60
@@ -16,15 +17,18 @@ LIMITED_REPLY = "Çok sayıda engellenen mesaj nedeniyle bu oturum kısa bir sü
 
 # A session that keeps getting flagged is probing the guardrail: after a few
 # flagged messages in a short window, stop spending tokens on it for a while.
+# Least recently used sessions are dropped, as in the other limiters: these two kept every session that was ever
+# flagged, and one flagged message from each of millions of IDs grew them without end.
 class SessionLimiter:
     def __init__(self, max_flagged=MAX_FLAGGED, window_seconds=WINDOW_SECONDS,
-                 cooldown_seconds=COOLDOWN_SECONDS, clock=time.monotonic):
+                 cooldown_seconds=COOLDOWN_SECONDS, clock=time.monotonic, max_keys=MAX_KEYS):
         self.max_flagged = max_flagged
         self.window_seconds = window_seconds
         self.cooldown_seconds = cooldown_seconds
         self.clock = clock
-        self.flagged = defaultdict(deque)
-        self.limited_until = {}
+        self.max_keys = max_keys
+        self.flagged = OrderedDict()
+        self.limited_until = OrderedDict()
 
     def is_limited(self, session):
         until = self.limited_until.get(session)
@@ -39,11 +43,12 @@ class SessionLimiter:
         if action == ALLOW:
             return
         now = self.clock()
-        times = self.flagged[session]
+        times = bounded_get(self.flagged, session, deque, self.max_keys)
         times.append(now)
         while times and now - times[0] > self.window_seconds:
             times.popleft()
         if len(times) >= self.max_flagged:
+            bounded_get(self.limited_until, session, float, self.max_keys)
             self.limited_until[session] = now + self.cooldown_seconds
             times.clear()
 
@@ -91,26 +96,24 @@ class RateLimiter:
         return exceeded
 
 
-# Split attacks: "Önceki talimatları" in one message, "unut" in the next. Keeps the tail of the
-# last few masked messages of a session and the rule IDs each one fired on its own.
+# Split attacks: "Önceki talimatları" in one message, "unut" in the next. Keeps the last few masked messages of a
+# session, a long one as its first and its last sentence (CONTEXT_CHARS in all), and the rule IDs each one fired on its
+# own. Only the end was kept, so a part at the start of a long message was gone. Messages don't expire: the model still reads the
+# conversation after ten minutes, and waiting that long between the halves got an attack past the check. The number
+# of messages and of sessions bounds the memory.
 class ConversationWindow:
-    def __init__(self, messages=CONTEXT_MESSAGES, window_seconds=WINDOW_SECONDS,
-                 clock=time.monotonic, max_keys=MAX_KEYS):
+    def __init__(self, messages=CONTEXT_MESSAGES, max_keys=MAX_KEYS):
         self.messages = messages
-        self.window_seconds = window_seconds
-        self.clock = clock
         self.max_keys = max_keys
         self.history_by_key = OrderedDict()
 
+    # [(pieces of the message: itself, or its start and its end; the rules it fired)], oldest first.
     def history(self, key):
-        if key not in self.history_by_key:
-            return []
-        now = self.clock()
-        items = self.history_by_key[key]
-        while items and now - items[0][0] > self.window_seconds:
-            items.popleft()
-        return [(text, rules) for _, text, rules in items]
+        return list(self.history_by_key.get(key, ()))
 
     def add(self, key, masked_text, rules):
         items = bounded_get(self.history_by_key, key, lambda: deque(maxlen=max(self.messages - 1, 0)), self.max_keys)
-        items.append((self.clock(), masked_text[-CONTEXT_CHARS:], frozenset(rules)))
+        half = CONTEXT_CHARS // 2
+        sentences = [s for s in SENTENCE_END.split(masked_text.strip()) if s]
+        pieces = (masked_text,) if len(masked_text) <= CONTEXT_CHARS else (sentences[0][:half], sentences[-1][-half:])
+        items.append((pieces, frozenset(rules)))

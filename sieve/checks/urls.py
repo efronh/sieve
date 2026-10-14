@@ -25,12 +25,25 @@ SECOND_LEVEL = {"com", "net", "org", "gov", "edu", "ac", "co", "bel", "k12", "ge
 LOOKALIKE_DIGITS = str.maketrans("0135", "oles")
 
 
+# A URL as a browser reads it (the WHATWG URL Standard): tabs and line breaks anywhere are dropped, and in a web URL a
+# backslash is a slash. urlsplit does neither, so "https://evil.example\\@ornekbank.com.tr/" was ornekbank.com.tr to
+# the checks, which allowed it, and evil.example to the browser that loaded it.
+def as_browser_reads(url):
+    url = BROWSER_DROPS.sub("", url)
+    return url.replace("\\", "/") if WEB_URL.match(url) else url
+
+
+BROWSER_DROPS = re.compile(r"[\t\n\r]")
+WEB_URL = re.compile(r"(?:(?:https?|ftp|wss?):|[/\\]{2})", re.IGNORECASE)
+
+
 # (parts, host, malformed). urlsplit raises on a host it can't read: "http://[ornekbank" (no "]"), "http://[ornekbank]"
 # (no IP address in the brackets), or a full-width "／" or "＠" in it. Such a host is read without its brackets and
 # after NFKC, so the other checks still see it, and it's malformed.
 def host_of(url):
     if not url.lower().startswith(("http", "ftp")):
         url = "http://" + url
+    url = as_browser_reads(url)
     try:
         parts, malformed = urlsplit(url), False
     except ValueError:

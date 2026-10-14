@@ -3,6 +3,7 @@ import binascii
 import bisect
 import codecs
 import html
+import quopri
 import re
 import unicodedata
 import urllib.parse
@@ -16,13 +17,36 @@ NEAR_DISTANCE = 60
 
 TURKISH_TO_ASCII = str.maketrans("ışğüöç", "isguoc")
 LEETSPEAK = str.maketrans({"4": "a", "@": "a", "3": "e", "1": "i", "!": "i", "0": "o", "5": "s", "$": "s", "7": "t"})
-HOMOGLYPHS = str.maketrans("аеорсухіјѕ", "aeopcyxijs")
+# Letters drawn like Latin ones, by case: lowercase Cyrillic н and в look like small capitals H and B, Greek ν like v
+# but its capital Ν like N. Only for matching; the text the model gets keeps them.
+HOMOGLYPHS_UPPER = str.maketrans("АВЕКМНОРСТХУІЈЅΑΒΕΖΗΙΚΜΝΟΡΤΥΧ", "ABEKMHOPCTXYIJSABEZHIKMNOPTYX")
+HOMOGLYPHS = str.maketrans("аеорсухіјѕвкмнтһԁӏѵԛԝαεικνορτυχγ", "aeopcyxijsbkmhthdlvqwaeikvoptuxy")
+# Turkish written in another alphabet ("Өнджеки түм талиматлары йок сай"), read back for the checks: a model reads
+# it, and nothing in the checks did. Longest first, so a digraph wins over its letters.
+TRANSLITERATION = sorted({
+    "дж": "c", "ч": "ç", "ш": "ş", "щ": "şç", "ғ": "ğ", "ө": "ö", "ү": "ü", "ы": "ı", "ә": "e", "ц": "ts", "ю": "yu",
+    "я": "ya", "ё": "yo", "э": "e", "є": "ye", "ї": "yi", "ъ": "", "ь": "", "а": "a", "б": "b", "в": "v", "г": "g",
+    "д": "d", "е": "e", "ж": "j", "з": "z", "и": "i", "й": "y", "і": "i", "к": "k", "л": "l", "м": "m", "н": "n",
+    "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u", "ф": "f", "х": "h",
+    "ου": "u", "μπ": "b", "ντ": "d", "γκ": "g", "τζ": "c", "τσ": "ç", "γι": "y", "α": "a", "β": "v", "γ": "g",
+    "δ": "d", "ε": "e", "ζ": "z", "η": "i", "θ": "th", "ι": "i", "κ": "k", "λ": "l", "μ": "m", "ν": "n", "ξ": "ks",
+    "ο": "o", "π": "p", "ρ": "r", "σ": "s", "ς": "s", "τ": "t", "υ": "i", "φ": "f", "χ": "h", "ψ": "ps", "ω": "o",
+}.items(), key=lambda pair: -len(pair[0]))
+TRANSLITERATED = re.compile("|".join(map(re.escape, (k for k, _ in TRANSLITERATION))))
+TRANSLITERATION_MAP = dict(TRANSLITERATION)
+OTHER_ALPHABET = re.compile(r"[Ͱ-ϿЀ-ӿ]")
 
 SPACED_LETTERS = re.compile(r"(?:\b\w\b[\s._*-]){2,}\b\w\b")
 REPEATED_CHARS = re.compile(r"(\w)\1{2,}")
-BASE64_TOKEN = re.compile(r"[A-Za-z0-9+/]{12,}={0,2}")
-BASE32_TOKEN = re.compile(r"\b[A-Z2-7]{16,}=*")
+# The URL-safe alphabet too ("-" and "_" for "+" and "/"): it split the token where they stood.
+BASE64_TOKEN = re.compile(r"[A-Za-z0-9+/_-]{12,}={0,2}")
+BASE32_TOKEN = re.compile(r"\b[A-Za-z2-7]{16,}=*")
 HEX_TOKEN = re.compile(r"\b(?:[0-9a-fA-F]{2}){6,}\b")
+HEX_SPACED = re.compile(r"\b[0-9a-fA-F]{2}(?:[ :][0-9a-fA-F]{2}){5,}\b")
+HEX_ESCAPED = re.compile(r"(?:\\x[0-9a-fA-F]{2}){4,}")
+# Base64 broken into lines, as MIME does every 76 characters: each line alone cuts a letter in two and decodes to
+# nothing. Lines start at a line's start, so a long line isn't rescanned from every character.
+BASE64_LINES = re.compile(r"^(?:[A-Za-z0-9+/]{16,}+={0,2}\r?\n){2,}+[A-Za-z0-9+/]*+={0,2}", re.MULTILINE)
 URL_ENCODED = re.compile(r"(?:%[0-9a-fA-F]{2}){4,}")
 HTML_ENTITIES = re.compile(r"(?:&#x?[0-9a-fA-F]+;){3,}")
 MORSE_TOKEN = re.compile(r"(?:[.-]{1,6}[ /]+){3,}[.-]{1,6}")
@@ -40,11 +64,12 @@ MORSE_CODE = {
 
 
 def decode_base64(token):
+    token = token.replace("-", "+").replace("_", "/")
     return base64.b64decode(token + "=" * (-len(token) % 4))
 
 
 def decode_base32(token):
-    token = token.rstrip("=")
+    token = token.rstrip("=").upper()
     return base64.b32decode(token + "=" * (-len(token) % 8))
 
 
@@ -57,6 +82,9 @@ TOKEN_DECODERS = [
     (BASE64_TOKEN, decode_base64),
     (BASE32_TOKEN, decode_base32),
     (HEX_TOKEN, bytes.fromhex),
+    (HEX_SPACED, lambda token: bytes.fromhex(token.replace(":", " "))),
+    (BASE64_LINES, lambda token: decode_base64("".join(token.split()))),
+    (HEX_ESCAPED, lambda token: bytes.fromhex(token.replace("\\x", ""))),
     (URL_ENCODED, urllib.parse.unquote),
     (HTML_ENTITIES, html.unescape),
     (MORSE_TOKEN, decode_morse),
@@ -126,13 +154,41 @@ def strip_accents(text):
 
 
 def normalize(text):
-    text = to_lower(text).translate(HOMOGLYPHS)
+    text = to_lower(text.translate(HOMOGLYPHS_UPPER)).translate(HOMOGLYPHS)
     text = strip_accents(text.translate(TURKISH_TO_ASCII)).translate(LEETSPEAK)
     text = join_spaced_letters(text)
     return REPEATED_CHARS.sub(r"\1", text)
 
 
-def try_decode(decoder, token):
+# Escapes mixed into readable text ("%C3%96nceki%20t%C3%BCm", "&Ouml;nceki t&uuml;m", "\\u00d6nceki", "=C3=96nceki"):
+# no run of them is long enough to be a token, so the whole text is read with them undone, once three are there.
+MIN_ESCAPES = 3
+ESCAPES = re.compile(r"\\u[0-9a-fA-F]{4}|\\U[0-9a-fA-F]{8}|(?:\\x[0-9a-fA-F]{2})+")
+WHOLE_TEXT_DECODERS = [
+    (re.compile(r"%[0-9a-fA-F]{2}"), urllib.parse.unquote),
+    (re.compile(r"&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);"), html.unescape),
+    (ESCAPES, lambda text: ESCAPES.sub(unescape, text)),
+    # Quoted-printable leaves ASCII as it is, so only a letter written as UTF-8 bytes ("=C3=96") or a line broken
+    # mid-word ("=" at its end) counts: "fiyat=10" isn't.
+    (re.compile(r"=[C-F][0-9A-F]=[89AB][0-9A-F]|=\r?\n"),
+     lambda text: quopri.decodestring(text.encode("utf-8")).decode("utf-8", "replace")),
+]
+
+
+def unescape(match):
+    escape = match.group()
+    if escape.startswith("\\x"):  # bytes, as in "\\xc3\\x96"
+        return bytes.fromhex(escape.replace("\\x", "")).decode("utf-8", "replace")
+    return chr(min(int(escape[2:], 16), 0x10FFFF))
+
+
+def transliterate(text):
+    return TRANSLITERATED.sub(lambda m: TRANSLITERATION_MAP[m.group()], text.lower())
+
+
+# numbers: a decoded run of digits counts as text, for the answer check, where a TC number in base64 is the leak;
+# for instructions it's noise, as most random tokens that decode at all decode to digits and symbols.
+def try_decode(decoder, token, numbers=False):
     try:
         value = decoder(token)
         if isinstance(value, bytes):
@@ -140,18 +196,33 @@ def try_decode(decoder, token):
     except (ValueError, binascii.Error, UnicodeDecodeError):
         return None
 
-    letters = sum(c.isalpha() or c.isspace() for c in value)
-    if value and value.isprintable() and letters >= MIN_LETTER_SHARE * len(value):
+    # Line breaks are text too: a decoded "<|im_start|>system\n..." was thrown away as unprintable.
+    letters = sum(c.isalpha() or c.isspace() or (numbers and c.isdigit()) for c in value)
+    printable = all(c.isprintable() or c in "\n\r\t" for c in value)
+    if value and printable and letters >= MIN_LETTER_SHARE * len(value):
         return value
     return None
 
 
-def decode_hidden_parts(text, depth=DECODE_DEPTH):
+def decode_hidden_parts(text, depth=DECODE_DEPTH, numbers=False):
     found = []
+
+    # Undone over the whole text at the first level only: a copy of the text each, and none repeats itself.
+    if depth == DECODE_DEPTH:
+        for pattern, decoder in WHOLE_TEXT_DECODERS:
+            if len(pattern.findall(text)) >= MIN_ESCAPES:
+                try:
+                    value = decoder(text)
+                except (ValueError, UnicodeError):
+                    continue
+                if value != text:
+                    found.append(value)
+        if OTHER_ALPHABET.search(text):
+            found.append(transliterate(text))
 
     for pattern, decoder in TOKEN_DECODERS:
         for token in pattern.findall(text):
-            value = try_decode(decoder, token)
+            value = try_decode(decoder, token, numbers)
             if value and value != token:
                 found.append(value)
 
@@ -162,7 +233,7 @@ def decode_hidden_parts(text, depth=DECODE_DEPTH):
 
     if depth > 0:
         for value in list(found):
-            found += decode_hidden_parts(value, depth - 1)
+            found += decode_hidden_parts(value, depth - 1, numbers)
     return found
 
 
@@ -211,6 +282,7 @@ def find_matches(text):
 
 class PromptInjectionLayer:
     name = "prompt_injection_rules"
+    reads_sentences = True  # pipeline.Guardrail also reads a message's sentences with it
 
     def check(self, text):
         hidden = decode_hidden_parts(text)

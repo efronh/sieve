@@ -32,8 +32,9 @@ def mod97(iban):
     return int(as_number) % 97 == 1
 
 
+# mod97("tr" + digits) without converting each digit: t is 29 and r is 27, and the digits stay as they are.
 def is_valid_tr_iban(digits):
-    return len(digits) == TR_IBAN_DIGITS and mod97("tr" + digits)
+    return len(digits) == TR_IBAN_DIGITS and int(digits[2:] + "2927" + digits[:2]) % 97 == 1
 
 
 def include_tr_prefix(spans, text):

@@ -15,9 +15,12 @@ class Rule:
 PI, SID, OUT, AGENCY, LEAK, DOS = "LLM01:2025", "LLM02:2025", "LLM05:2025", "LLM06:2025", "LLM07:2025", "LLM10:2025"
 
 RULES = {
-    # pipeline.py
+    # pipeline.py, documents.py, tools.py, output.py: sizes and budgets (TH-11)
     "input_length": Rule(DOS, 4, "Input longer than the checked window"),
     "input_nesting": Rule(DOS, 4, "Document nested deeper than the checked depth"),
+    "input_too_large": Rule(DOS, 6, "Input longer than Sieve reads at all; blocked unread"),
+    "check_budget": Rule(DOS, 4, "More parts needed the second ML stage than one check runs it for"),
+    "output_length": Rule(DOS, 4, "Answer longer than the checked length; cut to it"),
     # actions.py, any layer; integrations/tenant.py: the policy code itself
     "layer_error": Rule(None, 8, "A check raised; the policy's on_error decides (block by default)"),
 
@@ -97,6 +100,7 @@ RULES = {
     "output_links.redirect": Rule(OUT, 8, "Redirect or base address in the answer"),
     "output_masking.personal_data_masked": Rule(SID, 3, "Personal data masked in the answer"),
     "output_masking.new_personal_data": Rule(SID, 7, "Answer has personal data the user didn't give"),
+    "output_masking.encoded_personal_data": Rule(SID, 7, "Answer carries personal data encoded, where masking can't"),
 
     # checks/indirect.py, documents.py (plus the input rules above, run on each part of the document)
     "indirect_injection.addresses_the_model": Rule(PI, 6, "Document talks to the model reading it"),
@@ -120,7 +124,8 @@ RULES = {
 }
 
 # Layers whose match text is a detail ("12000 chars"), not a rule name.
-DETAIL_ONLY = {"input_length", "input_nesting", "layer_error", "prompt_overlap", "session_split"}
+DETAIL_ONLY = {"input_length", "input_nesting", "input_too_large", "check_budget", "output_length", "layer_error",
+               "prompt_overlap", "session_split"}
 
 
 # Shadow markers like would_review are not rules.

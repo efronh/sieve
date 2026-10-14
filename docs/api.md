@@ -16,6 +16,7 @@ SIEVE_API_KEY=... python -m sieve.server --tenant example_bank --system-prompt p
 | `--allowed-host` | `127.0.0.1`'de loopback adları | Cevap verilecek `Host` adı, tekrarlanabilir; başka bir adla gelen istek 421 |
 | `--timeout` | `5` | Bir kontrolün saniye cinsinden süresi; aşarsa cevap block |
 | `--siem` | `stdout` | `stdout` (satır başına bir JSON olay), `host:port` (TCP syslog, JSON) ya da `none` |
+| `--siem-tls`, `--siem-ca` | kapalı | `host:port`'a TLS ile gönder; toplayıcının sertifikası sistemin CA'larıyla ya da verilen dosyayla doğrulanıyor. Düz TCP'de her olay ağda okunabilir gidiyor |
 | `--insecure-no-auth` | kapalı | Anahtarsız çalıştırma; sadece yerel test için, sadece `127.0.0.1`/`::1`'de |
 | `--ui` | kapalı | `/` adresinde bir sayfa: kontrol denemek, kararları izlemek, değerlendirmeyi okumak ([aşağıda](#sayfa---ui)) |
 
@@ -87,7 +88,7 @@ Ortak, isteğe bağlı alanlar: `session_id`, `user_id` (oturum limitleri ve too
  "reasons": ["needs the user's confirmation"], "rules": ["tool_call.needs_confirmation"]}
 ```
 
-Çağrı `args` ile çalıştırılmalı, modelin yazdığıyla değil: politika harfli etiketleri açtıysa ([katmanlar](layers.md#harfli-etiketler-vaultpy)) etiketler burada değerlerine dönmüş oluyor, örnekteki gibi. Çağrı argümanları okunmadan reddedildiyse `null`. `reasons` uygulama için; modele geri verilirse hangi kuralın aşılacağını söyler.
+Çağrı `args` ile çalıştırılmalı, modelin yazdığıyla değil: politika harfli etiketleri açtıysa ([katmanlar](layers.md#harfli-etiketler-vaultpy)) etiketler burada değerlerine dönmüş oluyor, örnekteki gibi. Engellenen çağrıda `null`: `action`'a bakmayı unutan uygulamanın çalıştıracağı argüman yok. `reasons` uygulama için; modele geri verilirse hangi kuralın aşılacağını söyler.
 
 ### `POST /v1/output` — modelin cevabı (B4)
 
@@ -150,23 +151,24 @@ Sayfa ve dosyaları anahtarsız (ama `Host` adı kontrolüyle); kendileri veri t
 
 | Durum | `code` | Ne zaman |
 |---|---|---|
-| 400 | `bad_request`, `bad_json` | Gövde JSON nesnesi değil, alan bilinmiyor, eksik ya da yanlış tipte |
+| 400 | `bad_request`, `bad_json`, `duplicate_key` | Gövde JSON nesnesi değil, okunamıyor (binlerce seviye iç içe, binlerce basamaklı sayı), bir nesnede aynı anahtar iki kez var (modelin JSON'unu olduğu gibi geçiren uygulamanın ayrıştırıcısı ilkini, Sieve sonuncusunu okurdu), alan bilinmiyor, eksik ya da yanlış tipte |
 | 401 | `unauthorized` | Anahtar yok ya da yanlış |
 | 403 | `forbidden` | Sayfanın anahtarıyla `GET /v1/prompt` |
 | 421 | `misdirected` | `Host` adı sunucunun cevap verdiği adlardan değil |
 | 429 | `rate_limited` | Sayfanın anahtarı dakikalık sınırını aştı (`Retry-After`) |
 | 404 / 405 | `not_found`, `method_not_allowed` | Yol ya da metot yanlış |
 | 411 / 413 / 415 | `length_required`, `too_large`, `unsupported_media_type` | `Content-Length` yok, gövde büyük, JSON değil |
-| 503 | `busy` | Bekleyen ya da çalışan 64 istek var |
+| 503 | `busy` | Bekleyen ya da çalışan 64 istek ya da açık 128 bağlantı var |
 | 500 | `internal` | Sunucunun kendi hatası (kontroller kendi hatalarını block olarak cevaplıyor) |
 
-Hata mesajı alanın adını söylüyor, değerini asla: istek kişisel veri taşıyabilir. Erişim logunda sadece metot, yol ve durum var; gövde ve query string yok.
+Hata mesajı alanın adını söylüyor, değerini asla: istek kişisel veri taşıyabilir. Bir alan adı gibi görünmeyen anahtar (modelin yazdığı JSON'da her şey olabilir) hiç söylenmiyor. Erişim logunda sadece Sieve'in bildiği bir metot, bildiği bir yol ve durum kodu var; bilinmeyen bir yol (`/v1/check/10000000146`), query string, gövde ve bozuk istek satırı yok.
 
 **Uygulama 200 dışındaki her cevabı, zaman aşımını ve bağlantı hatasını block saymalı.** Sieve'e ulaşılamaması kontrol edilmemiş bir mesaj demek ([TH-15](../THREAT_MODEL.md#th-15-guard-failure)).
 
 ## Süre, sıra ve tekrar deneme
 
 - **Bir kontrol en fazla `--timeout` saniye.** Aşarsa cevap `block`, `rules: ["layer_error"]`; SIEM olayında ayrıntı `timeout: TimeoutError`. Kontrol arka planda bitiyor ve kendi olayını da yazıyor; uygulama o sırada block'u almış oluyor.
-- **Bir süreçte bir kontrol aynı anda çalışıyor.** Kiracının oturum durumu thread-safe değil. Sırada bekleyen bir isteğin süresi de sayılıyor: önündeki yavaş bir kontrol onu da block'a düşürebilir. Saldırı altında sunucu durmuyor, block'a dönüyor; bu bir kullanılabilirlik bedeli ([TH-11](../THREAT_MODEL.md#th-11-resource-exhaustion)). Daha fazlası için birden fazla süreç; oturum limitleri o zaman süreç başına.
-- **64'ten fazla istek beklerse 503.** Bir istemcinin gövdeyi göndermesi için 10 saniye var; yavaş istemciler thread tutamıyor. Aynı anda en fazla 256 bağlantı açık kalıyor; fazlası hemen kapatılıyor, boşta bekleyen soketler bütün thread'leri ve belleği alamıyor.
+- **Bir süreçte bir kontrol aynı anda çalışıyor.** Kiracının oturum durumu ortak; `TenantGuardrail` çağrıları bir kilitle sırayla çalıştırıyor (kütüphane olarak birden fazla thread'den kullanılınca da). Sırada bekleyen bir isteğin süresi de sayılıyor: önündeki yavaş bir kontrol onu da block'a düşürebilir. Saldırı altında sunucu durmuyor, block'a dönüyor; bu bir kullanılabilirlik bedeli ([TH-11](../THREAT_MODEL.md#th-11-resource-exhaustion)). Daha fazlası için birden fazla süreç; oturum limitleri o zaman süreç başına.
+- **64'ten fazla istek beklerse 503.** Aynı anda en fazla 256 bağlantı açık; fazlası thread başlatılmadan 503 alıp kapanıyor, boşta bekleyen soketler bütün thread'leri ve belleği alamıyor. İki okuma arasında en fazla 10 saniye, isteğin tamamı için 20 saniye var (TLS el sıkışması dahil): bayt bayt gönderen bir istemci bağlantıyı istediği kadar tutamıyor.
+- **Her kontrolün okuduğu miktar sınırlı.** Gövde en fazla 1 MB, ama hiçbir kontrol o kadarını işlemiyor: 50.000 karakterden uzun bir mesaj okunmadan block (`input_too_large`); bir dokümanın ilk 200.000 karakteri okunuyor, fazlası kesilip review (`input_length`) ve `wrapped` de aynı yerden kesiliyor; argümanlarıyla 50.000 karakteri aşan bir tool çağrısı okunmadan block; 50.000 karakterden uzun bir cevap kesilip review (`output_length`); `user_data`'nın ilk 50.000 karakteri okunuyor. Bu cihazda (M4) en kötü durum 1 MB'lık bir doküman: kontrol ve `wrapped` birlikte 2,5 saniye civarı. ([TH-11](../THREAT_MODEL.md#th-11-resource-exhaustion))
 - **Tekrar deneme güvenli.** Hata veren bir kontrol önbelleğe girmiyor, tekrarında baştan çalışıyor. Süresi dolan bir kontrol arka planda bitince sonucu (allow ya da block, gerçek karar) önbelleğe giriyor; tekrar deneme o gerçek kararı alıyor, ilk denemenin hatasını değil. Her deneme `session.rate_limit`'e sayılıyor, işaretlenen her deneme `session.repeat_offender`'a da; yani bir saldırıyı tekrar tekrar denemek limite takılıyor.

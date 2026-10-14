@@ -1,0 +1,12 @@
+# Pull requests for new versions of the locked dependencies and the pinned actions, weekly. Each goes through CI,
+# replay and bypass gates included, before it's merged by hand.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly

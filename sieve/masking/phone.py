@@ -1,6 +1,6 @@
 import re
 
-from sieve.masking.number_units import aligned_windows, apply_masks, find_units, split_into_groups, to_lower
+from sieve.masking.number_units import aligned_windows, apply_masks, digits_and_real, find_units, gap_edges, split_into_groups, to_lower
 
 LABEL = "[TELEFON]"
 NATIONAL_LENGTH = 10
@@ -36,17 +36,21 @@ def include_opening(start, text):
 # Whole pieces the writer typed, so a 10-digit run inside an order number stays, and a phone number next to
 # another number ("TC 1000… 0599 …") is still found; it used to need its digit group to itself. lower: the text
 # in lower case, for the keywords.
+# Windows are tried left to right, so one overlaps a window already taken only if it starts before that one ends.
 def phone_spans(units, text, lower):
-    spans, taken = [], set()
-    windows = {length: set(aligned_windows(units, length, text)) for length in LENGTHS}
+    edges = gap_edges(units, text)
+    windows = {length: set(aligned_windows(units, length, text, edges)) for length in LENGTHS}
+    digits, real = digits_and_real(units)
+    spans, free_from = [], 0
     for i in range(len(units)):
+        if i < free_from:
+            continue
         for length in LENGTHS:
-            window = units[i:i + length]
-            if (i in windows[length] and taken.isdisjoint(range(i, i + length))
-                    and sum(u.real for u in window) >= MIN_REAL_DIGITS and is_phone("".join(u.digit for u in window))
-                    and not (length == NATIONAL_LENGTH and named_otherwise(window[0].start, lower))):
-                spans.append((include_opening(window[0].start, text), window[-1].end))
-                taken.update(range(i, i + length))
+            if (i in windows[length] and real[i + length] - real[i] >= MIN_REAL_DIGITS
+                    and is_phone(digits[i:i + length])
+                    and not (length == NATIONAL_LENGTH and named_otherwise(units[i].start, lower))):
+                spans.append((include_opening(units[i].start, text), units[i + length - 1].end))
+                free_from = i + length
                 break
     return spans
 

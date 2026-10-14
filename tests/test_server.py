@@ -19,7 +19,7 @@ import pytest
 
 from scripts.replay import TOOLS
 from sieve import Guardrail
-from sieve.integrations.tenant import TenantGuardrail, load_policy
+from sieve.integrations.tenant import MESSAGE_LAYERS, TenantGuardrail, load_policy
 from sieve.server import UI_DIR, keys, main, make_server
 
 KEY = "test-app-key-7f3a-0123456789abcdef-xyz"  # 32 characters or more, as the server wants
@@ -140,7 +140,7 @@ def test_documents_tools_answers_and_the_prompt(server, guard):
 
     _, tool, _ = call(server, "/v1/tool", {"name": "para_transferi", "args": {"iban": "TR33 0006 1005 1978 6457 8413 26",
                                                                              "tutar": 900000}})
-    assert tool["action"] == "block" and "tool_call.out_of_range" in tool["rules"] and tool["args"]["tutar"] == 900000
+    assert tool["action"] == "block" and "tool_call.out_of_range" in tool["rules"] and tool["args"] is None
 
     _, shown, _ = call(server, "/v1/output", {"answer": f"Kayıtlarda {TC} görünüyor.", "user_data": ["Merhaba"]})
     assert shown["action"] == "review" and TC not in shown["text"]
@@ -171,8 +171,8 @@ def until(condition, seconds=5):
 @pytest.fixture
 def slow_server():
     layer = Slow()
-    guard = TenantGuardrail(load_policy(overrides={"layers": {"prompt_injection_ml": "off"}}),
-                            guardrail=Guardrail(check_layers=[layer]))
+    others_off = {name: "off" for name in MESSAGE_LAYERS if name != layer.name}
+    guard = TenantGuardrail(load_policy(overrides={"layers": others_off}), guardrail=Guardrail(check_layers=[layer]))
     server = serve(guard, check_timeout=0.3, max_pending=2)
     yield server, layer
     layer.go.set()
@@ -235,6 +235,14 @@ def test_the_server_stops_cleanly_on_sigterm():
     _, rest = server.communicate(timeout=10)
     assert server.returncode == 0 and "sieve: stopped" in rest
     assert any("SIEVE_PSEUDONYM_KEY isn't set" in line for line in lines) == ("SIEVE_PSEUDONYM_KEY" not in env)
+
+
+# Python keeps a repeated key's last value, other parsers its first: an app passing the model's JSON on as it came
+# would run a call with arguments Sieve never checked.
+def test_a_key_twice_in_one_object_is_refused(server):
+    raw = b'{"name": "para_transferi", "args": {"iban": "TR33 0006 1005 1978 6457 8413 26", "tutar": 10, "tutar": 900000}}'
+    status, body, _ = call(server, "/v1/tool", raw=raw)
+    assert status == 400 and body["error"]["code"] == "duplicate_key"
 
 
 def fetch(server, path, key=None):
@@ -450,7 +458,10 @@ def test_connections_past_the_cap_are_closed_at_once(guard):
         time.sleep(0.2)
         extra = socket.create_connection(("127.0.0.1", port))
         extra.settimeout(5)
-        assert extra.recv(1) == b""  # closed, not left waiting for a thread
+        received = b""
+        while chunk := extra.recv(4096):
+            received += chunk
+        assert received.startswith(b"HTTP/1.0 503")  # told busy and closed, not left waiting for a thread
         extra.close()
     finally:
         for s in idle:

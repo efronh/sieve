@@ -255,8 +255,10 @@ def entry_points():
     documents = DocumentGuard(ml_layer=ml, use_ml=ml is not None)
     tools = tool_guard(ml_layer=ml, use_ml=ml is not None)  # its own would load BERTurk again, inside a timing
     output = OutputGuard(SYSTEM_PROMPT.read_text(encoding="utf-8"), tools.allowed_hosts, canary=CANARY)
-    # Same guardrail and ML layer; the session_id is the record ID, so no record shares a window or limit.
-    tenant = TenantGuardrail(load_policy("default"), guardrail=guard)
+    # Same guardrail and ML layer; the session_id is the record ID, so no record shares a window or limit. Without
+    # the ML layer, the policy has to say so: TenantGuardrail refuses a Guardrail missing a layer the policy runs.
+    without_ml = None if ml else {"layers": {MLInjectionLayer.name: "off"}}
+    tenant = TenantGuardrail(load_policy("default", overrides=without_ml), guardrail=guard)
     logging.getLogger("sieve.siem").addHandler(logging.NullHandler())  # flagged turns would go to stderr
     if ml is not None and ml.cascade:
         ml.stage.predict(["Merhaba"])  # BERTurk loads on first use; keep that out of the timings
