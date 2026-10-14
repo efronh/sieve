@@ -93,7 +93,13 @@ def patterns(guards):
                 walk(value, f"{where}.{key}", depth + 1)
 
     for info in pkgutil.walk_packages(sieve.__path__, "sieve."):
-        module = importlib.import_module(info.name)
+        # A module whose optional dependency isn't installed (torch for the LLM layer) is left out and said so,
+        # rather than stopping the run: CI's security job installs the core only.
+        try:
+            module = importlib.import_module(info.name)
+        except ImportError as e:
+            print(f"  skipped {info.name}: {e.name} isn't installed")
+            continue
         for name, value in vars(module).items():
             if not (isinstance(value, type) and value.__module__ != module.__name__):
                 walk(value, f"{info.name}.{name}")
