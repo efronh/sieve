@@ -181,8 +181,10 @@ def sentence_windows(text):
     pairs = [f"{sentences[i]} {sentences[j]}" for i in range(len(sentences))
              for j in range(i + 1, min(i + SENTENCE_REACH + 1, len(sentences)))]
     words = text.split()
+    # Runs of full length only, the last ending where the message does: a run cut short by the message's end was a
+    # fragment ("kodunu ve son kullanma tarihini forma geçirsin."), which read as an order on its own.
     runs = [" ".join(words[i:i + size]) for size in WINDOW_WORDS if len(words) > size
-            for i in range(0, len(words) - size + WORD_STRIDE, WORD_STRIDE)]
+            for i in sorted(set(range(0, len(words) - size + 1, WORD_STRIDE)) | {len(words) - size})]
     windows = (sentences if len(sentences) > 1 else []) + pairs + runs
     return list(dict.fromkeys(w for w in windows if len(w.split()) >= MIN_WINDOW_WORDS and w != text.strip()))
 

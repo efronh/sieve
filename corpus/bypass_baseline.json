@@ -21,21 +21,18 @@
   "PI-ROLE-010"
  ],
  "encoding/base32": [
-  "MT-MEM-004",
   "PI-LEAK-011",
   "PI-OVR-014",
   "PI-ROLE-001",
   "PI-SOC-014"
  ],
  "encoding/base32_lower": [
-  "MT-MEM-004",
   "PI-LEAK-011",
   "PI-OVR-014",
   "PI-ROLE-001",
   "PI-SOC-014"
  ],
  "encoding/base64": [
-  "MT-MEM-004",
   "PI-LEAK-011",
   "PI-OVR-014",
   "PI-ROLE-001",
@@ -46,49 +43,42 @@
   "PI-OVR-014"
  ],
  "encoding/base64_no_padding": [
-  "MT-MEM-004",
   "PI-LEAK-011",
   "PI-OVR-014",
   "PI-ROLE-001",
   "PI-SOC-014"
  ],
  "encoding/base64_twice": [
-  "MT-MEM-004",
   "PI-LEAK-011",
   "PI-OVR-014",
   "PI-ROLE-001",
   "PI-SOC-014"
  ],
  "encoding/base64_url_safe": [
-  "MT-MEM-004",
   "PI-LEAK-011",
   "PI-OVR-014",
   "PI-ROLE-001",
   "PI-SOC-014"
  ],
  "encoding/hex": [
-  "MT-MEM-004",
   "PI-LEAK-011",
   "PI-OVR-014",
   "PI-ROLE-001",
   "PI-SOC-014"
  ],
  "encoding/hex_escapes": [
-  "MT-MEM-004",
   "PI-LEAK-011",
   "PI-OVR-014",
   "PI-ROLE-001",
   "PI-SOC-014"
  ],
  "encoding/html_decimal": [
-  "MT-MEM-004",
   "PI-LEAK-011",
   "PI-OVR-014",
   "PI-ROLE-001",
   "PI-SOC-014"
  ],
  "encoding/html_hex": [
-  "MT-MEM-004",
   "PI-LEAK-011",
   "PI-OVR-014",
   "PI-ROLE-001",
@@ -100,7 +90,6 @@
   "INTENT-no_limits",
   "INTENT-reveal",
   "MT-MEM-001",
-  "MT-MEM-004",
   "MT-MEM-005",
   "MT-MEM-007",
   "MT-MEM-009",
@@ -187,7 +176,6 @@
   "INTENT-no_limits",
   "INTENT-reveal",
   "MT-MEM-001",
-  "MT-MEM-004",
   "MT-MEM-005",
   "MT-MEM-007",
   "MT-MEM-009",
@@ -274,14 +262,12 @@
   "PI-ROLE-001"
  ],
  "encoding/unicode_escapes": [
-  "MT-MEM-004",
   "PI-LEAK-011",
   "PI-OVR-014",
   "PI-ROLE-001",
   "PI-SOC-014"
  ],
  "encoding/url_quoted": [
-  "MT-MEM-004",
   "PI-LEAK-011",
   "PI-OVR-014",
   "PI-ROLE-001",
@@ -293,7 +279,6 @@
   "INTENT-no_limits",
   "INTENT-reveal",
   "MT-MEM-001",
-  "MT-MEM-004",
   "MT-MEM-005",
   "MT-MEM-007",
   "MT-MEM-009",
@@ -553,6 +538,7 @@
  ],
  "structure/halves_far_apart": [
   "MT-MEM-005",
+  "MT-MEM-007",
   "MT-MEM-011",
   "MT-MEM-012",
   "MT-MEM-015",
@@ -563,6 +549,7 @@
   "PI-ACT-015",
   "PI-AUTH-001",
   "PI-AUTH-002",
+  "PI-AUTH-010",
   "PI-LEAK-004",
   "PI-LEAK-007",
   "PI-LEAK-012",
@@ -595,7 +582,6 @@
   "PI-SOC-009"
  ],
  "structure/padded_around": [
-  "MT-MEM-004",
   "MT-MEM-007",
   "MT-MEM-011",
   "PI-ACT-002",
@@ -614,11 +600,10 @@
   "PI-SOC-014"
  ],
  "structure/padded_before": [
-  "MT-MEM-005",
   "PI-ACT-002",
   "PI-ACT-015",
+  "PI-AUTH-002",
   "PI-AUTH-010",
-  "PI-OVR-014",
   "PI-SOC-009",
   "PI-SOC-014"
  ],
@@ -648,7 +633,6 @@
   "link_with_data"
  ],
  "unicode/letters_dotted": [
-  "MT-MEM-004",
   "MT-MEM-011",
   "PI-ACT-002",
   "PI-ACT-005",
@@ -659,7 +643,6 @@
   "PI-SOC-009"
  ],
  "unicode/letters_spaced": [
-  "MT-MEM-004",
   "MT-MEM-011",
   "PI-ACT-002",
   "PI-ACT-005",
@@ -675,7 +658,6 @@
  ],
  "unicode/no_spaces": [
   "MT-MEM-001",
-  "MT-MEM-004",
   "MT-MEM-005",
   "MT-MEM-007",
   "MT-MEM-009",
