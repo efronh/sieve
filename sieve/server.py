@@ -38,6 +38,9 @@ APP, UI = "app", "ui"
 UI_PREFIX = "ui:"  # session and user IDs from the page's key, so they never reach an app user's limits or history
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 UI_RATE = 60  # checks a minute the page's key may make: the one worker is the app's first
+# Seconds of the worker's time the page's key may use a minute, one check at a time, counted until the check ends on the
+# worker, not when its answer timed out: four connections sending documents at once had 12 of 15 app checks blocked.
+UI_WORKER_SECONDS = 15
 MAX_CONNECTIONS = 256  # open at once; past it a new one is closed at once, so idle sockets can't take every thread
 MAX_BODY = 1_000_000  # bytes: a document is read up to 200,000 characters
 CHECK_TIMEOUT = 5.0  # s a check may take before the answer is block
@@ -219,12 +222,13 @@ class Service:
     # api_key: the app's key, or several while it moves to a new one; None runs without keys (local tests only).
     # ui_key: the page's own key, if any. allowed_hosts: the Host names it answers to, or None for any.
     def __init__(self, guard, api_key, check_timeout=CHECK_TIMEOUT, max_pending=MAX_PENDING, ui=False, ui_key=None,
-                 allowed_hosts=None, tls=False, ui_rate=UI_RATE):
+                 allowed_hosts=None, tls=False, ui_rate=UI_RATE, ui_worker_seconds=UI_WORKER_SECONDS):
         self.guard, self.ui, self.tls = guard, ui, tls
         self.app_keys = [digest(k) for k in ([api_key] if isinstance(api_key, str) else api_key or [])]
         self.ui_key = digest(ui_key) if ui_key else None
         self.allowed_hosts = allowed_hosts
         self.ui_rate, self.ui_calls, self.ui_lock = ui_rate, deque(), threading.Lock()
+        self.ui_worker_seconds, self.ui_costs, self.ui_running = ui_worker_seconds, deque(), False
         self.check_timeout = check_timeout
         self.stats = Stats()
         self.worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sieve-check")
@@ -244,26 +248,46 @@ class Service:
         self.stats.refuse()
         return None
 
-    # The page's key gets ui_rate checks a minute, so it can't keep the one worker from the app.
+    # The page's key gets ui_rate checks a minute, one at a time, and ui_worker_seconds of the worker's time a minute,
+    # so it can't keep the one worker from the app. True takes the page's turn; ui_finished gives it back.
     def ui_check_allowed(self):
         with self.ui_lock:
             now = time.monotonic()
             while self.ui_calls and now - self.ui_calls[0] >= 60:
                 self.ui_calls.popleft()
-            if len(self.ui_calls) >= self.ui_rate:
+            while self.ui_costs and now - self.ui_costs[0][0] >= 60:
+                self.ui_costs.popleft()
+            if (self.ui_running or len(self.ui_calls) >= self.ui_rate
+                    or sum(seconds for _, seconds in self.ui_costs) >= self.ui_worker_seconds):
                 return False
             self.ui_calls.append(now)
+            self.ui_running = True
             return True
+
+    def ui_finished(self, seconds):
+        with self.ui_lock:
+            self.ui_costs.append((time.monotonic(), seconds))
+            self.ui_running = False
 
     # Runs the check on the one worker, waiting at most check_timeout. A check that didn't finish is a failed check:
     # block, with a layer_error event that says timeout. One still queued is cancelled; one running finishes alone.
-    def run(self, path, body):
-        who = {k: body.get(k) for k in WHO}
-        direction = DIRECTIONS[path]
-        if direction == "input" and who["request_id"] is None:
-            who["request_id"] = os.urandom(16).hex()
-        start = time.perf_counter()
-        future = self.worker.submit(self.check, path, body, who)
+    # role UI: the caller has taken the page's turn (ui_check_allowed). It's given back when the check ends on the
+    # worker (timed), before its answer is ready, so the page's next check finds it free; or when it's cancelled
+    # before it starts.
+    def run(self, path, body, role=APP):
+        try:
+            who = {k: body.get(k) for k in WHO}
+            direction = DIRECTIONS[path]
+            if direction == "input" and who["request_id"] is None:
+                who["request_id"] = os.urandom(16).hex()
+            start = time.perf_counter()
+            future = self.worker.submit(self.timed, path, body, who, role)
+        except BaseException:
+            if role == UI:
+                self.ui_finished(0.0)
+            raise
+        if role == UI:
+            future.add_done_callback(lambda f: self.ui_finished(0.0) if f.cancelled() else None)
         try:
             answer, timed_out = future.result(timeout=self.check_timeout), False
         except CheckTimeout:
@@ -274,10 +298,18 @@ class Service:
         self.stats.record(direction, answer["action"], answer["rules"], (time.perf_counter() - start) * 1000, timed_out)
         return answer
 
-    def check(self, path, body, who):
+    def timed(self, path, body, who, role):
+        start = time.monotonic()
+        try:
+            return self.check(path, body, who, role)
+        finally:
+            if role == UI:
+                self.ui_finished(time.monotonic() - start)
+
+    def check(self, path, body, who, role=APP):
         guard = self.guard
         if path == "/v1/check":
-            r = guard.check(body["text"], **who)
+            r = guard.check(body["text"], **who, cache_scope=role)
             # Nothing to send when it's blocked: an app that forgets to look at action has no text to pass on.
             text = "" if r.action == BLOCK else r.text
             answer = {"action": r.action, "text": text, "request_id": r.request_id, "rules": flagged_rules(r.findings)}
@@ -430,14 +462,15 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             self.deadline.cancel()
         if role == UI:
-            if not self.service.ui_check_allowed():
-                return self.send_error_json(429, "rate_limited", f"the page's key gets {self.service.ui_rate} checks a "
-                                            "minute", retry_after=60)
             body |= {k: UI_PREFIX + body[k] for k in ("session_id", "user_id") if body.get(k) is not None}
         if not self.service.slots.acquire(blocking=False):
             return self.send_error_json(503, "busy", "too many checks waiting; treat as block")
         try:
-            answer = self.service.run(path, body)
+            if role == UI and not self.service.ui_check_allowed():
+                return self.send_error_json(429, "rate_limited", f"the page's key gets {self.service.ui_rate} checks a "
+                                            f"minute, one at a time, and {self.service.ui_worker_seconds} s of checking",
+                                            retry_after=60)
+            answer = self.service.run(path, body, role)
         except Exception as e:  # the checks fail closed themselves; this is the server's own error
             logger.warning("sieve: request failed with %s", type(e).__name__)
             return self.send_error_json(500, "internal", "the check failed; treat as block")
@@ -509,12 +542,13 @@ def tls_context(cert, key):
 # loopback names on a loopback address, and any elsewhere.
 def make_server(guard, host="127.0.0.1", port=8080, api_key=None, check_timeout=CHECK_TIMEOUT, max_pending=MAX_PENDING,
                 ui=False, ui_key=None, tls=None, allowed_hosts=None, max_connections=MAX_CONNECTIONS, ui_rate=UI_RATE,
-                read_seconds=READ_SECONDS):
+                read_seconds=READ_SECONDS, ui_worker_seconds=UI_WORKER_SECONDS):
     if allowed_hosts:
         allowed_hosts = {h.lower() for h in allowed_hosts}
     elif host in LOOPBACK:
         allowed_hosts = set(LOOPBACK)
-    service = Service(guard, api_key, check_timeout, max_pending, ui, ui_key, allowed_hosts or None, bool(tls), ui_rate)
+    service = Service(guard, api_key, check_timeout, max_pending, ui, ui_key, allowed_hosts or None, bool(tls), ui_rate,
+                      ui_worker_seconds)
     handler = type("SieveHandler", (Handler,), {"service": service, "read_seconds": read_seconds})
     server = Server((host, port), handler, max_connections)
     if tls:

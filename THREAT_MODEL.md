@@ -43,7 +43,7 @@ Every component, what it reads, what it keeps, and what it passes on. Sieve runs
 | `OutputGuard` | The answer, the system prompt, `user_data` (the user's own messages, to tell new personal data) | Canary, the prompt's 5-word phrases | The answer masked, with links that load or carry data removed; findings |
 | `ToolGuard` | Tool name, arguments, `user_data`, user ID | Per-user amounts and call times, by user ID | Action and findings; `reasons` for the app, which name the tool and the argument |
 | Session limits (`TenantGuardrail`) | User and session ID, message length, masked text | Request counts by user ID; the last 1,000 characters of a session's last 3 masked messages, and the rules each fired | Session findings |
-| Result cache (`Guardrail`) | — | 2,048 results by the message's SHA-256: masked text and findings | The cached result |
+| Result cache (`Guardrail`) | — | 2,048 results by the caller's scope and the message's SHA-256: masked text and findings. Over HTTP the app's key and the page's each have their own, so one can't tell from a hit what the other sent | The cached result |
 | Vault ([`vault.py`](sieve/vault.py), only with `[masking] lettered_labels`) | What masking replaced, and its values | The values behind a session's labels, by session ID, in memory | Lettered labels to the prompt. Values to `ToolResult.args`, and to the shown answer when they're the user's own |
 | SIEM events (B6) | The result; the original only to count what was masked | The process's event and decision counts | Hash of the masked text, keyed pseudonyms, rule records, counts; the process's ID, the event's number and the decisions so far; the request's ID (a pseudonym if it could be personal data); a masked excerpt if the policy asks |
 | Traffic log | The result | — | Masked text, keyed session pseudonym, findings, to a local file |
@@ -369,7 +369,7 @@ Of 12 benign answers, 1 is a false alarm: a branch's landline (`0312 555 12 34`)
 - The paid LLM runs only when local layers are unsure, and reads at most 3,000 characters.
 - Session state is capped at 50,000 keys, the flagged-session counts too.
 - A guard runs one call at a time (a lock), so threads can't interleave its session state or a tool's running totals.
-- Over HTTP, at most 256 connections are open at once (more are told 503 and closed straight away), a whole request has 20 seconds to arrive, 64 requests wait, JSON the server can't parse is a 400, and the page's key gets 60 checks a minute, so it can't keep the one worker from the app.
+- Over HTTP, at most 256 connections are open at once (more are told 503 and closed straight away), a whole request has 20 seconds to arrive, 64 requests wait, JSON the server can't parse is a 400, and the page's key gets 60 checks a minute, one at a time, and 15 seconds of the worker a minute, counted until its check ends, so it can't keep the one worker from the app.
 - HTML is read in linear time: nothing inside a tag is scanned past the next `<`, and closing tags are looked up, not searched for.
 - Every pattern and every entry point is fuzzed for inputs whose cost grows faster than their length (`python -m scripts.fuzz_slow_inputs`).
 - Every result and SIEM event carries the time each stage took (`timings`, `timings_ms`); `python -m scripts.benchmark_latency` measures them on normal traffic and the corpus.

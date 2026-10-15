@@ -569,13 +569,13 @@ class TenantGuardrail:
         return OutputResult(text, action, findings, answer=result.answer, timings=timings)
 
     # A message starts a request: without a request_id from the app, it gets one (result.request_id) to pass on to the
-    # document, tool and answer checks of the same request.
+    # document, tool and answer checks of the same request. cache_scope: whose part of the result cache (Guardrail.check).
     @one_at_a_time
-    def check(self, text, session_id=None, user_id=None, direction="input", request_id=None):
+    def check(self, text, session_id=None, user_id=None, direction="input", request_id=None, cache_scope=""):
         if request_id is None and direction == "input":
             request_id = uuid.uuid4().hex
         try:
-            return self.run(text, session_id, user_id, direction, request_id)
+            return self.run(text, session_id, user_id, direction, request_id, cache_scope)
         except Exception as e:
             return self.failed(e, direction, session_id, user_id, request_id)
 
@@ -611,7 +611,7 @@ class TenantGuardrail:
                  timings, session_id, user_id, request_id)
         return DocumentResult(action, findings, result.flagged_parts, timings)
 
-    def run(self, text, session_id=None, user_id=None, direction="input", request_id=None):
+    def run(self, text, session_id=None, user_id=None, direction="input", request_id=None, cache_scope=""):
         start = time.perf_counter()
         who = user_id if user_id is not None else session_id
         track = self.session_on and direction == "input" and who is not None
@@ -626,7 +626,7 @@ class TenantGuardrail:
                 session_findings.append(Finding("session", 1.0, BLOCK, names))
         add(session_timing, "session", session_start)
 
-        result = self.guard.check(text)
+        result = self.guard.check(text, cache_scope)
         timings = dict(result.timings)
         session_start = time.perf_counter()
         if track and session_id is not None:

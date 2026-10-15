@@ -43,7 +43,7 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 
 **Yanlış anahtar.** Cevap 401. Her ret `GET /v1/stats`'ta `refused` olarak sayılıyor ve dakikada en fazla bir kez `sieve.server` logunda uyarı oluyor. Kilitleme yok: yanlış anahtarla gelen istekler gerçek uygulamayı da kilitleyebilirdi, 32 rastgele karakter de tahminle bulunamaz. Anahtarlar SHA-256 özetleri üzerinden, sabit sürede karşılaştırılıyor, hepsi her seferinde: süre ne gönderilenin uzunluğunu ne de hangisine yaklaşıldığını söylüyor.
 
-**Sayfanın anahtarı sınırlı.** Dakikada en fazla 60 kontrol; fazlası 429 ve `Retry-After: 60`. Sunucunun tek işçisi önce uygulamanın: sayfayı kullanan biri onu doldurup uygulamanın kontrollerini bekletemesin. Uygulamanın anahtarının böyle bir sınırı yok; onu oturum limitleri sınırlıyor.
+**Sayfanın anahtarı sınırlı.** Dakikada en fazla 60 kontrol, aynı anda bir tane, ve dakikada işçinin 15 saniyesi; fazlası 429 ve `Retry-After: 60`. Süre kontrol işçide bitene kadar sayılıyor, cevabı zaman aşımıyla dönse de. Sunucunun tek işçisi önce uygulamanın: sayfayı kullanan biri onu doldurup uygulamanın kontrollerini bekletemesin. Uygulamanın anahtarının böyle bir sınırı yok; onu oturum limitleri sınırlıyor. Sonuç önbelleği de iki anahtar için ayrı: sayfanın anahtarı, bir sonucun önbellekten gelip gelmediğinden uygulamanın ne gönderdiğini öğrenemesin.
 
 **Taşımak.** Anahtar her istekte gidiyor, o yüzden düz HTTP sadece `127.0.0.1`'de. Başka bir adreste sunucu ya TLS yapıyor (`--tls-cert`, `--tls-key`: en az TLS 1.2, cevaplarda `Strict-Transport-Security`) ya da önünde TLS yapan bir proxy olduğu `--behind-proxy` ile açıkça söyleniyor; ikisi de yoksa başlamıyor. El sıkışma bağlantının kendi thread'inde, zaman aşımıyla: bitirmeyen bir istemci diğerlerini bekletmiyor. Sayfa dışarı açılacaksa proxy'de bir de SSO.
 
@@ -155,7 +155,7 @@ Sayfa ve dosyaları anahtarsız (ama `Host` adı kontrolüyle); kendileri veri t
 | 401 | `unauthorized` | Anahtar yok ya da yanlış |
 | 403 | `forbidden` | Sayfanın anahtarıyla `GET /v1/prompt` |
 | 421 | `misdirected` | `Host` adı sunucunun cevap verdiği adlardan değil |
-| 429 | `rate_limited` | Sayfanın anahtarı dakikalık sınırını aştı (`Retry-After`) |
+| 429 | `rate_limited` | Sayfanın anahtarı dakikalık sınırını aştı ya da bir kontrolü hâlâ sürüyor (`Retry-After`) |
 | 404 / 405 | `not_found`, `method_not_allowed` | Yol ya da metot yanlış |
 | 411 / 413 / 415 | `length_required`, `too_large`, `unsupported_media_type` | `Content-Length` yok, gövde büyük, JSON değil |
 | 503 | `busy` | Bekleyen ya da çalışan 64 istek ya da açık 128 bağlantı var |

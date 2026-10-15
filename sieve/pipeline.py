@@ -227,12 +227,14 @@ class Guardrail:
         self.cache = OrderedDict()
         self.cache_lock = threading.Lock()  # the checks may run side by side; the cache's order can't
 
-    def check(self, text):
+    # scope: whose cache this is. A hit is faster and its timings say "cache", so a caller sharing another's cache can
+    # tell whether that one sent this exact text: the server gives the app's key and the page's a scope each.
+    def check(self, text, scope=""):
         start = time.perf_counter()
         if len(text) > self.max_input_chars:
             return GuardrailResult("", BLOCK, [Finding("input_too_large", 1.0, BLOCK, [f"{len(text)} chars"])],
                                    timings={"masking": since(start)})
-        key = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        key = hashlib.sha256(f"{scope}\0{text}".encode("utf-8")).hexdigest()
         with self.cache_lock:
             cached = self.cache.get(key)
             if cached is not None:
