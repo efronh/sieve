@@ -1,12 +1,19 @@
 # Pull requests for new versions of the locked dependencies and the pinned actions, weekly. Each goes through CI,
-# replay and bypass gates included, before it's merged by hand.
+# replay and bypass gates included, before it's merged by hand. One pull request a week for each: the first run
+# opened ten at once, one per package.
 version: 2
 updates:
   - package-ecosystem: pip
     directory: "/"
     schedule:
       interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
