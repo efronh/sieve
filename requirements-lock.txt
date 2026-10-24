@@ -67,7 +67,7 @@ sortedcontainers==2.4.0
 stevedore==5.9.1
 sympy==1.14.0
 threadpoolctl==3.7.0
-tokenizers==0.23.2
+tokenizers==0.23.3
 tomli==2.5.0
 tomli_w==1.2.0
 torch==2.14.1
