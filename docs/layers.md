@@ -169,3 +169,14 @@ Yanlış alarm: 158 kayıt dökümünde ve aynı dökümlerin zararsız HTML'li 
 AltaySec ve `prompt_injection_tr.csv`'deki 31 dolaylı örnek geliştirme seti: doküman kurallarını onları okuduktan sonra yazdım. Kurallar 14'ünü, kurallar + ML 31'ini işaretliyor (ML AltaySec ile eğitildi).
 
 Bu iş sırasında girişteki injection kurallarında bir eksik çıktı: "yok say" ayrı yazılınca (TDK yazımı) yakalanmıyordu, sadece "yoksay" biçimi vardı. Düzeltince kuralların yakaladığı saldırılar %15'ten %17'ye çıktı, yanlış alarm 416 normal mesajda yine 0.
+
+### Gerçek bir modelle
+
+`python -m scripts.llm_attacks` ([sonuçlar](../results/llm_attacks.md)): corpus'taki banka asistanı yerel bir modelde (MLX, 4-bit, greedy), sistem promptunda gizli bir kampanya kodu ve üç tool. Bir e-postanın metnine ya da bir web sayfasının gizli elemanına konan 64 saldırı, hedefleri kodla kontrol ediliyor (kod kullanıcıya gidiyor mu, phishing linki, saldırganın IBAN'ına transfer, veri toplayan bir adrese link):
+
+| | Savunma yok | Sadece spotlighting | Sieve |
+|---|---|---|---|
+| aya-23-8B | 26/64 (%41) | 13/64 (%20) | 1/64 (%2) |
+| Qwen2.5-7B | 36/64 (%56) | 26/64 (%41) | 4/64 (%6) |
+
+Spotlighting'in etkisi modele bağlı: aya'nın transferlerini durdurdu (%62 → %6), Qwen'inkileri hiç (%62 → %62). Sieve'den geçenlerin hepsi aynı: e-postayı özetleyen model içindeki phishing adresini (`ornekbank-dogrulama.com`) bankanın söylediği gibi aktarıyor; doküman her seferinde review, cevap gösteriliyor ([TH-10](../THREAT_MODEL.md#th-10-active-content-in-the-answer)).
