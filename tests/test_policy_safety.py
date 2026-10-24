@@ -99,7 +99,7 @@ def test_a_tool_check_failing_as_a_whole_blocks_whatever_tool_calls_mode(mode):
     assert [m for f in result.findings if f.check == ERROR_CHECK for m in f.matches] == ["tool_guard: RuntimeError"]
 
 
-@pytest.mark.parametrize("part", ["canary_leaked", "prompt_overlap", "clean_links"])
+@pytest.mark.parametrize("part", ["canary_leaked", "secret_leaked", "prompt_overlap", "clean_links"])
 @pytest.mark.parametrize("mode", ["enforce", "shadow", "off"])
 def test_an_answer_whose_check_failed_is_never_shown(part, mode):
     guard = tenant(layers={"canary": mode, "prompt_overlap": mode, "output_links": mode, "output_masking": mode})

@@ -341,6 +341,28 @@ def test_weak_or_misplaced_keys_stop_the_server_before_it_listens(monkeypatch, c
     assert problem in error and "short-key" not in error and KEY not in error
 
 
+def test_the_servers_secrets_reach_the_answer_check(monkeypatch, capsys, tmp_path):
+    monkeypatch.setenv("SIEVE_API_KEY", KEY)
+    secrets = tmp_path / "secrets.txt"
+    secrets.write_text("ORNEK-VIP-4821\n\n", encoding="utf-8")
+    guards = []
+
+    def stop(guard, *args, **kwargs):
+        guards.append(guard)
+        raise SystemExit(0)
+
+    monkeypatch.setattr("sieve.server.make_server", stop)
+    with pytest.raises(SystemExit):
+        main(["--port", "0", "--secrets", str(secrets)])
+    assert guards[0].check_output("Kodunuz: ornek vip 4821").action == "block"
+    secrets.write_text("ORNEK-VIP-4821\n4821\n", encoding="utf-8")  # too short to look for: says so, not which
+    monkeypatch.setenv("SIEVE_API_KEY", KEY)  # the server took it out of the environment once read
+    with pytest.raises(SystemExit):
+        main(["--port", "0", "--secrets", str(secrets)])
+    error = capsys.readouterr().err
+    assert "at least 6" in error and "4821" not in error
+
+
 class Recorder:  # a guard that only remembers who each check was for
     policy = SimpleNamespace(tenant="t", version="v", mode="enforce")
 

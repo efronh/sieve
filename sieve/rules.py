@@ -85,6 +85,7 @@ RULES = {
 
     # output.py
     "canary.system_prompt_leak": Rule(LEAK, 10, "Canary from the system prompt in the answer"),
+    "canary.secret_leak": Rule(LEAK, 10, "A secret from the system prompt in the answer"),
     "prompt_overlap": Rule(LEAK, 7, "Answer repeats the system prompt"),
     "output_links.dangerous_link": Rule(OUT, 7, "Dangerous link in the answer"),
     "output_links.link_with_data": Rule(SID, 7, "Link carrying data in the answer"),

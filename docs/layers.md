@@ -60,7 +60,7 @@ Kurallar yapısı belli olan saldırıları yakalıyor: SQL injection'ın %73'ü
 from sieve import Guardrail, OutputGuard
 
 guard = Guardrail()
-out = OutputGuard(SYSTEM_PROMPT, allowed_hosts=["ornekbank.com.tr"])
+out = OutputGuard(SYSTEM_PROMPT, allowed_hosts=["ornekbank.com.tr"], secrets=["ORNEK-VIP-4821"])
 
 r = guard.check(user_message)
 if r.action != "block":
@@ -72,6 +72,7 @@ if r.action != "block":
 | Kontrol | Ne yapıyor | Karar |
 |---|---|---|
 | Canary | Sistem promptuna gizlenen rastgele kod cevapta geçiyorsa. Cevap girişteki gibi okunuyor (NFKC, görünmez karakterler, benzer harfler, Türkçe harfler, leetspeak, başka alfabe), çözülüyor ve ROT13, ters ve kelime kelime ters haliyle de bakılıyor; sadece canary ve promptla karşılaştırıldığı için sıradan metni işaretleyemez | block, cevap `SAFE_REPLY` ile değişiyor |
+| Gizli değerler | Uygulamanın `secrets=` ile verdiği değerler (sistem promptundaki kampanya kodu, iç numara) cevapta canary gibi aranıyor. Canary sadece promptun tekrarlandığını gösteriyor; tek bir değer istenen model sadece o değeri veriyor ve gerçek bir modelle denemede kod kullanıcıya böyle ulaştı ([TH-03](../THREAT_MODEL.md#th-03-system-prompt-extraction)). Sieve bunları tahmin etmiyor: prompt modelin söylemesi gerekeni de tutuyor (çağrı merkezinin numarası). En az 6 harf ya da rakam | block, `canary` katmanında |
 | Prompt kopyası | Cevap sistem promptundan 5 kelimelik parçaları tekrarlıyorsa (canary gibi okunarak), ya da boşluksuz, harf harf yazılmışsa 40 harflik dizileri: 1 parça review, 3 ve üstü block | review / block |
 | Markdown sızdırma | İzinli olmayan hostlardaki resimler kaldırılıyor; veri taşıyan resim/link/referanslar ve `javascript:` linkleri temizleniyor. Veri taşıyan: 16 karakterden uzun bir değer ya da alt alan adı, `[IBAN]` gibi bir yer tutucu ya da maskeleme katmanlarının yolda, query'de (anahtar ve değer birlikte, yani `cvv=123`) veya alt alan adında bulduğu kişisel veri (11 haneli TC, telefon). CSS `url()` ve `@import` (style özniteliği ya da `<style>` bloğu) resim gibi kaldırılıyor. Host tarayıcının okuduğu gibi okunuyor: `https://evil.example\@ornekbank.com.tr` izinli hosta değil `evil.example`'a gidiyor | review |
 | Başka yere götüren içerik | İzinli olmayan hosta gönderen form (`action`, butonda `formaction`) etiketini kaybediyor, alanları hiçbir yere gitmiyor. Metni adres gibi okunan (şema, `www.` ya da bilinen bir TLD) ve izinli olmayan başka bir hosta giden link metnine dönüşüyor; metindeki adres zaten tıklanınca gidilecek yer. Dışarıya giden `<meta http-equiv="refresh">` ve `<base href>` kaldırılıyor. Link ve resim metninde bir seviye köşeli parantez okunuyor (`![a [b] c](…)`) | review |

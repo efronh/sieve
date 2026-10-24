@@ -10,6 +10,7 @@ SIEVE_API_KEY=... python -m sieve.server --tenant example_bank --system-prompt p
 |---|---|---|
 | `--tenant` | `default` | `policies/<kiracı>.toml` |
 | `--system-prompt` | yok | Operatörün sistem promptu (dosya); canary ekleniyor, modele `GET /v1/prompt`'taki verilmeli |
+| `--secrets` | yok | Sistem promptundaki, kullanıcıya hiç gitmemesi gereken değerler (dosya, satır başına bir tane): kampanya kodu, iç numara. Cevapta canary gibi aranıyor, bulunursa block (`canary.secret_leak`). En az 6 harf ya da rakam; daha kısası sunucuyu başlatmıyor |
 | `--host`, `--port` | `127.0.0.1`, `8080` | `127.0.0.1` dışı bir adres TLS istiyor: `--tls-cert`/`--tls-key`, ya da önünde TLS yapan bir proxy varsa `--behind-proxy` ([Taşımak](#anahtarlar)) |
 | `--tls-cert`, `--tls-key` | yok | PEM sertifika zinciri ve özel anahtarı: HTTPS, en az TLS 1.2, cevaplarda HSTS |
 | `--behind-proxy` | kapalı | `127.0.0.1` dışında düz HTTP, çünkü TLS'i öndeki proxy yapıyor; açıkça yazılması gerekiyor |

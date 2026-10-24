@@ -1,9 +1,9 @@
 import codecs
 import re
-import secrets
 import time
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
+from secrets import token_hex
 from urllib.parse import parse_qsl, unquote, urlsplit
 
 from sieve.actions import ALLOW, BLOCK, REVIEW, Finding, error_finding, worst_action
@@ -25,6 +25,7 @@ SHINGLE_WORDS = 5
 WINDOW_CHARS = 40
 LEAK_REVIEW_SHINGLES = 1
 LEAK_BLOCK_SHINGLES = 3
+MIN_SECRET_CHARS = 6  # letters and digits; "4821" alone is in ordinary answers
 MIN_DATA_LENGTH = 16
 # An answer is read and shown this far; the rest is cut and the answer reviewed. A model told by a document to write
 # a long run of digits made masking alone take seconds, and nothing bounded it.
@@ -244,8 +245,12 @@ class OutputResult:
 # Give the model guard.system_prompt (prompt + canary), then check every answer.
 class OutputGuard:
     # canary: a fixed one instead of a random one, e.g. so a SIEM rule can look for it across processes.
-    def __init__(self, system_prompt="", allowed_hosts=(), masking_layers=None, canary=None):
-        self.canary = canary or f"KNR-{secrets.token_hex(6)}"
+    # secrets: values the system prompt holds that must never reach the user (a campaign code, an internal number),
+    # looked for the way the canary is. The canary shows the prompt was repeated; a model asked for one value gives
+    # just that value, and with only the canary to look for, it reached the user (TH-03). Sieve doesn't guess them:
+    # the prompt also holds what the model should say, a call centre's number.
+    def __init__(self, system_prompt="", allowed_hosts=(), masking_layers=None, canary=None, secrets=()):
+        self.canary = canary or f"KNR-{token_hex(6)}"
         self.original_prompt = system_prompt
         self.system_prompt = (
             f"{system_prompt}\n\nInternal reference {self.canary}. "
@@ -255,6 +260,10 @@ class OutputGuard:
         self.prompt_shingles = shingles(folded_prompt)
         self.prompt_windows = windows(folded_prompt)
         self.canary_letters = only_letters_and_digits(normalize(self.canary))
+        self.secret_letters = [only_letters_and_digits(normalize(s)) for s in secrets]
+        if any(len(s) < MIN_SECRET_CHARS for s in self.secret_letters):
+            raise ValueError(f"a secret needs at least {MIN_SECRET_CHARS} letters or digits: a shorter one would be "
+                             "found in ordinary answers")
         self.allowed_hosts = {h.lower() for h in allowed_hosts}
         self.masking_layers = masking_layers
 
@@ -262,8 +271,15 @@ class OutputGuard:
         host = host_of(url)
         return any(host == h or host.endswith("." + h) for h in self.allowed_hosts)
 
-    def canary_leaked(self, answer):
-        return any(self.canary_letters in only_letters_and_digits(text) for text in leak_readings(answer))
+    @staticmethod
+    def readings(answer):
+        return [only_letters_and_digits(text) for text in leak_readings(answer)]
+
+    def canary_leaked(self, answer, readings=None):
+        return any(self.canary_letters in text for text in readings or self.readings(answer))
+
+    def secret_leaked(self, answer, readings=None):
+        return any(secret in text for secret in self.secret_letters for text in readings or self.readings(answer))
 
     # Shared five-word phrases, or shared runs of letters for an answer that has no words to compare.
     def prompt_overlap(self, answer):
@@ -400,8 +416,11 @@ class OutputGuard:
         if len(answer) > MAX_ANSWER_CHARS:
             findings.append(Finding("output_length", 1.0, REVIEW, [f"{len(answer)} chars"]))
             answer = answer[:MAX_ANSWER_CHARS]
-        if self.canary_leaked(answer):
+        readings = self.readings(answer)
+        if self.canary_leaked(answer, readings):
             findings.append(Finding("canary", 1.0, BLOCK, ["system_prompt_leak"]))
+        if self.secret_leaked(answer, readings):
+            findings.append(Finding("canary", 1.0, BLOCK, ["secret_leak"]))
         timings["canary"], start = since(start), time.perf_counter()
         overlap = self.prompt_overlap(answer)
         if overlap >= LEAK_BLOCK_SHINGLES:
