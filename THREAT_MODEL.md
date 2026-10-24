@@ -377,7 +377,7 @@ Of 12 benign answers, 1 is a false alarm: a branch's landline (`0312 555 12 34`)
 
 **Evidence.** Unit tests for the inputs that used to crash, and for 28 inputs that used to take from seconds to minutes ([`tests/test_slow_inputs.py`](tests/test_slow_inputs.py), and the HTML ones in `tests/test_documents.py`): each must finish in under 2 or 3 seconds. [`tests/test_resource_limits.py`](tests/test_resource_limits.py) sends 1 MB of the costliest shape to every entry point, fills the second stage's budget, runs 16 threads against one guard, and holds connections open and trickles a request byte by byte against the server. The fuzzer finds no pattern and no entry point whose time grows faster than its input.
 
-**Found and fixed.** A crash on deep nesting, a quadratic hidden-HTML pattern, and masking and eight patterns whose time grew faster than their input; and nothing bounding what one request costs, BERTurk run sentence by sentence, races between threads ([changelog](CHANGELOG.md#th-11-resource-exhaustion)).
+**Found and fixed.** A crash on deep nesting, a quadratic hidden-HTML pattern, and masking and eight patterns whose time grew faster than their input; and nothing bounding what one request costs, BERTurk run sentence by sentence, races between threads, a cut on answers that hid a quadratic pattern from its tests ([changelog](CHANGELOG.md#th-11-resource-exhaustion)).
 
 **Residual risk.**
 - Masking is linear but costs up to about 5 µs a character: a 200,000-character document takes about a second to mask for its event and again for `wrap()`.
