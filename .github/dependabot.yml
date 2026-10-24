@@ -7,6 +7,11 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    # The lock is a pip freeze, which Dependabot bumps line by line without resolving it: torch needs sympy, which
+    # takes mpmath below 1.4, and a bump past that couldn't be installed.
+    ignore:
+      - dependency-name: mpmath
+        versions: [">=1.4"]
     groups:
       python:
         patterns: ["*"]
