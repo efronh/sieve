@@ -132,6 +132,27 @@ def test_url_matches(url, expected):
     assert sorted(dict(check_url(url))) == expected
 
 
+# The fixed brands don't know the operator's: its own allowed hosts are brands too (TH-10).
+@pytest.mark.parametrize("host", ["ornekbank-dogrulama.com", "ornekbank.net", "0rnekbank.com.tr", "ornek-bank.com",
+                                  "ornekbank.com.tr.giris.net", "ornekbnak.com.tr", "ornekb\u0430nk.com.tr",
+                                  "xn--ornekbnk-66g.com.tr"])
+def test_a_look_alike_of_an_allowed_host_is_flagged(host):
+    layer = URLCheckLayer()
+    layer.allowed_hosts = ["ornekbank.com.tr"]  # as TenantGuardrail sets it from the policy
+    assert "brand_lookalike" in layer.check(f"Hemen https://{host}/giris adresine girin")[0].matches
+    assert URLCheckLayer().check(f"https://{host}/giris")[0].matches in ([], ["punycode_host"])
+
+
+@pytest.mark.parametrize("host", ["ornekbank.com.tr", "www.ornekbank.com.tr", "giris.ornekbank.com.tr", "ornek.com",
+                                  "bankornek.com", "examplebank.com.tr"])
+def test_the_allowed_host_its_subdomains_and_others_arent(host):
+    assert URLCheckLayer(["ornekbank.com.tr"]).check(f"https://{host}/giris")[0].matches == []
+
+
+def test_a_short_site_name_isnt_looked_for():
+    assert URLCheckLayer(["ing.com.tr"]).check("https://booking.com https://ing-giris.net")[0].matches == []
+
+
 def test_a_malformed_host_isnt_on_the_allowlist():
     layer = URLCheckLayer(["ornekbank.com.tr"])
     assert layer.check("https://ornekbank.com.tr/giris")[0].matches == []

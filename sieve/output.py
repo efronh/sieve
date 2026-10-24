@@ -8,7 +8,7 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 
 from sieve.actions import ALLOW, BLOCK, REVIEW, Finding, error_finding, worst_action
 from sieve.checks.prompt_injection import decode_hidden_parts, normalize
-from sieve.checks.urls import as_browser_reads
+from sieve.checks.urls import as_browser_reads, own_lookalike, own_names
 from sieve.masking import LABEL_NAMES
 from sieve.masking.number_units import REPLACED, find_units, to_lower
 from sieve.timing import since
@@ -17,6 +17,7 @@ SAFE_REPLY = "Bu yanıt güvenlik nedeniyle gösterilemiyor."
 # The checks OutputGuard reports, which a tenant policy can set to enforce, shadow or off one by one.
 OUTPUT_CHECKS = ("canary", "prompt_overlap", "output_links", "output_masking")
 IMAGE_REMOVED = "[resim kaldırıldı]"
+LOOKALIKE_REMOVED = "[şüpheli adres kaldırıldı]"
 EMBED_REMOVED = "[gömülü içerik kaldırıldı]"
 
 SHINGLE_WORDS = 5
@@ -58,6 +59,9 @@ CSS_URL = re.compile(r"url\(\s*['\"]?([^'\")\s]+)|@import\s+['\"]([^'\"]+)", re.
 LOADING_ATTRS = {"src", "srcset", "data", "poster", "background"}
 CLICK_ATTRS = {"href", "action", "formaction", "xlink:href"}
 # A "]" ends a URL, except the one closing a bracketed host: "https://[2001:db8::1]/?tc=..." is read whole.
+# An address written without a scheme ("ornekbank-dogrulama.com/giris"), for the look-alike check; read as one
+# only when its last label is a top-level domain, so "ekstre.pdf" isn't.
+BARE_ADDRESS = re.compile(r"(?<![\w.@/:-])[\w-]++(?:\.[\w-]++)++(?:/[^\s<>\"'()\[\]]*+)?", re.IGNORECASE)
 PLAIN_URL = re.compile(r"\bhttps?://(?:(?:[^\s<>\"'()\[\]/?#@]*@)?\[[^\s<>\"'()\[\]/?#]*\][^\s<>\"')\]]*|[^\s<>\"')\]]+)",
                        re.IGNORECASE)
 DANGEROUS_SCHEME = re.compile(r"^(?:javascript|vbscript|data):", re.IGNORECASE)
@@ -117,6 +121,21 @@ def host_of(url):
 
 def is_dangerous(url):
     return bool(DANGEROUS_SCHEME.search(URL_IGNORED_CHARS.sub("", url)))
+
+
+def is_address(token):
+    host = host_of("https://" + token)
+    last = host.rsplit(".", 1)[-1]
+    return last in TOP_LEVEL or (len(last) == 2 and last.isalpha())
+
+
+# The hosts the user wrote: a look-alike they asked about ("is ornekbank-dogrulama.com yours?") can be named back.
+def written_hosts(texts):
+    hosts = set()
+    for text in texts or ():
+        hosts |= {host_of(m.group()) for m in PLAIN_URL.finditer(text)}
+        hosts |= {host_of("https://" + m.group()) for m in BARE_ADDRESS.finditer(text) if is_address(m.group())}
+    return hosts - {""}
 
 
 def shown_hosts(text):
@@ -265,6 +284,7 @@ class OutputGuard:
             raise ValueError(f"a secret needs at least {MIN_SECRET_CHARS} letters or digits: a shorter one would be "
                              "found in ordinary answers")
         self.allowed_hosts = {h.lower() for h in allowed_hosts}
+        self.own_names = own_names(self.allowed_hosts)
         self.masking_layers = masking_layers
 
     def is_allowed(self, url):
@@ -291,8 +311,14 @@ class OutputGuard:
         runs = sum(any(w in flat for flat in flats) for w in self.prompt_windows)
         return max(phrases, runs)
 
-    def clean_links(self, answer):
+    # A host made to pass for one of the allowed ones (TH-10), unless the user wrote it.
+    def lookalike(self, url, written=()):
+        host = host_of(url)
+        return host not in written and own_lookalike(host, self.allowed_hosts, self.own_names)
+
+    def clean_links(self, answer, user_data=None):
         findings = []
+        written = written_hosts(user_data) if self.own_names else set()
 
         def replace_image(url):
             if self.is_allowed(url):
@@ -323,6 +349,9 @@ class OutputGuard:
             href = dict(attrs).get("href", "")
             if tag == "a" and href and not is_dangerous(href) and not self.is_allowed(href) and misleading(m.group("text"), href):
                 findings.append(("misleading_link", REVIEW))
+                return m.group("text")
+            if tag == "a" and href and self.lookalike(href, written):
+                findings.append(("lookalike_host", REVIEW))
                 return m.group("text")
             return m.group(0)
 
@@ -359,6 +388,9 @@ class OutputGuard:
             if any(not self.is_allowed(u) and carries_data(u) for u in urls):
                 findings.append(("link_with_data", REVIEW))
                 return ""
+            if any(self.lookalike(u, written) for u in urls):
+                findings.append(("lookalike_host", REVIEW))
+                return ""
             return m.group(0)
 
         def md_link(m):
@@ -372,6 +404,9 @@ class OutputGuard:
             if not self.is_allowed(url) and misleading(label, url):
                 findings.append(("misleading_link", REVIEW))
                 return label
+            if self.lookalike(url, written):
+                findings.append(("lookalike_host", REVIEW))
+                return label
             return m.group(0)
 
         def reference(m):
@@ -379,7 +414,17 @@ class OutputGuard:
             if is_dangerous(url) or (not self.is_allowed(url) and carries_data(url)):
                 findings.append(("reference_with_data", REVIEW))
                 return ""
+            if self.lookalike(url, written):
+                findings.append(("lookalike_host", REVIEW))
+                return ""
             return m.group(0)
+
+        # What's left of a look-alike: the address as text, which the user can still type or copy.
+        def lookalike_address(m, scheme=""):
+            if (scheme and not is_address(m.group())) or not self.lookalike(scheme + m.group(), written):
+                return m.group(0)
+            findings.append(("lookalike_host", REVIEW))
+            return LOOKALIKE_REMOVED
 
         answer = before_last(MD_IMAGE, md_image, answer, ")")
         answer = HTML_SCRIPT.sub(script, answer)
@@ -388,6 +433,9 @@ class OutputGuard:
         answer = before_last(HTML_TAG, html_tag, answer, ">")
         answer = before_last(MD_LINK, md_link, answer, ")")
         answer = MD_REFERENCE.sub(reference, answer)
+        if self.own_names:
+            answer = PLAIN_URL.sub(lookalike_address, answer)
+            answer = BARE_ADDRESS.sub(lambda m: lookalike_address(m, "https://"), answer)
 
         for m in PLAIN_URL.finditer(answer):
             # A "]" ends the URL read here, but a renderer links "?i=[IBAN_A]" whole, and a lettered label in it is
@@ -429,7 +477,7 @@ class OutputGuard:
             findings.append(Finding("prompt_overlap", 0.5, REVIEW, [f"{overlap} shared phrases"]))
 
         timings["prompt_overlap"], start = since(start), time.perf_counter()
-        answer, link_findings = self.clean_links(answer)
+        answer, link_findings = self.clean_links(answer, user_data)
         for name, action in link_findings:
             findings.append(Finding("output_links", 1.0 if action == REVIEW else 0.0, action, [name]))
         timings["output_links"], start = since(start), time.perf_counter()

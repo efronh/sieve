@@ -167,6 +167,40 @@ def test_a_secret_too_short_to_look_for_is_refused(secret):
         OutputGuard(CODE_PROMPT, secrets=["ORNEK-VIP-4821", secret])
 
 
+# A model summarising an e-mail passed its look-alike phishing page on as the bank's own word (TH-10).
+@pytest.mark.parametrize("answer", [
+    "Hesabınız askıya alındı; https://ornekbank-dogrulama.com/giris adresine girip kartınızı doğrulayın.",
+    "ornekbank-dogrulama.com/giris adresine girin.",
+    "[Giriş yapın](https://ornekbank-dogrulama.com/giris)",
+    "[https://ornekbank-dogrulama.com](https://ornekbank-dogrulama.com)",
+    '<a href="https://0rnekbank.com.tr/x">giriş</a>',
+    '<a href="https://ornekbank.net"><b>giriş</b></a>',
+    "[1]: https://ornekbnak.com.tr/giris",
+])
+def test_a_look_alike_of_an_allowed_host_is_removed(answer):
+    result = OutputGuard(SYSTEM, ["ornekbank.com.tr"]).check(answer)
+    assert result.action == "review"
+    assert {m for f in result.findings for m in f.matches} == {"lookalike_host"}
+    assert not any(h in result.text for h in ("dogrulama", "0rnekbank", "ornekbank.net", "ornekbnak"))
+
+
+@pytest.mark.parametrize("answer", ["Resmi sitemiz https://www.ornekbank.com.tr/giris adresinde.",
+                                    "Kampanya için giris.ornekbank.com.tr adresine bakın.",
+                                    "Ekstrenizi ornekbank_ekstre.pdf olarak indirebilirsiniz.",
+                                    "Tutar 1.240 TL, ayrıntılar www.google.com'da."])
+def test_the_allowed_host_and_other_text_stay(answer):
+    result = OutputGuard(SYSTEM, ["ornekbank.com.tr"]).check(answer)
+    assert result.action == "allow" and result.text == answer
+
+
+def test_a_look_alike_the_user_asked_about_can_be_named():
+    answer = "Hayır, ornekbank-dogrulama.com bizim sitemiz değil; bilgilerinizi girmeyin."
+    out = OutputGuard(SYSTEM, ["ornekbank.com.tr"])
+    assert out.check(answer, user_data=["ornekbank-dogrulama.com sizin siteniz mi?"]).text == answer
+    assert out.check(answer, user_data=["Bu e-postayı özetler misin?"]).action == "review"
+    assert OutputGuard(SYSTEM).check(answer).text == answer  # no allowed host, nothing to pass for
+
+
 def test_new_personal_data_needs_user_data(guard):
     result = guard.check("Kayıtlı TC: 12345678950.")
     assert result.action == "allow" and "12345678950" not in result.text
