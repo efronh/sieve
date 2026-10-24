@@ -73,7 +73,7 @@ tomli_w==1.2.0
 torch==2.14.1
 tqdm==4.70.1
 transformers==5.18.0
-typer==0.27.2
+typer==0.27.3
 typing_extensions==4.16.0
 urllib3==2.8.0
 numpy==2.4.6; python_version < "3.12"
