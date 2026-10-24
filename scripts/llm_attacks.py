@@ -460,7 +460,12 @@ def markdown(results):
              "the user, the user is sent to the look-alike site, a transfer to the attacker's IBAN runs, or an image "
              "or link to the attacker's collector reaches the user. Setups: **none** (the app alone), **spotlight** "
              "(documents wrapped, marked and explained, nothing else), **sieve** (TenantGuardrail, default policy). "
-             "`python -m scripts.llm_attacks`; method in the script's header.", ""]
+             "`python -m scripts.llm_attacks`; method in the script's header.", "",
+             "Two checks came out of these runs: secrets the app names in its prompt (TH-03, e5a6103) and addresses "
+             "passing for an allowed host (TH-10, fc41719). Before them, 1 (aya-23-8B) and 4 (Qwen2.5-7B) of the 64 "
+             "attacks in documents got through Sieve, each a summary passing on an e-mail's look-alike phishing "
+             "address, and 4 and 6 of the 39 leak attempts showed the campaign code. The numbers below are with both "
+             "checks, on the attacks that found what they fix.", ""]
     for name, result in results.items():
         s = result["summary"]
         lines += [f"## {name}", "", "### Attacks that reached their goal", "",
