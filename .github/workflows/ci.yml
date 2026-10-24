@@ -131,7 +131,7 @@ jobs:
       # (networkx, filelock...), so they come from PyPI with everything else in the next step.
       - run: pip install --no-deps --index-url https://download.pytorch.org/whl/cpu "$(grep '^torch==' requirements-lock.txt)"
       - run: pip install -c requirements-lock.txt -e ".[dev,ml]" "anyjev @ git+https://github.com/nokia-applied-research/AnyJev.git@149e7f71949c08b57492ef7025b67a763c600a0f"
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: ~/.cache/huggingface
           key: hf-dbmdz-bert-base-turkish-cased-b6e1de16  # the revision REVISIONS pins
