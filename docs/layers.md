@@ -9,7 +9,7 @@ Bunların hepsi yerelde çalışıyor, model gerektirmiyor. Çalışma sırası 
 | Manipülasyon | `checks/tampering.py` | Ham metinde tag karakteri, yön değiştirme, ANSI, çok sayıda görünmez karakter, kelime içinde karışık alfabe. Emojileri birleştiren U+200D ve ❤️'deki U+FE0F sayılmıyor. |
 | Injection kuralları | `checks/prompt_injection.py` | Önce metni düzeltiyor (leetspeak, Kiril ve Yunan benzer harfler, boşluklu ya da uzatılmış harf), sonra gizli parçaları çözüyor (iç içe base64 (URL-safe ve MIME satırlı da), base32 (küçük harf de), hex (boşluklu ve `\x` de), URL, HTML (adlı entity de), `\u` kaçışları, quoted-printable, Mors; ROT13 ve ters metni sadece bir ipucu kelimesi varsa). Kiril ya da Yunan alfabesiyle yazılmış Türkçe Latin harflerle de okunuyor. En son kalıplara bakıyor. `pipeline.clean` süslü harfleri (küçük büyük harf, parantezli, negatif daireli), boş görünen harfleri (Hangul dolgu, braille boşluğu) ve sağdan sola zorlamayı (görünen sıraya çevirerek) düzeltiyor |
 | Kod | `checks/code_payloads.py` | SQL (tautoloji, UNION, stacked, time-delay, satır sonu yorumu), shell, path traversal, XSS, template/JNDI. Çözülmüş metne de bakıyor. |
-| URL | `checks/urls.py` | `javascript:`/`data:`, IP host, punycode, bozuk host (`http://[ornekbank`), URL'de kullanıcı bilgisi, marka taklidi (`com.tr` gibi iki parçalı uzantılar ve tek harf farkları dahil) |
+| URL | `checks/urls.py` | `javascript:`/`data:`, IP host, punycode, bozuk host (`http://[ornekbank`), URL'de kullanıcı bilgisi, marka taklidi (`com.tr` gibi iki parçalı uzantılar ve tek harf farkları dahil); bilinen markaların yanında politikanın `allowed_hosts`'u da marka: `ornekbank-dogrulama.com`, `ornekbank.net`, `0rnekbank.com.tr`, `ornekbnak.com.tr` (`brand_lookalike`, review) |
 
 Sonuç `allow` < `review` < `block` sırasında en kötüsü. Kontroller ilk 8000 karakteri (`MAX_CHECK_CHARS`) okuyor; daha uzun bir mesaj `input_length` bulgusuyla en az review alıyor. Injection kuralları ve ML mesajı bütün halinin yanında cümle cümle, üç cümleye kadar uzaktaki cümle çiftleriyle ve 10 ve 20 kelimelik pencerelerle de okuyor; en güçlü okuma sayılıyor. Bütün olarak okununca saldırının etrafındaki sıradan metin onu seyreltiyordu (iki yanında 800 karakter, korpusun yakalanan 79 saldırısından 71'ini geçiriyordu). Beş kelimeden kısa pencere okunmuyor. Maskeleme ise metnin tamamına uygulanıyor, çünkü model mesajın tamamını alıyor. 50.000 karakterden (`MAX_INPUT_CHARS`, politika daha fazlasını okuyorsa o kadar) uzun bir mesaj hiç okunmadan, maskelenmeden block (`input_too_large`): 1 MB'ı maskelemek tek başına saniyeler sürüyordu. Bu uzunluk zaten bir oturumun 10 dakikalık hacim limiti.
 
@@ -60,7 +60,7 @@ Kurallar yapısı belli olan saldırıları yakalıyor: SQL injection'ın %73'ü
 from sieve import Guardrail, OutputGuard
 
 guard = Guardrail()
-out = OutputGuard(SYSTEM_PROMPT, allowed_hosts=["ornekbank.com.tr"])
+out = OutputGuard(SYSTEM_PROMPT, allowed_hosts=["ornekbank.com.tr"], secrets=["ORNEK-VIP-4821"])
 
 r = guard.check(user_message)
 if r.action != "block":
@@ -72,8 +72,10 @@ if r.action != "block":
 | Kontrol | Ne yapıyor | Karar |
 |---|---|---|
 | Canary | Sistem promptuna gizlenen rastgele kod cevapta geçiyorsa. Cevap girişteki gibi okunuyor (NFKC, görünmez karakterler, benzer harfler, Türkçe harfler, leetspeak, başka alfabe), çözülüyor ve ROT13, ters ve kelime kelime ters haliyle de bakılıyor; sadece canary ve promptla karşılaştırıldığı için sıradan metni işaretleyemez | block, cevap `SAFE_REPLY` ile değişiyor |
+| Gizli değerler | Uygulamanın `secrets=` ile verdiği değerler (sistem promptundaki kampanya kodu, iç numara) cevapta canary gibi aranıyor. Canary sadece promptun tekrarlandığını gösteriyor; tek bir değer istenen model sadece o değeri veriyor ve gerçek bir modelle denemede kod kullanıcıya böyle ulaştı ([TH-03](../THREAT_MODEL.md#th-03-system-prompt-extraction)). Sieve bunları tahmin etmiyor: prompt modelin söylemesi gerekeni de tutuyor (çağrı merkezinin numarası). En az 6 harf ya da rakam | block, `canary` katmanında |
 | Prompt kopyası | Cevap sistem promptundan 5 kelimelik parçaları tekrarlıyorsa (canary gibi okunarak), ya da boşluksuz, harf harf yazılmışsa 40 harflik dizileri: 1 parça review, 3 ve üstü block | review / block |
 | Markdown sızdırma | İzinli olmayan hostlardaki resimler kaldırılıyor; veri taşıyan resim/link/referanslar ve `javascript:` linkleri temizleniyor. Veri taşıyan: 16 karakterden uzun bir değer ya da alt alan adı, `[IBAN]` gibi bir yer tutucu ya da maskeleme katmanlarının yolda, query'de (anahtar ve değer birlikte, yani `cvv=123`) veya alt alan adında bulduğu kişisel veri (11 haneli TC, telefon). CSS `url()` ve `@import` (style özniteliği ya da `<style>` bloğu) resim gibi kaldırılıyor. Host tarayıcının okuduğu gibi okunuyor: `https://evil.example\@ornekbank.com.tr` izinli hosta değil `evil.example`'a gidiyor | review |
+| Benzer adres | İzinli bir hostun adını taşıyan ama o host ya da altı olmayan adres (`ornekbank-dogrulama.com`, `ornekbank.net`, `ornekbank.com.tr.giris.net`, benzer harfler, leetspeak ve punycode çözülerek, ya da bir harf farkla `ornekbnak`) linkten, HTML'den, referans tanımından ve düz metinden kaldırılıyor, yerine `[şüpheli adres kaldırıldı]`. Kullanıcının kendi yazdığı adres geri söylenebiliyor ("bu sizin siteniz mi?"). Gerçek bir modelle denemede Sieve'den geçen her saldırı buydu: e-postayı özetleyen model içindeki phishing adresini bankanın sözü gibi aktarıyordu ([TH-10](../THREAT_MODEL.md#th-10-active-content-in-the-answer)) | review (`lookalike_host`) |
 | Başka yere götüren içerik | İzinli olmayan hosta gönderen form (`action`, butonda `formaction`) etiketini kaybediyor, alanları hiçbir yere gitmiyor. Metni adres gibi okunan (şema, `www.` ya da bilinen bir TLD) ve izinli olmayan başka bir hosta giden link metnine dönüşüyor; metindeki adres zaten tıklanınca gidilecek yer. Dışarıya giden `<meta http-equiv="refresh">` ve `<base href>` kaldırılıyor. Link ve resim metninde bir seviye köşeli parantez okunuyor (`![a [b] c](…)`) | review |
 | Cevap maskeleme | Girişteki bütün maskeleme cevaba da uygulanıyor | allow (metin maskeli) |
 | Yeni kişisel veri | `user_data` verildiyse: cevaptaki TC, IBAN, telefon, kart vb. bu metinlerde yoksa başka bir müşterinin verisi olabilir. Numaralar rakamlarıyla karşılaştırılıyor (`0532…`, `+90 532…` ve `sıfır beş üç…` aynı numara). Kodlanmış kişisel veri (base64 ya da hex bir TC) maskelenemediği için `user_data` olmasa da işaretleniyor (`encoded_personal_data`), kullanıcının kendi verisi değilse | review |
@@ -168,3 +170,14 @@ Yanlış alarm: 158 kayıt dökümünde ve aynı dökümlerin zararsız HTML'li 
 AltaySec ve `prompt_injection_tr.csv`'deki 31 dolaylı örnek geliştirme seti: doküman kurallarını onları okuduktan sonra yazdım. Kurallar 14'ünü, kurallar + ML 31'ini işaretliyor (ML AltaySec ile eğitildi).
 
 Bu iş sırasında girişteki injection kurallarında bir eksik çıktı: "yok say" ayrı yazılınca (TDK yazımı) yakalanmıyordu, sadece "yoksay" biçimi vardı. Düzeltince kuralların yakaladığı saldırılar %15'ten %17'ye çıktı, yanlış alarm 416 normal mesajda yine 0.
+
+### Gerçek bir modelle
+
+`python -m scripts.llm_attacks` ([sonuçlar](../results/llm_attacks.md)): corpus'taki banka asistanı yerel bir modelde (MLX, 4-bit, greedy), sistem promptunda gizli bir kampanya kodu ve üç tool. Bir e-postanın metnine ya da bir web sayfasının gizli elemanına konan 64 saldırı, hedefleri kodla kontrol ediliyor (kod kullanıcıya gidiyor mu, phishing linki, saldırganın IBAN'ına transfer, veri toplayan bir adrese link):
+
+| | Savunma yok | Sadece spotlighting | Sieve |
+|---|---|---|---|
+| aya-23-8B | 26/64 (%41) | 13/64 (%20) | 0/64 (%0) |
+| Qwen2.5-7B | 36/64 (%56) | 26/64 (%41) | 0/64 (%0) |
+
+Spotlighting'in etkisi modele bağlı: aya'nın transferlerini durdurdu (%62 → %6), Qwen'inkileri hiç (%62 → %62). Sieve sütunu bu denemelerden çıkan iki kontrolle: gizli değerler ([TH-03](../THREAT_MODEL.md#th-03-system-prompt-extraction)) ve benzer adresler ([TH-10](../THREAT_MODEL.md#th-10-active-content-in-the-answer)). Onlardan önce 1 (aya) ve 4 (Qwen) saldırı geçiyordu, hepsi aynı: e-postayı özetleyen model içindeki phishing adresini (`ornekbank-dogrulama.com`) bankanın söylediği gibi aktarıyordu. %0, açığı bulan saldırıların üzerinde.

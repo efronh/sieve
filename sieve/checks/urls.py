@@ -4,6 +4,7 @@ import unicodedata
 from urllib.parse import urlsplit
 
 from sieve.actions import Finding, action_for
+from sieve.checks.prompt_injection import normalize
 from sieve.masking import LABEL_NAMES
 
 REVIEW_AT = 0.5
@@ -23,6 +24,7 @@ OFFICIAL_NAMES = {"googleapis", "googleusercontent", "microsoftonline", "garanti
 # "garanti.com.tr": the site name is the label before a two-part suffix like com.tr.
 SECOND_LEVEL = {"com", "net", "org", "gov", "edu", "ac", "co", "bel", "k12", "gen", "biz", "info", "av", "tv", "web"}
 LOOKALIKE_DIGITS = str.maketrans("0135", "oles")
+MIN_OWN_NAME = 5  # letters: a shorter site name ("ing") is part of too many others
 
 
 # A URL as a browser reads it (the WHATWG URL Standard): tabs and line breaks anywhere are dropped, and in a web URL a
@@ -59,11 +61,14 @@ def is_ip(host):
         return False
 
 
+# One letter changed, added or dropped, or two next to each other swapped ("ornekbnak").
 def one_edit_apart(a, b):
     if abs(len(a) - len(b)) > 1:
         return False
     if len(a) == len(b):
-        return sum(x != y for x, y in zip(a, b)) == 1
+        differ = [i for i, (x, y) in enumerate(zip(a, b)) if x != y]
+        return len(differ) == 1 or (len(differ) == 2 and differ[1] == differ[0] + 1
+                                    and a[differ[0]] == b[differ[1]] and a[differ[1]] == b[differ[0]])
     short, long = sorted((a, b), key=len)
     return any(long[:i] + long[i + 1:] == short for i in range(len(long)))
 
@@ -86,6 +91,38 @@ def brand_lookalike(host):
     if any(j.startswith(brand) for j in joined for brand in TRUSTED_BRANDS):
         return True
     return any(one_edit_apart(part, brand) for part in parts for brand in TRUSTED_BRANDS if len(brand) >= 5)
+
+
+# A name as a look-alike would be compared with it: look-alike letters, leetspeak and Turkish letters folded.
+def fold(name):
+    return normalize(unicodedata.normalize("NFKC", name))
+
+
+# The operator's own site names, from allowed_hosts ("ornekbank" for ornekbank.com.tr).
+def own_names(allowed_hosts):
+    names = {fold(site_name(h.lower())) for h in allowed_hosts}
+    return {n for n in names if len(n) >= MIN_OWN_NAME}
+
+
+# A host made to pass for one of the operator's own: not one of them or under one, but a label of it holds an own
+# name, or one of its words is a letter from it. For ornekbank.com.tr: "ornekbank-dogrulama.com", "ornekbank.net",
+# "0rnekbank.com.tr", "ornekbank.com.tr.giris.net", "ornekbnak.com.tr". The fixed brands above don't know the
+# operator's, and a model summarising an e-mail passed its look-alike phishing page on to the user (TH-10).
+def own_lookalike(host, allowed_hosts, names):
+    host = host.lower().rstrip(".")
+    if not names or not host or any(host == h or host.endswith("." + h) for h in allowed_hosts):
+        return False
+    if PUNYCODE.search(host):
+        try:
+            host = host.encode("ascii").decode("idna")
+        except UnicodeError:
+            pass
+    for label in host.split(".")[:-1]:
+        words = [fold(w) for w in re.split(r"[-_]", label) if w]
+        joined = "".join(words)
+        if any(own in joined or any(one_edit_apart(w, own) for w in words) for own in names):
+            return True
+    return False
 
 
 def check_url(url):
@@ -112,7 +149,17 @@ class URLCheckLayer:
     name = "url_check"
 
     def __init__(self, allowed_hosts=()):
-        self.allowed_hosts = {h.lower() for h in allowed_hosts}
+        self.allowed_hosts = allowed_hosts
+
+    # Set by TenantGuardrail from the policy; the own names follow.
+    @property
+    def allowed_hosts(self):
+        return self._allowed_hosts
+
+    @allowed_hosts.setter
+    def allowed_hosts(self, hosts):
+        self._allowed_hosts = {h.lower() for h in hosts}
+        self.own_names = own_names(self._allowed_hosts)
 
     def check(self, text):
         matches = []
@@ -127,6 +174,8 @@ class URLCheckLayer:
             if host.lower() in self.allowed_hosts and not malformed:
                 continue
             matches += check_url(url)
+            if own_lookalike(host, self.allowed_hosts, self.own_names):
+                matches.append(("brand_lookalike", 0.5))
 
         unique = dict(matches)
         score = min(1.0, sum(unique.values()))

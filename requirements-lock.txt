@@ -10,14 +10,14 @@ anyio==4.15.1
 bandit==1.9.4
 boolean.py==5.0
 CacheControl==0.14.4
-certifi==2026.7.22
+certifi==2026.10.19
 charset-normalizer==3.5.2
 click==8.5.0
 cloudpickle==3.1.2
 cyclonedx-python-lib==11.12.0
 defusedxml==0.7.1
 et_xmlfile==2.0.0
-filelock==4.0.8
+filelock==4.2.4
 fsspec==2026.9.0
 h11==0.16.0
 hf-xet==1.6.0
@@ -61,7 +61,7 @@ scikit-learn==1.9.1
 scipy==1.18.1; python_version >= "3.12"
 sentence-transformers==6.1.0
 sentencepiece==0.2.2
-setuptools==84.0.0
+setuptools==84.2.1
 shellingham==1.5.4
 sortedcontainers==2.4.0
 stevedore==5.9.1

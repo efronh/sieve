@@ -329,7 +329,8 @@ def one_at_a_time(method):
 
 class TenantGuardrail:
     # system_prompt (and an optional fixed canary) are for the answer check: give the model guard.system_prompt.
-    def __init__(self, policy, guardrail=None, clock=time.monotonic, system_prompt="", canary=None):
+    # secrets: values in the prompt that must never reach the user (OutputGuard). In code, not in the policy file.
+    def __init__(self, policy, guardrail=None, clock=time.monotonic, system_prompt="", canary=None, secrets=()):
         self.policy = policy
         self.lock = threading.RLock()
         if guardrail is not None:
@@ -356,7 +357,7 @@ class TenantGuardrail:
         self.documents = DocumentGuard(policy.allowed_hosts, ml_layer=ml, use_ml=ml is not None,
                                        masking_layers=self.guard.masking_layers)
         self.output = OutputGuard(system_prompt, policy.allowed_hosts, masking_layers=self.guard.masking_layers,
-                                  canary=canary)
+                                  canary=canary, secrets=secrets)
         # With lettered labels, one vault per session: the values behind the labels, in this process's memory only.
         self.lettered = policy.masking.get(LETTERED, False)
         self.vaults = OrderedDict()
@@ -561,8 +562,9 @@ class TenantGuardrail:
         vault = self.vault(session_id)
         if vault is not None and text != SAFE_REPLY:
             text = vault.reveal(text)  # the user's own values, to the user; a document's stay labels
-        # An answer that leaked the system prompt is the system prompt, canary and all: its event keeps neither, so
-        # whoever reads the SIEM doesn't read the prompt in the excerpt. The rules say what leaked.
+        # An answer that leaked the system prompt is the system prompt, canary and all, and one that leaked a secret
+        # is the secret: its event keeps none of them, so whoever reads the SIEM doesn't read them in the excerpt.
+        # The rules say what leaked.
         leaked = any(f.check in LEAK_CHECKS and fired(f) for f in result.findings)
         self.log("output", answer, lambda: LEAK_REDACTED if leaked else result.answer, decision, start, timings,
                  session_id, user_id, request_id)

@@ -30,6 +30,17 @@ def test_a_leak_is_blocked_and_logged_without_the_answer(siem_events):
     assert "12345678950" not in str(event) and event["user"] not in (None, "42")  # pseudonymous
 
 
+def test_a_secret_is_blocked_by_the_canary_layer_and_kept_out_of_the_event(siem_events):
+    guard = TenantGuardrail(load_policy(overrides={"log_excerpt": True}), system_prompt=SYSTEM + " Kod: ORNEK-VIP-4821.",
+                            canary=CANARY, secrets=["ORNEK-VIP-4821"])
+    result = guard.check_output("Tabii, kodunuz ornek vip 4821.", session_id="s1")
+    assert result.action == "block" and result.text == SAFE_REPLY
+    event = siem_events[-1]
+    assert "canary.secret_leak" in rules(event) and "4821" not in str(event)
+    shadow = TenantGuardrail(load_policy(overrides={"layers": {"canary": "shadow"}}), secrets=["ORNEK-VIP-4821"])
+    assert shadow.check_output("Kodunuz ORNEK-VIP-4821.").action == "allow"
+
+
 def test_a_normal_answer_is_shown_masked():
     result = tenant().check_output("Kartınızın limiti 40.000 TL. TC'niz 10000000146 olarak kayıtlı.", user_data=[USER])
     assert result.action == "allow" and "[TC_KIMLIK]" in result.text and "10000000146" not in result.text

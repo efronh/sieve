@@ -66,7 +66,8 @@ def collected(monkeypatch, capfd):
 
 def guard(**policy):
     overrides = {"tools": TOOLS, "log_allowed": True, "log_excerpt": True} | policy
-    return TenantGuardrail(load_policy(overrides=overrides), system_prompt=SYSTEM_PROMPT, canary=CANARY)
+    return TenantGuardrail(load_policy(overrides=overrides), system_prompt=SYSTEM_PROMPT, canary=CANARY,
+                           secrets=[PROMPT_SECRET])
 
 
 def who():
@@ -80,6 +81,7 @@ def every_entry_point(g):
     g.check_tool("bilinmeyen", {"not": MESSAGE}, **who())
     g.check_output(f"{MESSAGE} Referans {CANARY}. {SYSTEM_PROMPT}", ["Merhaba"], **who())
     g.check_output(f"Kayıtta {MESSAGE}", [MESSAGE], **who())
+    g.check_output(f"Tabii, kampanya kodu {PROMPT_SECRET}.", ["Merhaba"], **who())  # the secret alone, no canary
 
 
 def assert_nothing_leaked(lines):

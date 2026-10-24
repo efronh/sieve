@@ -612,6 +612,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog="python -m sieve.server")
     parser.add_argument("--tenant", default="default", help="policies/<tenant>.toml over policies/default.toml")
     parser.add_argument("--system-prompt", help="the operator's system prompt (a file); its canary is added")
+    parser.add_argument("--secrets", help="values in the system prompt that must never reach the user (a file, one a "
+                                          "line), e.g. a campaign code; an answer holding one is blocked")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--timeout", type=float, default=CHECK_TIMEOUT, help="seconds a check may take before block")
@@ -639,7 +641,14 @@ def main(argv=None):
     warn_without_pseudonym_key()
 
     system_prompt = open(args.system_prompt, encoding="utf-8").read() if args.system_prompt else ""
-    guard = TenantGuardrail(load_policy(args.tenant), system_prompt=system_prompt)
+    secrets = []
+    if args.secrets:
+        with open(args.secrets, encoding="utf-8") as f:
+            secrets = [line.strip() for line in f if line.strip()]
+    try:
+        guard = TenantGuardrail(load_policy(args.tenant), system_prompt=system_prompt, secrets=secrets)
+    except ValueError as e:  # a secret too short to look for
+        parser.error(str(e))
     if args.ui and app_keys and not ui_key:
         logger.warning("sieve: the page takes the app's key, which also reads the prompt; set %s to give it its own",
                        UI_KEY_ENV)

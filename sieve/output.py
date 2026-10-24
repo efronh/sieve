@@ -1,14 +1,14 @@
 import codecs
 import re
-import secrets
 import time
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
+from secrets import token_hex
 from urllib.parse import parse_qsl, unquote, urlsplit
 
 from sieve.actions import ALLOW, BLOCK, REVIEW, Finding, error_finding, worst_action
 from sieve.checks.prompt_injection import decode_hidden_parts, normalize
-from sieve.checks.urls import as_browser_reads
+from sieve.checks.urls import as_browser_reads, own_lookalike, own_names
 from sieve.masking import LABEL_NAMES
 from sieve.masking.number_units import REPLACED, find_units, to_lower
 from sieve.timing import since
@@ -17,6 +17,7 @@ SAFE_REPLY = "Bu yanıt güvenlik nedeniyle gösterilemiyor."
 # The checks OutputGuard reports, which a tenant policy can set to enforce, shadow or off one by one.
 OUTPUT_CHECKS = ("canary", "prompt_overlap", "output_links", "output_masking")
 IMAGE_REMOVED = "[resim kaldırıldı]"
+LOOKALIKE_REMOVED = "[şüpheli adres kaldırıldı]"
 EMBED_REMOVED = "[gömülü içerik kaldırıldı]"
 
 SHINGLE_WORDS = 5
@@ -25,6 +26,7 @@ SHINGLE_WORDS = 5
 WINDOW_CHARS = 40
 LEAK_REVIEW_SHINGLES = 1
 LEAK_BLOCK_SHINGLES = 3
+MIN_SECRET_CHARS = 6  # letters and digits; "4821" alone is in ordinary answers
 MIN_DATA_LENGTH = 16
 # An answer is read and shown this far; the rest is cut and the answer reviewed. A model told by a document to write
 # a long run of digits made masking alone take seconds, and nothing bounded it.
@@ -57,6 +59,9 @@ CSS_URL = re.compile(r"url\(\s*['\"]?([^'\")\s]+)|@import\s+['\"]([^'\"]+)", re.
 LOADING_ATTRS = {"src", "srcset", "data", "poster", "background"}
 CLICK_ATTRS = {"href", "action", "formaction", "xlink:href"}
 # A "]" ends a URL, except the one closing a bracketed host: "https://[2001:db8::1]/?tc=..." is read whole.
+# An address written without a scheme ("ornekbank-dogrulama.com/giris"), for the look-alike check; read as one
+# only when its last label is a top-level domain, so "ekstre.pdf" isn't.
+BARE_ADDRESS = re.compile(r"(?<![\w.@/:-])[\w-]++(?:\.[\w-]++)++(?:/[^\s<>\"'()\[\]]*+)?", re.IGNORECASE)
 PLAIN_URL = re.compile(r"\bhttps?://(?:(?:[^\s<>\"'()\[\]/?#@]*@)?\[[^\s<>\"'()\[\]/?#]*\][^\s<>\"')\]]*|[^\s<>\"')\]]+)",
                        re.IGNORECASE)
 DANGEROUS_SCHEME = re.compile(r"^(?:javascript|vbscript|data):", re.IGNORECASE)
@@ -116,6 +121,21 @@ def host_of(url):
 
 def is_dangerous(url):
     return bool(DANGEROUS_SCHEME.search(URL_IGNORED_CHARS.sub("", url)))
+
+
+def is_address(token):
+    host = host_of("https://" + token)
+    last = host.rsplit(".", 1)[-1]
+    return last in TOP_LEVEL or (len(last) == 2 and last.isalpha())
+
+
+# The hosts the user wrote: a look-alike they asked about ("is ornekbank-dogrulama.com yours?") can be named back.
+def written_hosts(texts):
+    hosts = set()
+    for text in texts or ():
+        hosts |= {host_of(m.group()) for m in PLAIN_URL.finditer(text)}
+        hosts |= {host_of("https://" + m.group()) for m in BARE_ADDRESS.finditer(text) if is_address(m.group())}
+    return hosts - {""}
 
 
 def shown_hosts(text):
@@ -249,8 +269,12 @@ class OutputResult:
 # Give the model guard.system_prompt (prompt + canary), then check every answer.
 class OutputGuard:
     # canary: a fixed one instead of a random one, e.g. so a SIEM rule can look for it across processes.
-    def __init__(self, system_prompt="", allowed_hosts=(), masking_layers=None, canary=None):
-        self.canary = canary or f"KNR-{secrets.token_hex(6)}"
+    # secrets: values the system prompt holds that must never reach the user (a campaign code, an internal number),
+    # looked for the way the canary is. The canary shows the prompt was repeated; a model asked for one value gives
+    # just that value, and with only the canary to look for, it reached the user (TH-03). Sieve doesn't guess them:
+    # the prompt also holds what the model should say, a call centre's number.
+    def __init__(self, system_prompt="", allowed_hosts=(), masking_layers=None, canary=None, secrets=()):
+        self.canary = canary or f"KNR-{token_hex(6)}"
         self.original_prompt = system_prompt
         self.system_prompt = (
             f"{system_prompt}\n\nInternal reference {self.canary}. "
@@ -260,15 +284,27 @@ class OutputGuard:
         self.prompt_shingles = shingles(folded_prompt)
         self.prompt_windows = windows(folded_prompt)
         self.canary_letters = only_letters_and_digits(normalize(self.canary))
+        self.secret_letters = [only_letters_and_digits(normalize(s)) for s in secrets]
+        if any(len(s) < MIN_SECRET_CHARS for s in self.secret_letters):
+            raise ValueError(f"a secret needs at least {MIN_SECRET_CHARS} letters or digits: a shorter one would be "
+                             "found in ordinary answers")
         self.allowed_hosts = {h.lower() for h in allowed_hosts}
+        self.own_names = own_names(self.allowed_hosts)
         self.masking_layers = masking_layers
 
     def is_allowed(self, url):
         host = host_of(url)
         return any(host == h or host.endswith("." + h) for h in self.allowed_hosts)
 
-    def canary_leaked(self, answer):
-        return any(self.canary_letters in only_letters_and_digits(text) for text in leak_readings(answer))
+    @staticmethod
+    def readings(answer):
+        return [only_letters_and_digits(text) for text in leak_readings(answer)]
+
+    def canary_leaked(self, answer, readings=None):
+        return any(self.canary_letters in text for text in readings or self.readings(answer))
+
+    def secret_leaked(self, answer, readings=None):
+        return any(secret in text for secret in self.secret_letters for text in readings or self.readings(answer))
 
     # Shared five-word phrases, or shared runs of letters for an answer that has no words to compare.
     def prompt_overlap(self, answer):
@@ -280,8 +316,14 @@ class OutputGuard:
         runs = sum(any(w in flat for flat in flats) for w in self.prompt_windows)
         return max(phrases, runs)
 
-    def clean_links(self, answer):
+    # A host made to pass for one of the allowed ones (TH-10), unless the user wrote it.
+    def lookalike(self, url, written=()):
+        host = host_of(url)
+        return host not in written and own_lookalike(host, self.allowed_hosts, self.own_names)
+
+    def clean_links(self, answer, user_data=None):
         findings = []
+        written = written_hosts(user_data) if self.own_names else set()
 
         def replace_image(url):
             if self.is_allowed(url):
@@ -312,6 +354,9 @@ class OutputGuard:
             href = dict(attrs).get("href", "")
             if tag == "a" and href and not is_dangerous(href) and not self.is_allowed(href) and misleading(m.group("text"), href):
                 findings.append(("misleading_link", REVIEW))
+                return m.group("text")
+            if tag == "a" and href and self.lookalike(href, written):
+                findings.append(("lookalike_host", REVIEW))
                 return m.group("text")
             return m.group(0)
 
@@ -348,6 +393,9 @@ class OutputGuard:
             if any(not self.is_allowed(u) and carries_data(u) for u in urls):
                 findings.append(("link_with_data", REVIEW))
                 return ""
+            if any(self.lookalike(u, written) for u in urls):
+                findings.append(("lookalike_host", REVIEW))
+                return ""
             return m.group(0)
 
         def md_link(m):
@@ -361,6 +409,9 @@ class OutputGuard:
             if not self.is_allowed(url) and misleading(label, url):
                 findings.append(("misleading_link", REVIEW))
                 return label
+            if self.lookalike(url, written):
+                findings.append(("lookalike_host", REVIEW))
+                return label
             return m.group(0)
 
         def reference(m):
@@ -368,7 +419,17 @@ class OutputGuard:
             if is_dangerous(url) or (not self.is_allowed(url) and carries_data(url)):
                 findings.append(("reference_with_data", REVIEW))
                 return ""
+            if self.lookalike(url, written):
+                findings.append(("lookalike_host", REVIEW))
+                return ""
             return m.group(0)
+
+        # What's left of a look-alike: the address as text, which the user can still type or copy.
+        def lookalike_address(m, scheme=""):
+            if (scheme and not is_address(m.group())) or not self.lookalike(scheme + m.group(), written):
+                return m.group(0)
+            findings.append(("lookalike_host", REVIEW))
+            return LOOKALIKE_REMOVED
 
         answer = before_last(MD_IMAGE, md_image, answer)
         answer = HTML_SCRIPT.sub(script, answer)
@@ -377,6 +438,9 @@ class OutputGuard:
         answer = before_last(HTML_TAG, html_tag, answer)
         answer = before_last(MD_LINK, md_link, answer)
         answer = MD_REFERENCE.sub(reference, answer)
+        if self.own_names:
+            answer = PLAIN_URL.sub(lookalike_address, answer)
+            answer = BARE_ADDRESS.sub(lambda m: lookalike_address(m, "https://"), answer)
 
         for m in PLAIN_URL.finditer(answer):
             # A "]" ends the URL read here, but a renderer links "?i=[IBAN_A]" whole, and a lettered label in it is
@@ -405,8 +469,11 @@ class OutputGuard:
         if len(answer) > MAX_ANSWER_CHARS:
             findings.append(Finding("output_length", 1.0, REVIEW, [f"{len(answer)} chars"]))
             answer = answer[:MAX_ANSWER_CHARS]
-        if self.canary_leaked(answer):
+        readings = self.readings(answer)
+        if self.canary_leaked(answer, readings):
             findings.append(Finding("canary", 1.0, BLOCK, ["system_prompt_leak"]))
+        if self.secret_leaked(answer, readings):
+            findings.append(Finding("canary", 1.0, BLOCK, ["secret_leak"]))
         timings["canary"], start = since(start), time.perf_counter()
         overlap = self.prompt_overlap(answer)
         if overlap >= LEAK_BLOCK_SHINGLES:
@@ -415,7 +482,7 @@ class OutputGuard:
             findings.append(Finding("prompt_overlap", 0.5, REVIEW, [f"{overlap} shared phrases"]))
 
         timings["prompt_overlap"], start = since(start), time.perf_counter()
-        answer, link_findings = self.clean_links(answer)
+        answer, link_findings = self.clean_links(answer, user_data)
         for name, action in link_findings:
             findings.append(Finding("output_links", 1.0 if action == REVIEW else 0.0, action, [name]))
         timings["output_links"], start = since(start), time.perf_counter()
