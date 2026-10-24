@@ -190,7 +190,7 @@ The prompt in base64 (700 characters) isn't decoded, so it isn't caught as a cop
 
 For the request, the 15 PI-LEAK messages of the corpus: 12 are reviewed with the default setup, 9 with TF-IDF alone. The three that pass never say "system prompt": a config dump in JSON, a thesis pretext, and "what was written above your last answer".
 
-**Found and fixed.** The canary and the prompt in other letters, which the leak checks didn't read ([changelog](CHANGELOG.md#th-03-system-prompt-extraction)).
+**Found and fixed.** The canary and the prompt in other letters, which the leak checks didn't read; and a secret from the prompt given alone, which a real model gave and nothing looked for ([changelog](CHANGELOG.md#th-03-system-prompt-extraction)).
 
 **Residual risk.** A paraphrase or summary of the prompt shares no five-word run and no canary, so it passes. So does a canary spelled out in words. Only secrets the app names are looked for, and only as their letters and digits: one spelled out, given a piece per turn, or described passes, and one shorter than six letters or digits can't be named. An answer that repeats an instruction the prompt gives the customer (the call-centre number) is reviewed. A prompt shorter than five words has nothing to compare. Extracting one sentence per turn gets a review each time, never a block.
 
