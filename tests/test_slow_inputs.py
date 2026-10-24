@@ -5,6 +5,7 @@ import time
 import pytest
 
 from scripts.replay import tool_guard
+from sieve import output
 from sieve.checks.code_payloads import CodePayloadLayer
 from sieve.checks.prompt_injection import PromptInjectionLayer
 from sieve.masking import credentials
@@ -43,11 +44,14 @@ def test_a_fake_system_line_check_on_many_blank_lines():
     assert seconds(PromptInjectionLayer().check, "\n" * 40_000) < LIMIT
 
 
-# An answer can be long. 400,000 characters for the shapes that used to be quadratic, so the old code fails;
-# 100,000 for those with a link check in each piece, which is linear but slower on a CI machine.
-@pytest.mark.parametrize("unit, length", [(unit, 400_000) for unit in ["<a ", "[", "[a](b ", "\n[", "[a](", "<img src=x "]]
+# An answer can be long. 200,000 characters for the shapes that used to be quadratic, so the old code fails;
+# 100,000 for those with a link check in each piece, which is linear but slower on a CI machine. The answer is
+# read whole here: cut at 50,000, a quadratic pattern took under a second and the test passed without the fix.
+@pytest.mark.parametrize("unit, length", [(unit, 200_000) for unit in ["<a ", "[", "[a](b ", "\n[", "[a](", "![a](",
+                                                                        "<img src=x "]]
                          + [(unit, 100_000) for unit in ["[a [b] ", "[[a]", "<a href=x>a.com</a ", "[a.com](b "]])
-def test_output_links_on_unclosed_markup(unit, length):
+def test_output_links_on_unclosed_markup(unit, length, monkeypatch):
+    monkeypatch.setattr(output, "MAX_ANSWER_CHARS", length)
     guard = OutputGuard("Sen bir banka asistanısın.", ["ornekbank.com.tr"])
     assert seconds(guard.check, unit * (length // len(unit))) < LIMIT
 

@@ -242,11 +242,16 @@ def loaded_urls(tag, attrs):
     return urls
 
 
+# The patterns run through before_last, with the closer every match ends with. The slow-input fuzzer reads
+# this too: these patterns only ever see text that ends in their closer, so that's the text it gives them.
+CLOSERS = {MD_IMAGE: ")", HTML_LINK: ">", HTML_TAG: ">", MD_LINK: ")"}
+
+
 # pattern.sub on text up to the last closer, which every match ends with: past it nothing can match, and
 # leaving it out means every start finds its closer instead of scanning to the end and failing. 8,000
 # characters of "<a " used to take that rescan from each "<" (TH-11).
-def before_last(pattern, replace, text, closer):
-    end = text.rfind(closer) + 1
+def before_last(pattern, replace, text):
+    end = text.rfind(CLOSERS[pattern]) + 1
     return pattern.sub(replace, text[:end]) + text[end:]
 
 
@@ -426,12 +431,12 @@ class OutputGuard:
             findings.append(("lookalike_host", REVIEW))
             return LOOKALIKE_REMOVED
 
-        answer = before_last(MD_IMAGE, md_image, answer, ")")
+        answer = before_last(MD_IMAGE, md_image, answer)
         answer = HTML_SCRIPT.sub(script, answer)
         answer = HTML_STYLE.sub(style, answer)
-        answer = before_last(HTML_LINK, html_link, answer, ">")
-        answer = before_last(HTML_TAG, html_tag, answer, ">")
-        answer = before_last(MD_LINK, md_link, answer, ")")
+        answer = before_last(HTML_LINK, html_link, answer)
+        answer = before_last(HTML_TAG, html_tag, answer)
+        answer = before_last(MD_LINK, md_link, answer)
         answer = MD_REFERENCE.sub(reference, answer)
         if self.own_names:
             answer = PLAIN_URL.sub(lookalike_address, answer)

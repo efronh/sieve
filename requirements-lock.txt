@@ -47,7 +47,7 @@ platformdirs==4.13.0
 pluggy==1.6.0
 psutil==7.2.2
 py-serializable==2.1.0
-pyarrow==25.0.1
+pyarrow==26.0.0
 Pygments==2.21.0
 pyparsing==3.3.3
 pytest==9.1.1
@@ -55,7 +55,7 @@ PyYAML==6.0.3
 regex==2026.9.29
 requests==2.34.2
 rich==15.0.0
-ruff==0.16.9
+ruff==0.17.0
 safetensors==0.8.0
 scikit-learn==1.9.1
 scipy==1.18.1; python_version >= "3.12"
@@ -67,13 +67,13 @@ sortedcontainers==2.4.0
 stevedore==5.9.1
 sympy==1.14.0
 threadpoolctl==3.7.0
-tokenizers==0.23.2
+tokenizers==0.23.3
 tomli==2.5.0
 tomli_w==1.2.0
 torch==2.14.1
 tqdm==4.70.1
 transformers==5.18.0
-typer==0.27.2
+typer==0.27.3
 typing_extensions==4.16.0
 urllib3==2.8.0
 numpy==2.4.6; python_version < "3.12"

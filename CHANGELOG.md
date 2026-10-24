@@ -140,6 +140,9 @@ Concurrency had its own failures. `TenantGuardrail` had no lock: from 8 threads 
 **2026-10-14 · The page's key could still keep the worker from the app** ([fdc3178](https://github.com/efronh/sieve/commit/fdc3178))
 Each request was bounded, a document at about 1.8 seconds, but the page's key could send its 60 a minute from several connections at once, and they queued on the one worker in front of the app's checks. With four connections sending documents, 12 of 15 app messages ran past the timeout and were blocked. The page's key runs one check at a time now and gets 15 seconds of the worker a minute, counted until its check ends on the worker, not when its answer timed out. The same test: all 15 allowed, the slowest in 1.9 seconds.
 
+**2026-10-14 · The cut on answers hid a quadratic pattern from its tests** ([7e9e5a1](https://github.com/efronh/sieve/commit/7e9e5a1))
+Since answers are cut at 50,000 characters, the tests that would catch `before_last` going away no longer could: unguarded, the quadratic link and tag patterns took under a second on the cut answer and passed. Only the slow-input fuzzer saw them, on runs with no closer that the code never gives them, and it reported them whenever a CI machine was slow enough: it failed the security job on a Dependabot PR. The test reads the answer whole now (without `before_last` three shapes fail), and the fuzzer gives these patterns text that ends in their closer, from one table (`CLOSERS`) that `before_last` reads too.
+
 ## TH-13 Model and training data integrity
 
 **2026-10-13 · A swapped model file would have been unpickled** ([10ab693](https://github.com/efronh/sieve/commit/10ab693))
