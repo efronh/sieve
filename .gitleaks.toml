@@ -14,3 +14,9 @@ regexes = [
   '''^eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U$''',
   '''^(KAMPANYA-KODU-ZX81Q|test-api-key-6Yb2Qw|pseudonym-key-Hk3vP0)$''',
 ]
+
+# One commit, by its hash: the real-model answer cache (results/llm_cache) named each entry's prompt hash "key", and
+# gitleaks read the 529 hashes as API keys. It's pushed, so it stays; the field is prompt_hash since.
+[[allowlists]]
+description = "The answer cache's first commit, whose prompt hashes were in a field named key"
+commits = ["f443fbcbfcef588399733c5449a5bc2f493749d3"]

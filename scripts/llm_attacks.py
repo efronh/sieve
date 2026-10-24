@@ -177,14 +177,15 @@ def benign():
     return cases
 
 
-# The model, in a process of its own; answers are kept, keyed by everything it was given.
+# The model, in a process of its own; answers are kept, keyed by everything it was given. The field isn't called
+# "key": gitleaks read 529 of these hashes as API keys.
 class Model:
     def __init__(self, name, python=None):
         self.name, self.python, self.process = name, python, None
         self.path = CACHE / (re.sub(r"[^\w.-]+", "_", name) + ".jsonl")
         self.answers = {}
         if self.path.exists():
-            self.answers = {a["key"]: a for a in read_jsonl(self.path)}
+            self.answers = {a["prompt_hash"]: a for a in read_jsonl(self.path)}
 
     def ask(self, system, user):
         key = hashlib.sha256(json.dumps([self.name, system, user, MAX_TOKENS]).encode()).hexdigest()[:32]
@@ -197,7 +198,7 @@ class Model:
                 json.loads(self.process.stdout.readline())  # loaded
             self.process.stdin.write(json.dumps({"system": system, "user": user, "max_tokens": MAX_TOKENS}) + "\n")
             self.process.stdin.flush()
-            answer = {"key": key, "user": user, **json.loads(self.process.stdout.readline())}
+            answer = {"prompt_hash": key, "user": user, **json.loads(self.process.stdout.readline())}
             CACHE.mkdir(parents=True, exist_ok=True)
             with open(self.path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(answer, ensure_ascii=False) + "\n")
