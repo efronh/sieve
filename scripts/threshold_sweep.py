@@ -38,9 +38,13 @@ NAMES = {
     "corpus_documents": "Corpus test: documents",
 }
 
-# The shipped ML layer, scoring without deciding: the sweep decides afterwards.
+# The shipped ML layer, scoring without deciding: the sweep decides afterwards. It reads what the layer reads: a
+# message whole and its sentence windows, a document's parts in one batch. Without reads_sentences the pipeline
+# gave it the whole message only, and the sweep measured the reading from before the windows: deepset_tr at 26%
+# where the pipeline catches 47%.
 class Scores:
     name = MLInjectionLayer.name
+    reads_sentences = MLInjectionLayer.reads_sentences
 
     def __init__(self, ml):
         self.ml = ml
@@ -49,6 +53,11 @@ class Scores:
     def check(self, text):
         self.seen.append(self.ml.probability(text))
         return []
+
+    def check_many(self, texts, limit=None):
+        found, unread = self.ml.check_many(texts, limit)
+        self.seen += [f.probability for each in found for f in each]
+        return [[] for _ in texts], unread
 
     def take(self):
         top = max(self.seen, default=0.0)
