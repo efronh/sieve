@@ -10,7 +10,7 @@ anyio==4.15.1
 bandit==1.9.4
 boolean.py==5.0
 CacheControl==0.14.4
-certifi==2026.10.19
+certifi==2026.10.23
 charset-normalizer==3.5.2
 click==8.5.0
 cloudpickle==3.1.2
@@ -23,7 +23,7 @@ h11==0.16.0
 hf-xet==1.7.0
 httpcore==1.0.9
 httpx==0.28.1
-huggingface_hub==2.2.0
+huggingface_hub==2.3.0
 idna==3.20
 iniconfig==2.3.1
 Jinja2==3.1.6
@@ -55,7 +55,7 @@ PyYAML==6.0.3
 regex==2026.9.29
 requests==2.34.2
 rich==15.0.0
-ruff==0.17.1
+ruff==0.17.2
 safetensors==0.8.0
 scikit-learn==1.9.1
 scipy==1.18.1; python_version >= "3.12"
