@@ -6,7 +6,7 @@
 # AnyJev is pinned to a commit in pyproject.toml instead. Three packages dropped Python 3.11; CI still runs it.
 accelerate==1.15.0
 annotated-doc==0.0.5
-anyio==4.15.1
+anyio==4.16.0
 bandit==1.9.4
 boolean.py==5.0
 CacheControl==0.14.4
@@ -17,13 +17,13 @@ cloudpickle==3.1.2
 cyclonedx-python-lib==11.12.0
 defusedxml==0.7.1
 et_xmlfile==2.0.0
-filelock==4.2.4
+filelock==4.2.6
 fsspec==2026.9.0
 h11==0.16.0
-hf-xet==1.7.0
+hf-xet==1.8.0
 httpcore==1.0.9
 httpx==0.28.1
-huggingface_hub==2.3.0
+huggingface_hub==2.4.0
 idna==3.20
 iniconfig==2.3.1
 Jinja2==3.1.6
@@ -33,8 +33,8 @@ markdown-it-py==4.2.0
 MarkupSafe==3.0.4
 mdurl==0.1.2
 mpmath==1.3.0
-msgpack==1.2.3
-narwhals==2.27.1
+msgpack==1.2.4
+narwhals==2.28.0
 networkx==3.7; python_version >= "3.12"
 numpy==2.5.3; python_version >= "3.12"
 openpyxl==3.1.5
@@ -43,19 +43,19 @@ packaging==26.3
 pip-requirements-parser==32.0.1
 pip_api==0.0.35
 pip_audit==2.10.1
-platformdirs==4.13.5
+platformdirs==4.14.2
 pluggy==1.7.0
 psutil==7.2.2
 py-serializable==2.1.0
 pyarrow==26.0.0
 Pygments==2.21.0
 pyparsing==3.3.3
-pytest==9.1.1
+pytest==9.2.0
 PyYAML==6.0.3
 regex==2026.9.29
 requests==2.34.2
 rich==15.0.0
-ruff==0.17.2
+ruff==0.17.3
 safetensors==0.8.0
 scikit-learn==1.9.1
 scipy==1.18.1; python_version >= "3.12"
@@ -70,9 +70,9 @@ threadpoolctl==3.7.0
 tokenizers==0.23.3
 tomli==2.5.0
 tomli_w==1.2.0
-torch==2.14.1
+torch==2.15.0
 tqdm==4.70.1
-transformers==5.20.2
+transformers==5.22.1
 typer==0.27.3
 typing_extensions==4.16.0
 urllib3==2.8.0
